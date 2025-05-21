@@ -7,7 +7,7 @@
 ## 1. Project Structure
 
 ```
-odoo-saas-kit/
+saasodoo
 ├── backend/                # Flask application
 │   ├── app.py              # Main Flask application
 │   ├── config.py           # Configuration
@@ -567,7 +567,7 @@ def get_tenant_resource_usage(tenant_id):
 
 - Each tenant gets its own namespace
 - Dedicated PostgreSQL instance per tenant
-- Network policies to restrict cross-tenant access
+- Network policies to restrict cross-tenant communication
 - Resource quotas to prevent resource starvation
 - Randomized secure credentials for each tenant
 
@@ -596,3 +596,224 @@ def get_tenant_resource_usage(tenant_id):
 - Store credentials in Kubernetes secrets
 - Implement proper authentication with Supabase
 - Apply principle of least privilege for service accounts
+
+## 8. Network Policy Implementation
+
+Network policies are critical for enforcing proper tenant isolation within the Kubernetes cluster. Without these policies, pods in different namespaces could potentially communicate with each other, breaking the tenant isolation model.
+
+### 8.1 Default Deny Policy
+
+Each tenant namespace should start with a default deny policy that blocks all ingress and egress traffic:
+
+```yaml
+# kubernetes/network-policies/default-deny.yaml.template
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: tenant-${TENANT_ID}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+```
+
+### 8.2 Internal Communications Policy
+
+Allow pods within the same namespace to communicate with each other:
+
+```yaml
+# kubernetes/network-policies/allow-same-namespace.yaml.template
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: tenant-${TENANT_ID}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector: {}
+```
+
+### 8.3 Database Access Policy
+
+Allow only the Odoo pod to communicate with the PostgreSQL pod:
+
+```yaml
+# kubernetes/network-policies/postgres-access.yaml.template
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-access
+  namespace: tenant-${TENANT_ID}
+spec:
+  podSelector:
+    matchLabels:
+      app: postgresql
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: odoo
+    ports:
+    - protocol: TCP
+      port: 5432
+```
+
+### 8.4 External Access Policy
+
+Allow inbound traffic from the Traefik ingress controller to the Odoo service:
+
+```yaml
+# kubernetes/network-policies/allow-ingress.yaml.template
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress
+  namespace: tenant-${TENANT_ID}
+spec:
+  podSelector:
+    matchLabels:
+      app: odoo
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: traefik
+    ports:
+    - protocol: TCP
+      port: 8069
+```
+
+### 8.5 DNS Access Policy
+
+Allow pods to access DNS for name resolution:
+
+```yaml
+# kubernetes/network-policies/allow-dns.yaml.template
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: tenant-${TENANT_ID}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+```
+
+### 8.6 Implementation in Tenant Provisioning
+
+When provisioning a new tenant, these network policies should be applied as part of the tenant creation workflow:
+
+```python
+def apply_network_policies(core_v1, networking_v1, tenant_id):
+    """Apply network policies to tenant namespace"""
+    network_policy_templates = [
+        "kubernetes/network-policies/default-deny.yaml.template",
+        "kubernetes/network-policies/allow-same-namespace.yaml.template",
+        "kubernetes/network-policies/postgres-access.yaml.template",
+        "kubernetes/network-policies/allow-ingress.yaml.template",
+        "kubernetes/network-policies/allow-dns.yaml.template",
+    ]
+    
+    for template_path in network_policy_templates:
+        with open(template_path, "r") as f:
+            policy_yaml = f.read()
+        
+        # Replace template variables
+        policy_yaml = policy_yaml.replace("${TENANT_ID}", tenant_id)
+        policy = yaml.safe_load(policy_yaml)
+        
+        # Apply the network policy
+        try:
+            networking_v1.create_namespaced_network_policy(
+                namespace=f"tenant-{tenant_id}",
+                body=policy
+            )
+        except client.exceptions.ApiException as e:
+            if e.status != 409:  # Ignore if policy already exists
+                print(f"Error creating network policy: {e}")
+                raise
+```
+
+### 8.7 Verification of Network Policies
+
+To verify that network policies are correctly applied, a test script should be created:
+
+```python
+# scripts/test-network-isolation.py
+from kubernetes import client, config
+import subprocess
+import sys
+
+def test_network_isolation(tenant1_id, tenant2_id):
+    """Test that tenants are properly isolated"""
+    config.load_kube_config()
+    v1 = client.CoreV1Api()
+    
+    # Get a pod from tenant1
+    tenant1_pods = v1.list_namespaced_pod(namespace=f"tenant-{tenant1_id}")
+    tenant2_pods = v1.list_namespaced_pod(namespace=f"tenant-{tenant2_id}")
+    
+    if not tenant1_pods.items or not tenant2_pods.items:
+        print("Error: Could not find pods in both tenant namespaces")
+        return False
+    
+    tenant1_pod = tenant1_pods.items[0].metadata.name
+    tenant2_pod = tenant2_pods.items[0].metadata.name
+    
+    # Try to access tenant2's PostgreSQL from tenant1
+    cmd = [
+        "kubectl", "exec", "-n", f"tenant-{tenant1_id}", tenant1_pod, "--",
+        "nc", "-zv", f"postgresql.tenant-{tenant2_id}.svc.cluster.local", "5432"
+    ]
+    
+    print(f"Testing isolation between tenant-{tenant1_id} and tenant-{tenant2_id}...")
+    print(f"Command: {' '.join(cmd)}")
+    
+    result = subprocess.run(cmd, capture_output=True)
+    
+    # If network policies are working correctly, this should fail
+    if result.returncode != 0:
+        print("✅ Network policies are correctly enforcing isolation")
+        return True
+    else:
+        print("❌ Network policies are NOT correctly enforcing isolation")
+        print(f"Output: {result.stdout.decode()}")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python test-network-isolation.py <tenant1_id> <tenant2_id>")
+        sys.exit(1)
+    
+    tenant1_id = sys.argv[1]
+    tenant2_id = sys.argv[2]
+    sys.exit(0 if test_network_isolation(tenant1_id, tenant2_id) else 1)
+```
+
+These network policies together ensure that:
+1. Tenants are completely isolated from each other
+2. Only the necessary communication paths within a tenant are allowed
+3. External access is restricted to only what's required
+4. The policies are automatically applied during tenant provisioning
+5. The isolation can be verified through testing

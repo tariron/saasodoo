@@ -89,6 +89,138 @@ Create a simple yet robust Odoo SaaS platform that allows customers to deploy th
 | PE-2 | Scalability | Support for multiple nodes in production |
 | PE-3 | Deployment | Simple deployment process |
 
+### 3.4 Technology Stack
+
+| Layer | Technology | Description |
+|-------|------------|-------------|
+| Container Orchestration | MicroK8s | Lightweight Kubernetes distribution for both dev and production |
+| Containerization | Docker | For building and managing container images |
+| Application | Bitnami Odoo | Pre-configured Odoo container images (Community Edition) |
+| Database | PostgreSQL | Dedicated database instance per tenant |
+| API Backend | Python/Flask | Simple API for tenant provisioning and management |
+| Authentication | Supabase (online) | User authentication and management with self-hosted Supabase instance |
+| Ingress | Traefik | Ingress controller for routing and subdomain management |
+| DNS | Any provider with wildcard DNS | To support tenant subdomains |
+| Registry | MicroK8s Registry | For storing and distributing container images |
+| Monitoring | Basic Kubernetes metrics | For resource usage monitoring |
+| CI/CD | Git-based workflow | Simple deployment from dev to staging to production |
+
+### 3.5 System Architecture
+
+The system follows a microservices architecture pattern with Kubernetes orchestration, focusing on tenant isolation and scalability.
+
+#### Architecture Overview
+
+```
+                                  +-------------------+
+                                  |    DNS (*.example.com)    |
+                                  +----------+--------+
+                                             |
+                                  +----------v--------+
+                                  |     Traefik       |
+                                  | (Ingress Controller) |
+                                  +----------+--------+
+                                             |
+                        +---------+----------+---------+
+                        |                    |         |
+             +----------v------+   +---------v----+   +-------v-------+
+             |  SaaS Controller |   |              |   | Tenant Namespaces |
+             |  (Flask API)     |   | Supabase     |   | (Multiple)    |
+             +----------+------+   +------+-------+   +-------+-------+
+                        |                 |                   |
+                        |                 |          +--------+--------+
+                        |                 |          |                 |
+                +-------v---------+       |    +-----v------+  +------v-----+
+                | System Database |       |    | Odoo App   |  | PostgreSQL |
+                | (PostgreSQL)    |       |    | Container  |  | Database   |
+                +-----------------+       |    +------------+  +------------+
+                                          |
+                                    +-----v------+
+                                    | Auth DB    |
+                                    | (PostgreSQL)|
+                                    +------------+
+```
+
+#### Key Components
+
+1. **DNS Layer**
+   - Wildcard DNS (*.example.com) directs all subdomains to the platform
+   - Each tenant assigned a unique subdomain (tenant.example.com)
+
+2. **Ingress Layer**
+   - Traefik handles all incoming traffic
+   - Routes requests to appropriate services based on hostname
+   - Terminates SSL/TLS
+
+3. **Control Plane**
+   - SaaS Controller API (Flask)
+     - Manages tenant provisioning
+     - Handles user management
+     - Creates Kubernetes resources
+      - Online Supabase
+     - Provides authentication services
+     - Manages user sessions
+
+4. **Data Plane**
+   - System Database
+     - Stores platform configuration
+     - Tenant metadata
+   - Per-Tenant Resources (in isolated namespaces)
+     - Odoo application container
+     - Dedicated PostgreSQL database
+
+#### Isolation Model
+
+Each tenant receives:
+- Dedicated Kubernetes namespace
+- Network isolation via K8s Network Policies
+- Resource quotas and limits
+- Dedicated PostgreSQL database instance
+- Separate persistent storage volumes
+
+#### Provisioning Flow
+
+1. User requests new Odoo instance via API
+2. SaaS Controller validates request
+3. Controller creates new namespace with resource constraints
+4. PostgreSQL instance deployed within namespace
+5. Odoo container deployed with connection to database
+6. Traefik configuration updated for subdomain routing
+7. Initial admin credentials configured
+8. Instance details returned to user
+
+### 3.6 Development Standards
+
+#### Coding Patterns
+
+1. **Module Organization**
+   - Keep modules small and focused on a single responsibility
+   - Large modules (>300 lines) must be broken into smaller components
+   - Follow a hierarchical structure for related functionality
+
+2. **Code Organization**
+   - SaaS Controller should be organized by functional domains:
+     - `api/` - API endpoints and request handling
+     - `k8s/` - Kubernetes integration
+     - `db/` - Database operations
+     - `auth/` - Authentication functionality
+     - `utils/` - Shared utility functions
+
+3. **Function Size**
+   - Individual functions should not exceed 50 lines
+   - Complex operations should be broken into smaller, composable functions
+   - Use descriptive naming for functions and variables
+
+4. **Error Handling**
+   - Consistent error handling pattern throughout the codebase
+   - Proper logging of errors with context
+   - Graceful degradation when possible
+
+5. **Testing**
+   - Unit tests for critical functionality
+   - Mock external dependencies (Kubernetes, databases)
+   - Maintainable test code that focuses on behavior, not implementation
+
 ## 4. User Journeys
 
 ### 4.1 New User Registration & Instance Creation

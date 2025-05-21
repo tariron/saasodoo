@@ -1,21 +1,58 @@
-# Odoo SaaS Kit: Cross-Environment Development Guide
+# Odoo SaaS Kit: Development Guide
 
 ## Overview
 
-This guide focuses on key considerations when developing the Odoo SaaS Kit that will operate across three different environments:
-1. Local development using Docker Compose
-2. Testing using MicroK8s on Windows
-3. Production deployment on Contabo Ubuntu VPS
+This guide focuses on key considerations when developing the Odoo SaaS Kit that will operate across two primary environments:
+1. Development using a cloud server with MicroK8s and Docker
+2. Production deployment on Contabo Ubuntu VPS
 
 The platform programmatically creates isolated Odoo instances for customers in Kubernetes namespaces, with each tenant having a dedicated Odoo instance and PostgreSQL database.
 
-## Key Considerations for Cross-Environment Development
+## Infrastructure Setup
+
+The recommended infrastructure consists of two cloud servers:
+
+1. **Development Server**:
+   - MicroK8s for Kubernetes
+   - Docker for building container images
+   - Code editing via IDE (Cursor) connected remotely
+   - Built-in MicroK8s registry for storing images
+
+2. **Staging/Testing Server**:
+   - MicroK8s for Kubernetes
+   - Used for validating tenant provisioning
+   - Mimics production environment for testing
+
+## Namespace Strategy
+
+The SaaS platform will utilize the following namespace structure:
+
+1. **System namespace** (`saas-system` or `odoo-system`)
+   - Contains core platform services (SaaS controller/API)
+   - Shared services and infrastructure components
+   - Traefik ingress controller
+   - Central database for tenant management
+
+2. **One namespace per tenant**
+   - Each customer gets their own isolated namespace
+   - Contains dedicated Odoo instance
+   - Dedicated PostgreSQL database
+   - Any tenant-specific services or customizations
+
+3. **Development namespace** (`saas-dev`)
+   - Used for platform development and testing
+   - Isolated from production tenants
+   - Simulates tenant provisioning and management
+
+This multi-namespace approach ensures proper tenant isolation and mirrors the production environment during development.
+
+## Key Considerations for Development
 
 ### 1. Environment-Aware Configuration
 
 - **Use environment variables** for configuration that varies between environments:
-  - `DOMAIN_NAME` - Different domains for dev, testing, and production
-  - `FLASK_ENV` - To indicate development, testing, or production mode
+  - `DOMAIN_NAME` - Different domains for dev and production
+  - `FLASK_ENV` - To indicate development or production mode
   - Authentication credentials and secrets
 
 - **Create a configuration hierarchy**:
@@ -23,31 +60,33 @@ The platform programmatically creates isolated Odoo instances for customers in K
   - Environment-specific config overrides
   - Local development overrides in `.env` files (excluded from version control)
 
-### 2. Kubernetes Client Abstraction
+### 2. Kubernetes Client Implementation
 
-- **Create an abstraction layer** for Kubernetes operations:
-  - Mock implementation for local Docker development (no actual K8s)
-  - Real implementation for MicroK8s testing and production
-  - Same API interface regardless of environment
+- **Direct integration with MicroK8s** in development:
+  - Use the same Kubernetes client code for both development and production
+  - Configure kubectl to use the local MicroK8s cluster
+  - Implement consistent namespacing approach across environments
 
-- **Switch based on environment detection**:
-  ```
-  # Conceptual pseudocode (not actual implementation)
-  if MOCK_K8S:
-      # Use mock implementation
+- **Environment detection**:
+  ```python
+  # Simple environment detection
+  DEV_MODE = os.environ.get('FLASK_ENV') == 'development'
+  
+  # Additional configuration based on environment
+  if DEV_MODE:
+      # Use development-specific settings
+      DEFAULT_NAMESPACE = 'saas-dev'
   else:
-      # Use actual Kubernetes client
+      # Use production settings
+      DEFAULT_NAMESPACE = 'saas-system'
   ```
 
 ### 3. Networking & Subdomain Strategy
 
-- **Local Development**: 
-  - Use mock services in Docker Compose
-  - For testing with actual Odoo, use `localtest.me` or add entries to hosts file
-  
-- **MicroK8s Testing**:
-  - Configure Traefik as ingress controller with NodePort exposed
-  - Use hosts file entries or `nip.io`/`sslip.io` for accessing subdomains
+- **Development Environment**: 
+  - Configure Traefik as ingress controller on cloud server
+  - Use a wildcard DNS record pointing to your cloud server IP
+  - Alternatively, use `nip.io` or `sslip.io` for easy subdomain testing
   
 - **Production**:
   - Configure Traefik with ClusterIP 
@@ -56,9 +95,15 @@ The platform programmatically creates isolated Odoo instances for customers in K
 
 ### 4. Resource Management
 
-- **Development**: Minimal resources, mock services
-- **Testing**: Lower resource limits in MicroK8s to test more tenants
-- **Production**: Realistic resource limits based on actual requirements
+- **Development**: 
+  - Set reasonable resource limits to simulate production
+  - Create resource quotas for tenant namespaces
+  - Test resource allocation/deallocation during tenant provisioning
+
+- **Production**: 
+  - Implement production-grade resource limits based on service tier
+  - Monitor resource usage across tenants
+  - Implement auto-scaling where appropriate
 
 ### 5. Tenant Isolation Approach
 
@@ -69,57 +114,112 @@ Ensure consistent tenant isolation approach across environments:
 - **Resource quotas** - Prevent resource starvation between tenants
 - **Dedicated databases** - Each tenant has its own PostgreSQL database
 
-### 6. Testing Cross-Environment Compatibility
+### 6. Testing Strategies
 
 Create systematic testing procedures:
 
-1. **Local development tests** - Test API functionality with mocks
-2. **MicroK8s deployment tests** - Test actual Kubernetes provisioning
-3. **Cross-environment validation tests** - Ensure consistent behavior
+1. **API functionality tests** - Test SaaS controller functionality
+2. **Tenant provisioning tests** - Test provisioning/deprovisioning workflows
+3. **Isolation tests** - Verify tenant boundaries are correctly enforced
+4. **Performance tests** - Verify resource usage and limits
 
 ## Practical Implementation Recommendations
 
-### Docker to MicroK8s Transition
+### Docker and MicroK8s Registry Workflow
 
-- **API Structure**: Keep API interface identical
-- **Environment Detection**:
+- **Setup MicroK8s Registry**:
+  ```bash
+  # Enable the registry in MicroK8s
+  microk8s enable registry
+  
+  # Verify the registry is running
+  microk8s kubectl get pods -n container-registry
   ```
-  # Detect if running in Kubernetes
-  IN_KUBERNETES = os.environ.get('KUBERNETES_SERVICE_HOST') is not None
+
+- **Building and Pushing Images**:
+  ```bash
+  # Build image with Docker
+  docker build -t localhost:32000/saas-controller:dev .
+  
+  # Push to MicroK8s registry
+  docker push localhost:32000/saas-controller:dev
   ```
-- **Error Handling**: Consistent error responses across environments
 
-### MicroK8s to Production Transition
+- **Using Images in Kubernetes Manifests**:
+  ```yaml
+  # Example deployment.yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: saas-controller
+  spec:
+    # ... other specifications
+    template:
+      spec:
+        containers:
+        - name: saas-controller
+          image: localhost:32000/saas-controller:dev
+          # ... container specs
+  ```
 
-- **Template-based Resources**: Use templates with variables for Kubernetes manifests
-- **Separate Configuration**: Keep values files for different environments
-- **Consistent Naming**: Use consistent naming conventions across environments
+- **Internal Registry Address**:
+  - From within MicroK8s pods, the registry is accessible at:
+    `registry.container-registry.svc.cluster.local:5000/saas-controller:dev`
+  - From the host machine (for Docker), use:
+    `localhost:32000/saas-controller:dev`
 
-### Traefik Configuration Across Environments
+### Development to Staging Workflow
 
-- **Development**: Basic Traefik configuration for local testing
-- **MicroK8s**: NodePort with minimal configuration for testing
-- **Production**: Full configuration with SSL certificates
+- **Push Images to Dev Registry**:
+  ```bash
+  # On dev server
+  docker build -t localhost:32000/saas-controller:v1 .
+  docker push localhost:32000/saas-controller:v1
+  ```
+
+- **Transfer Manifests to Staging**:
+  ```bash
+  # Using git
+  git add k8s-manifests/
+  git commit -m "Update deployment files"
+  git push origin main
+  
+  # On staging server
+  git pull origin main
+  ```
+
+- **Apply Configurations on Staging**:
+  ```bash
+  # On staging server
+  microk8s kubectl apply -f k8s-manifests/
+  ```
+
+### Traefik Configuration
+
+- **Development**: Full Traefik configuration similar to production
+- **Production**: Production configuration with SSL certificates
+
+## Remote Development Workflow
+
+For remote development using Cursor or other IDEs:
+
+1. **SSH Setup**:
+   - Configure SSH with key authentication
+   - Set up SSH config with dedicated host entry
+   - Consider using SSH agent forwarding for git operations
+
+2. **Repository Management**:
+   - Keep repository operations on the server
+   - Use git for version control directly on the server
+   - Consider setting up CI/CD for automated testing
+
+3. **Port Forwarding**:
+   - Use SSH port forwarding to access services locally
+   - Example: `ssh -L 8080:localhost:80 user@server`
 
 ## Common Challenges & Solutions
 
-### 1. MicroK8s on Windows Networking
-
-- **Challenge**: Accessing services on MicroK8s from Windows
-- **Solutions**:
-  - Use NodePort for Traefik and access via localhost:NodePort
-  - Configure hosts file for testing subdomains
-  - Consider port-forwarding for direct testing
-
-### 2. Resource Limitations in Testing
-
-- **Challenge**: Windows MicroK8s may have resource constraints
-- **Solutions**:
-  - Lower resource limits for testing
-  - Use lightweight pod anti-affinity
-  - Test with fewer tenants or one at a time
-
-### 3. Database Management Across Environments
+### 1. Database Management
 
 - **Challenge**: Database setup and migration across environments
 - **Solutions**:
@@ -127,7 +227,7 @@ Create systematic testing procedures:
   - Script database initialization
   - Implement backup/restore for migration
 
-### 4. Security Model Consistency
+### 2. Security Model Consistency
 
 - **Challenge**: Maintaining consistent security model
 - **Solutions**:
@@ -135,17 +235,35 @@ Create systematic testing procedures:
   - Apply network policies consistently
   - Use namespaces for isolation in all environments
 
-## Environmental Transition Checklist
+### 3. Testing Tenant Isolation
 
-### Local to MicroK8s Transition
+- **Challenge**: Verifying proper tenant isolation
+- **Solutions**:
+  - Create automated tests for namespace boundaries
+  - Test network policies between namespaces
+  - Verify database isolation between tenants
 
-- [ ] Verify API compatibility with actual Kubernetes
-- [ ] Test tenant creation and isolation
-- [ ] Verify Traefik ingress and subdomain routing
-- [ ] Test resource allocation and limits
-- [ ] Verify database connectivity and persistence
+### 4. Image Registry Access
 
-### MicroK8s to Production Transition
+- **Challenge**: Sharing images between development and staging
+- **Solutions**:
+  - If needed, expose registry with authentication:
+    ```bash
+    # On dev server, expose registry securely
+    microk8s kubectl port-forward -n container-registry service/registry 5000:5000
+    ```
+  - Alternative: Save and load images for transfer:
+    ```bash
+    # On dev server
+    docker save localhost:32000/image:tag > image.tar
+    scp image.tar user@staging:/tmp/
+    
+    # On staging server
+    docker load < /tmp/image.tar
+    microk8s ctr image import /tmp/image.tar
+    ```
+
+## Development to Production Transition Checklist
 
 - [ ] Update domain configuration
 - [ ] Configure SSL certificates
@@ -153,9 +271,11 @@ Create systematic testing procedures:
 - [ ] Test multi-node distribution
 - [ ] Verify security policies and network isolation
 - [ ] Implement monitoring and backup strategy
+- [ ] Test tenant provisioning and lifecycle management
+- [ ] Verify subdomain and routing configuration
 
 ## Conclusion
 
-By following these guidelines, you can ensure your Odoo SaaS Kit functions consistently across all three environments: local Docker development, MicroK8s testing on Windows, and production deployment on Contabo Ubuntu VPS.
+By using dedicated cloud servers with MicroK8s for development and staging, you create a more production-like environment from the start. This approach eliminates many of the challenges of cross-environment development by using the same underlying technologies (Kubernetes) throughout the development lifecycle.
 
-The key is to create proper abstractions for environment-specific functionality while maintaining a consistent API and feature set that works the same way regardless of the underlying infrastructure.
+The namespace-based tenant isolation strategy provides a clean, secure way to separate customer instances while maintaining ease of management for the platform operator.
