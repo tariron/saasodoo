@@ -18,6 +18,8 @@ Odoo SaaS Kit enables you to create a multi-tenant Odoo hosting platform with co
 - **Admin Dashboard**: Manage all tenants from a central location
 - **Tiered Resource Plans**: Different resource allocation based on subscription tier
 - **Comprehensive Network Policies**: Full network isolation between tenant namespaces
+- **Automated & On-Demand Backups**: Daily backups with 7-day retention and restoration capability
+- **Simple Server Migration**: Easily migrate all tenants between servers with minimal downtime
 
 ## Architecture
 
@@ -85,6 +87,48 @@ The platform implements tiered resource plans for tenants through Kubernetes res
 - **Hard Limits**: CPU and memory limits prevent tenant resource abuse
 - **Auto-scaling**: Configured at the namespace level for premium tiers
 - **Resource Monitoring**: Tracks usage against quota to alert approaching limits
+
+## Backup System
+
+The platform includes a robust backup and restoration system for tenant data protection:
+
+### Backup Features
+
+- **Scheduled Daily Backups**: Automated backups run daily at 2 AM
+- **On-Demand Backups**: Create backups instantly via the admin dashboard
+- **Comprehensive Coverage**: Backups include both PostgreSQL database and Odoo filestore
+- **7-Day Retention**: Rolling 7-day retention policy with automated cleanup
+- **Fast Restoration**: One-click restore process from any available backup
+- **Backup Verification**: Each backup includes metadata and verification
+
+### Backup Storage
+
+- Backups stored on a dedicated persistent volume
+- Organized by tenant ID and timestamp
+- Protected from tenant access
+- Separate from tenant storage
+
+## Migration Capabilities
+
+The platform is designed for easy migration between servers, allowing you to:
+
+### Migration Features
+
+- **Seamless Server Migration**: Move all tenants to a new server with minimal downtime
+- **Automated Process**: Detailed migration scripts handle the entire process
+- **Comprehensive Data Transfer**: All tenant data, configurations, and backups are preserved
+- **Verification Tools**: Validation steps ensure successful migration
+- **DNS Management**: Simple DNS updates to point to the new server
+- **Minimal Downtime**: Typically less than 30 minutes depending on data size
+
+### Migration Documentation
+
+A detailed [Migration Guide](migration-guide.md) is provided that includes:
+- Step-by-step instructions for migration
+- Ready-to-use migration scripts
+- Troubleshooting information
+- Verification procedures
+- Post-migration checklist
 
 ## Quick Start
 

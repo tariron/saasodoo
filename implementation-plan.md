@@ -16,24 +16,10 @@
 
 ### 1.2 Environment Setup on Windows
 
-1. Install MicroK8s:
-   - Download from https://microk8s.io/docs/install-windows
-   - Follow installation instructions
-   - Enable required addons:
-     ```bash
-     microk8s enable dns ingress metrics-server storage
-     ```
-
-2. Set up kubectl:
-   ```bash
-   mkdir -p ~/.kube
-   microk8s config > ~/.kube/config
-   ```
-
-3. Install Python dependencies:
-   ```bash
-   pip install flask flask-cors pyyaml kubernetes supabase
-   ```
+1. Install MicroK8s from the official website
+2. Enable required addons: DNS, ingress, metrics-server, and storage
+3. Configure kubectl to work with MicroK8s
+4. Install Python dependencies for backend development
 
 ## 2. Weekend Implementation Timeline
 
@@ -90,477 +76,120 @@
 
 ### 3.1 Core Infrastructure Setup
 
-```bash
-# Clone your repo or create from scratch
-mkdir -p odoo-saas-kit
-cd odoo-saas-kit
+1. Create project directory structure for backend, frontend, Kubernetes configs, and scripts
+2. Initialize git repository
+3. Configure MicroK8s with necessary addons
+4. Set up Traefik ingress controller with support for subdomains and TLS
 
-# Create directory structure
-mkdir -p backend/{models,routes,services,utils}
-mkdir -p frontend/{css,js,templates}
-mkdir -p kubernetes/{traefik,odoo,postgres,network-policies}
-mkdir -p scripts
+### 3.2 Kubernetes Configuration
 
-# Initialize git
-git init
-echo "# Odoo SaaS Kit" > README.md
-git add README.md
-git commit -m "Initial commit"
-
-# Configure MicroK8s
-microk8s status
-microk8s enable dns ingress metrics-server storage
-microk8s kubectl get nodes
-```
-
-#### 3.1.1 Traefik Configuration
-
-Create `kubernetes/traefik/values.yaml`:
-```yaml
-providers:
-  kubernetesCRD:
-    enabled: true
-  kubernetesIngress:
-    enabled: true
-
-ports:
-  web:
-    redirectTo: websecure
-  websecure:
-    tls:
-      enabled: true
-
-ingressRoute:
-  dashboard:
-    enabled: true
-```
-
-Create `kubernetes/traefik/install.sh`:
-```bash
-#!/bin/bash
-# Add Traefik Helm repo
-microk8s kubectl create namespace traefik
-microk8s helm repo add traefik https://helm.traefik.io/traefik
-microk8s helm repo update
-microk8s helm install traefik traefik/traefik -n traefik -f values.yaml
-```
-
-### 3.2 Kubernetes Templates Creation
-
-Create base templates in `kubernetes/` directory:
-
-- `namespace.yaml.template`: Template for tenant namespace
-- `postgres/deployment.yaml.template`: PostgreSQL deployment
-- `postgres/service.yaml.template`: PostgreSQL service
-- `postgres/storage.yaml.template`: PostgreSQL storage
-- `odoo/deployment.yaml.template`: Odoo deployment
-- `odoo/service.yaml.template`: Odoo service
-- `odoo/ingress.yaml.template`: Odoo ingress
-
-#### 3.2.1 Network Policy Templates
-
-Create the following network policy templates in `kubernetes/network-policies/`:
-
-- `default-deny.yaml.template`: Blocks all ingress/egress by default
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny
-  namespace: tenant-${TENANT_ID}
-spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-  - Egress
-```
-
-- `allow-same-namespace.yaml.template`: Allow pods in same namespace to communicate
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-same-namespace
-  namespace: tenant-${TENANT_ID}
-spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector: {}
-```
-
-- `postgres-access.yaml.template`: Only allow Odoo pods to access PostgreSQL
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: postgres-access
-  namespace: tenant-${TENANT_ID}
-spec:
-  podSelector:
-    matchLabels:
-      app: postgresql
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: odoo
-    ports:
-    - protocol: TCP
-      port: 5432
-```
-
-- `allow-ingress.yaml.template`: Allow Traefik to access Odoo pods
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-ingress
-  namespace: tenant-${TENANT_ID}
-spec:
-  podSelector:
-    matchLabels:
-      app: odoo
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: traefik
-    ports:
-    - protocol: TCP
-      port: 8069
-```
-
-- `allow-dns.yaml.template`: Allow DNS resolution
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-dns
-  namespace: tenant-${TENANT_ID}
-spec:
-  podSelector: {}
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-    - protocol: TCP
-      port: 53
-```
+1. Create tenant namespace templates
+2. Prepare PostgreSQL deployment templates
+3. Prepare Odoo deployment templates
+4. Configure network policies for tenant isolation:
+   - Default deny all traffic
+   - Allow same-namespace communication
+   - Configure PostgreSQL access only from Odoo
+   - Allow Traefik ingress to Odoo pods
+   - Permit DNS resolution
 
 ### 3.3 Backend Implementation
 
-Create `backend/app.py`:
-```python
-from flask import Flask, jsonify
-from flask_cors import CORS
-import os
-
-# Import blueprints
-from routes.auth import auth_bp
-from routes.tenants import tenants_bp
-from routes.admin import admin_bp
-
-# Create Flask app
-app = Flask(__name__)
-CORS(app)
-
-# Register blueprints
-app.register_blueprint(auth_bp, url_prefix='/api/auth')
-app.register_blueprint(tenants_bp, url_prefix='/api/tenants')
-app.register_blueprint(admin_bp, url_prefix='/api/admin')
-
-# Error handling
-from utils.errors import APIError
-
-@app.errorhandler(APIError)
-def handle_api_error(error):
-    response = jsonify(error.to_dict())
-    response.status_code = error.status_code
-    return response
-
-# Root endpoint
-@app.route('/')
-def home():
-    return jsonify({"status": "ok", "service": "Odoo SaaS Platform API"})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-```
-
-#### 3.3.1 Network Policy Service Implementation
-
-Create `backend/services/network_policies.py`:
-```python
-import yaml
-from kubernetes import client
-
-def apply_network_policies(networking_v1, tenant_id):
-    """Apply network policies to tenant namespace"""
-    network_policy_templates = [
-        "kubernetes/network-policies/default-deny.yaml.template",
-        "kubernetes/network-policies/allow-same-namespace.yaml.template",
-        "kubernetes/network-policies/postgres-access.yaml.template",
-        "kubernetes/network-policies/allow-ingress.yaml.template",
-        "kubernetes/network-policies/allow-dns.yaml.template",
-    ]
-    
-    for template_path in network_policy_templates:
-        with open(template_path, "r") as f:
-            policy_yaml = f.read()
-        
-        # Replace template variables
-        policy_yaml = policy_yaml.replace("${TENANT_ID}", tenant_id)
-        policy = yaml.safe_load(policy_yaml)
-        
-        # Apply the network policy
-        try:
-            networking_v1.create_namespaced_network_policy(
-                namespace=f"tenant-{tenant_id}",
-                body=policy
-            )
-        except client.exceptions.ApiException as e:
-            if e.status != 409:  # Ignore if policy already exists
-                raise
-```
-
-Update `backend/services/tenant.py` to integrate network policies:
-```python
-# ... existing imports ...
-from services.network_policies import apply_network_policies
-
-def create_tenant(subdomain, admin_email, admin_password, resource_tier="basic"):
-    """Create a new tenant with Odoo instance"""
-    # Generate tenant ID from subdomain
-    tenant_id = subdomain.lower().replace('.', '-')
-    
-    # Get Kubernetes clients
-    core_v1, apps_v1, networking_v1 = get_k8s_client()
-    
-    # Create namespace
-    create_namespace(core_v1, tenant_id)
-    
-    # Apply resource quotas based on tier
-    apply_resource_quotas(core_v1, tenant_id, resource_tier)
-    
-    # Create PostgreSQL
-    db_password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-    create_postgres(core_v1, apps_v1, tenant_id, db_password)
-    
-    # Create Odoo
-    create_odoo(core_v1, apps_v1, networking_v1, tenant_id, subdomain, 
-                admin_email, admin_password, db_password)
-    
-    # Apply network policies for tenant isolation
-    apply_network_policies(networking_v1, tenant_id)
-    
-    return {
-        "tenant_id": tenant_id,
-        "subdomain": subdomain,
-        "status": "creating",
-        "url": f"https://{subdomain}.example.com"
-    }
-
-# ... rest of the file ...
-```
+1. Create Flask application structure
+2. Implement authentication using Supabase
+3. Develop tenant provisioning service
+4. Create Kubernetes integration for tenant deployment
+5. Configure network policy application
+6. Implement resource monitoring and quota enforcement
 
 ### 3.4 Frontend Implementation
 
-Create `frontend/index.html` for the landing page, and other templates:
-- `frontend/templates/login.html`: Login page
-- `frontend/templates/register.html`: Registration page
-- `frontend/templates/dashboard.html`: User dashboard
-- `frontend/templates/admin.html`: Admin dashboard
+1. Create landing page with service description
+2. Build authentication screens (login/register)
+3. Develop user dashboard for tenant management
+4. Create admin interface for platform oversight
 
 ### 3.5 Multi-Node Testing Setup
 
-```bash
-# On the first Windows machine
-microk8s add-node
-
-# This will output a command like:
-# microk8s join 192.168.1.101:25000/abcdefghijklmnopqrstuvwxyz
-
-# Run this command on the second Windows machine
-microk8s join 192.168.1.101:25000/abcdefghijklmnopqrstuvwxyz
-
-# Verify nodes on the first machine
-microk8s kubectl get nodes
-```
+1. Configure clustering between Windows machines
+2. Test node joining and communication
+3. Verify tenant pod distribution across nodes
 
 ### 3.6 Production Deployment
 
-Create `scripts/deploy.sh`:
-```bash
-#!/bin/bash
-# Deploy to production Ubuntu 24.10 server
-
-# Copy files to server
-rsync -av --exclude=".git" --exclude="__pycache__" . ubuntu@your-server:/opt/odoo-saas-kit
-
-# SSH to server and perform installation
-ssh ubuntu@your-server << 'EOF'
-  cd /opt/odoo-saas-kit
-
-  # Install MicroK8s
-  sudo snap install microk8s --classic
-  sudo usermod -a -G microk8s ubuntu
-  sudo chown -R ubuntu ~/.kube
-  
-  # Wait for MicroK8s to start
-  microk8s status --wait-ready
-  
-  # Enable required addons
-  microk8s enable dns ingress metrics-server storage
-  
-  # Set up kubectl
-  mkdir -p ~/.kube
-  microk8s config > ~/.kube/config
-  
-  # Install Traefik
-  cd kubernetes/traefik
-  bash install.sh
-  cd ../..
-  
-  # Install Python dependencies
-  pip install flask flask-cors pyyaml kubernetes supabase gunicorn
-  
-  # Start the backend service
-  cd backend
-  nohup gunicorn -b 0.0.0.0:5000 app:app &
-EOF
-```
+1. Prepare deployment scripts for Ubuntu server
+2. Configure production-grade security settings
+3. Set up automated backups and monitoring
+4. Deploy and verify functionality
 
 ### 3.7 Network Policy Testing
 
-Create `scripts/test-network-isolation.py`:
-```python
-from kubernetes import client, config
-import subprocess
-import sys
+1. Develop isolation verification tools
+2. Test tenant-to-tenant isolation
+3. Verify secure ingress configuration
+4. Document security enforcement configurations
 
-def test_network_isolation(tenant1_id, tenant2_id):
-    """Test that tenants are properly isolated"""
-    config.load_kube_config()
-    v1 = client.CoreV1Api()
-    
-    # Get a pod from tenant1
-    tenant1_pods = v1.list_namespaced_pod(namespace=f"tenant-{tenant1_id}")
-    tenant2_pods = v1.list_namespaced_pod(namespace=f"tenant-{tenant2_id}")
-    
-    if not tenant1_pods.items or not tenant2_pods.items:
-        print("Error: Could not find pods in both tenant namespaces")
-        return False
-    
-    tenant1_pod = tenant1_pods.items[0].metadata.name
-    tenant2_pod = tenant2_pods.items[0].metadata.name
-    
-    # Try to access tenant2's PostgreSQL from tenant1
-    cmd = [
-        "kubectl", "exec", "-n", f"tenant-{tenant1_id}", tenant1_pod, "--",
-        "nc", "-zv", f"postgresql.tenant-{tenant2_id}.svc.cluster.local", "5432"
-    ]
-    
-    print(f"Testing isolation between tenant-{tenant1_id} and tenant-{tenant2_id}...")
-    print(f"Command: {' '.join(cmd)}")
-    
-    result = subprocess.run(cmd, capture_output=True)
-    
-    # If network policies are working correctly, this should fail
-    if result.returncode != 0:
-        print("✅ Network policies are correctly enforcing isolation")
-        return True
-    else:
-        print("❌ Network policies are NOT correctly enforcing isolation")
-        print(f"Output: {result.stdout.decode()}")
-        return False
+### 3.8 Backup System Implementation
 
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python test-network-isolation.py <tenant1_id> <tenant2_id>")
-        sys.exit(1)
-    
-    tenant1_id = sys.argv[1]
-    tenant2_id = sys.argv[2]
-    sys.exit(0 if test_network_isolation(tenant1_id, tenant2_id) else 1)
-```
+1. Configure persistent storage for backups
+2. Implement scheduled and on-demand backup services
+3. Create backup listing and restoration functionality
+4. Configure retention policies for backups
 
 ## 4. Testing Procedures
 
 ### 4.1 Tenant Creation Testing
 
 1. Register a new user
-2. Log in to the dashboard
-3. Create a new Odoo instance
-4. Verify instance creation status
-5. Access the Odoo instance using provided URL
-6. Log in with admin credentials
-7. Test basic Odoo functionality
+2. Create a new Odoo instance
+3. Verify creation process and accessibility
+4. Test Odoo functionality
 
 ### 4.2 Multi-Node Distribution Testing
 
-1. Create multiple tenants (at least 5)
-2. Run the node distribution test script:
-   ```bash
-   python scripts/test-distribution.py
-   ```
-3. Verify tenants are distributed across both nodes
-4. Check resource usage for each tenant
+1. Create multiple tenants
+2. Verify distribution across nodes
+3. Test pod anti-affinity rules
+4. Monitor resource allocation
 
 ### 4.3 Production Deployment Testing
 
-1. Deploy to Ubuntu 24.10 server
-2. Verify all services are running
-3. Test tenant creation in production
-4. Test Odoo instance access
-5. Verify proper subdomain routing
-6. Test admin dashboard functionality
+1. Deploy to production server
+2. Verify all services
+3. Test end-to-end functionality
+4. Perform security verification
 
 ## 5. Challenges and Contingency Plans
 
 | Challenge | Impact | Contingency Plan |
 |-----------|--------|------------------|
-| Traefik subdomain routing issues | High | Fallback to path-based routing (`example.com/tenant-id/`) |
-| MicroK8s networking on Windows | Medium | Use port forwarding instead of ingress, or test on Ubuntu VM |
-| Supabase authentication issues | Medium | Implement simple JWT authentication as backup |
-| Kubernetes resource constraints | Medium | Reduce resource requests/limits or add more nodes |
-| DNS propagation delays | Low | Use local `/etc/hosts` file for testing |
+| Traefik subdomain routing issues | High | Fallback to path-based routing |
+| MicroK8s networking on Windows | Medium | Use port forwarding or test on Ubuntu VM |
+| Supabase authentication issues | Medium | Implement simple JWT authentication |
+| Kubernetes resource constraints | Medium | Reduce resource requests or add nodes |
+| DNS propagation delays | Low | Use local hosts file for testing |
 
 ## 6. Post-Weekend Enhancements
 
-Once the MVP is working, consider these quick enhancements:
+1. **14-day Trial Implementation:**
+   - Add expiration tracking for tenants
+   - Implement trial expiration notifications
+   - Create payment conversion flow
 
-1. **14-day Trial Implementation**:
-   - Add expiration timestamp to tenant namespace
-   - Create daily job to check for expired trials
-   - Implement payment form for conversion
+2. **Enhanced Backup Solution:**
+   - Implement regular automated backups
+   - Add on-demand backup options
+   - Create restoration interface
 
-2. **Simple Backup Solution**:
-   - Create a script to backup PostgreSQL databases
-   - Add backup button to admin dashboard
-   - Store backups in a persistent volume
+3. **Advanced Monitoring:**
+   - Deploy resource usage visualization
+   - Configure threshold alerts
+   - Add log aggregation
 
-3. **Monitoring Dashboard**:
-   - Enhance resource monitoring with graphs
-   - Add email alerts for resource limits
-   - Implement simple log viewing
-
-4. **Custom Domain Support**:
-   - Allow users to enter custom domain
-   - Create verification process
-   - Update ingress configuration
+4. **Custom Domain Support:**
+   - Implement domain verification
+   - Configure custom domain routing
+   - Document DNS requirements
 
 ## 7. Resources and References
 

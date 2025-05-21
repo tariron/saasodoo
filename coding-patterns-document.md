@@ -817,3 +817,469 @@ These network policies together ensure that:
 3. External access is restricted to only what's required
 4. The policies are automatically applied during tenant provisioning
 5. The isolation can be verified through testing
+
+## 9. Backup Implementation Patterns
+
+Automated and on-demand backups are critical for SaaS platforms. This section outlines the implementation patterns for backing up tenant instances.
+
+### 9.1 Backup Components
+
+Each tenant backup consists of two primary components:
+1. **PostgreSQL Database Backup** - Contains all tenant business data
+2. **Odoo File Storage Backup** - Contains attachments, documents, and binary files
+
+### 9.2 Scheduled Backup Implementation
+
+```python
+# services/backup.py
+import os
+import datetime
+import kubernetes.client
+import subprocess
+from kubernetes import client, config
+
+def create_scheduled_backups():
+    """Create CronJobs for regular tenant backups"""
+    try:
+        # Load Kubernetes configuration
+        config.load_kube_config()
+        batch_v1 = client.BatchV1Api()
+        
+        # Get all tenant namespaces
+        core_v1 = client.CoreV1Api()
+        namespaces = core_v1.list_namespace(label_selector="managed-by=odoo-saas")
+        
+        for ns in namespaces.items:
+            tenant_id = ns.metadata.name.replace('tenant-', '')
+            
+            # Create CronJob for this tenant
+            create_backup_cronjob(batch_v1, tenant_id)
+            
+        return {"success": True, "message": "Scheduled backups created successfully"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def create_backup_cronjob(batch_v1, tenant_id):
+    """Create a CronJob for a specific tenant"""
+    # Define CronJob
+    cronjob = client.V1CronJob(
+        api_version="batch/v1beta1",
+        kind="CronJob",
+        metadata=client.V1ObjectMeta(
+            name=f"backup-{tenant_id}",
+            namespace="saas-system"
+        ),
+        spec=client.V1CronJobSpec(
+            schedule="0 2 * * *",  # Daily at 2 AM
+            job_template=client.V1JobTemplateSpec(
+                spec=client.V1JobSpec(
+                    template=client.V1PodTemplateSpec(
+                        spec=client.V1PodSpec(
+                            containers=[
+                                client.V1Container(
+                                    name="backup-job",
+                                    image="bitnami/kubectl:latest",
+                                    command=["/bin/sh", "-c"],
+                                    args=[
+                                        f"""
+                                        # Create backup directory
+                                        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                                        BACKUP_DIR="/backups/{tenant_id}/$TIMESTAMP"
+                                        mkdir -p $BACKUP_DIR
+                                        
+                                        # Backup PostgreSQL database
+                                        kubectl exec -n tenant-{tenant_id} svc/postgresql -- \
+                                          pg_dump -U postgres -d postgres | gzip > $BACKUP_DIR/db.sql.gz
+                                        
+                                        # Backup Odoo filestore
+                                        kubectl cp tenant-{tenant_id}/$(kubectl get pods -n tenant-{tenant_id} -l app=odoo -o name | cut -d/ -f2):/opt/bitnami/odoo/data/filestore/ \
+                                          $BACKUP_DIR/filestore/
+                                          
+                                        # Create metadata file
+                                        echo "Tenant ID: {tenant_id}" > $BACKUP_DIR/metadata.txt
+                                        echo "Timestamp: $TIMESTAMP" >> $BACKUP_DIR/metadata.txt
+                                        echo "Backup Type: Scheduled" >> $BACKUP_DIR/metadata.txt
+                                        """
+                                    ],
+                                    volume_mounts=[
+                                        client.V1VolumeMount(
+                                            name="backup-storage",
+                                            mount_path="/backups"
+                                        )
+                                    ]
+                                )
+                            ],
+                            restart_policy="OnFailure",
+                            volumes=[
+                                client.V1Volume(
+                                    name="backup-storage",
+                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                        claim_name="tenant-backups-pvc"
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                )
+            )
+        )
+    )
+    
+    # Create the CronJob
+    batch_v1.create_namespaced_cron_job(
+        namespace="saas-system",
+        body=cronjob
+    )
+```
+
+### 9.3 On-Demand Backup Implementation
+
+```python
+# services/backup.py (continued)
+def create_ondemand_backup(tenant_id):
+    """Create an on-demand backup for a tenant"""
+    try:
+        # Load Kubernetes configuration
+        config.load_kube_config()
+        batch_v1 = client.BatchV1Api()
+        
+        # Create timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        
+        # Create Job for backup
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(
+                name=f"backup-{tenant_id}-{timestamp}",
+                namespace="saas-system"
+            ),
+            spec=client.V1JobSpec(
+                template=client.V1PodTemplateSpec(
+                    spec=client.V1PodSpec(
+                        containers=[
+                            client.V1Container(
+                                name="backup-job",
+                                image="bitnami/kubectl:latest",
+                                command=["/bin/sh", "-c"],
+                                args=[
+                                    f"""
+                                    # Create backup directory
+                                    BACKUP_DIR="/backups/{tenant_id}/{timestamp}"
+                                    mkdir -p $BACKUP_DIR
+                                    
+                                    # Backup PostgreSQL database
+                                    kubectl exec -n tenant-{tenant_id} svc/postgresql -- \
+                                      pg_dump -U postgres -d postgres | gzip > $BACKUP_DIR/db.sql.gz
+                                    
+                                    # Backup Odoo filestore
+                                    kubectl cp tenant-{tenant_id}/$(kubectl get pods -n tenant-{tenant_id} -l app=odoo -o name | cut -d/ -f2):/opt/bitnami/odoo/data/filestore/ \
+                                      $BACKUP_DIR/filestore/
+                                      
+                                    # Create metadata file
+                                    echo "Tenant ID: {tenant_id}" > $BACKUP_DIR/metadata.txt
+                                    echo "Timestamp: {timestamp}" >> $BACKUP_DIR/metadata.txt
+                                    echo "Backup Type: On-Demand" >> $BACKUP_DIR/metadata.txt
+                                    """
+                                ],
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="backup-storage",
+                                        mount_path="/backups"
+                                    )
+                                ]
+                            )
+                        ],
+                        restart_policy="Never",
+                        volumes=[
+                            client.V1Volume(
+                                name="backup-storage",
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                    claim_name="tenant-backups-pvc"
+                                )
+                            )
+                        ]
+                    )
+                ),
+                backoff_limit=3
+            )
+        )
+        
+        # Create the Job
+        batch_v1.create_namespaced_job(
+            namespace="saas-system",
+            body=job
+        )
+        
+        return {
+            "success": True, 
+            "message": f"Backup started for tenant {tenant_id}",
+            "backup_id": f"{tenant_id}-{timestamp}"
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+### 9.4 Backup Storage Configuration
+
+A dedicated persistent volume should be provisioned for backups:
+
+```yaml
+# kubernetes/backup/storage.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tenant-backups-pvc
+  namespace: saas-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: standard
+```
+
+### 9.5 Backup Listing and Restoration
+
+```python
+# services/backup.py (continued)
+def list_tenant_backups(tenant_id):
+    """List all backups for a tenant"""
+    try:
+        # Execute command to list backups from storage
+        cmd = ["ls", "-la", f"/backups/{tenant_id}"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            return {"success": False, "error": result.stderr}
+        
+        # Parse output to get backup timestamps
+        backups = []
+        for line in result.stdout.splitlines():
+            if line.startswith('d') and not (line.endswith('.') or line.endswith('..')):
+                # This is a directory entry, extract timestamp
+                parts = line.split()
+                if len(parts) >= 9:
+                    timestamp = parts[8]
+                    backups.append({
+                        "backup_id": f"{tenant_id}-{timestamp}",
+                        "timestamp": timestamp,
+                        "tenant_id": tenant_id
+                    })
+        
+        return {"success": True, "backups": backups}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def restore_tenant_backup(tenant_id, backup_timestamp):
+    """Restore a tenant from backup"""
+    try:
+        # Create restore job
+        config.load_kube_config()
+        batch_v1 = client.BatchV1Api()
+        
+        restore_timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(
+                name=f"restore-{tenant_id}-{restore_timestamp}",
+                namespace="saas-system"
+            ),
+            spec=client.V1JobSpec(
+                template=client.V1PodTemplateSpec(
+                    spec=client.V1PodSpec(
+                        containers=[
+                            client.V1Container(
+                                name="restore-job",
+                                image="bitnami/kubectl:latest",
+                                command=["/bin/sh", "-c"],
+                                args=[
+                                    f"""
+                                    # Check if backup exists
+                                    BACKUP_DIR="/backups/{tenant_id}/{backup_timestamp}"
+                                    if [ ! -d "$BACKUP_DIR" ]; then
+                                        echo "Backup not found: $BACKUP_DIR"
+                                        exit 1
+                                    fi
+                                    
+                                    # Temporarily scale down Odoo deployment
+                                    kubectl scale deployment odoo -n tenant-{tenant_id} --replicas=0
+                                    
+                                    # Restore PostgreSQL database
+                                    cat $BACKUP_DIR/db.sql.gz | gunzip | kubectl exec -i -n tenant-{tenant_id} svc/postgresql -- \
+                                      psql -U postgres -d postgres
+                                    
+                                    # Restore Odoo filestore
+                                    # Wait for Odoo pod to terminate
+                                    sleep 10
+                                    
+                                    # Scale up Odoo deployment
+                                    kubectl scale deployment odoo -n tenant-{tenant_id} --replicas=1
+                                    
+                                    # Wait for pod to be ready
+                                    kubectl wait --for=condition=Ready pod -l app=odoo -n tenant-{tenant_id} --timeout=300s
+                                    
+                                    # Copy filestore back
+                                    kubectl cp $BACKUP_DIR/filestore/ \
+                                      tenant-{tenant_id}/$(kubectl get pods -n tenant-{tenant_id} -l app=odoo -o name | cut -d/ -f2):/opt/bitnami/odoo/data/filestore/
+                                      
+                                    # Restart Odoo pod for changes to take effect
+                                    kubectl delete pod -n tenant-{tenant_id} -l app=odoo
+                                    """
+                                ],
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="backup-storage",
+                                        mount_path="/backups"
+                                    )
+                                ]
+                            )
+                        ],
+                        restart_policy="Never",
+                        volumes=[
+                            client.V1Volume(
+                                name="backup-storage",
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                    claim_name="tenant-backups-pvc"
+                                )
+                            )
+                        ]
+                    )
+                ),
+                backoff_limit=2
+            )
+        )
+        
+        # Create the Job
+        batch_v1.create_namespaced_job(
+            namespace="saas-system",
+            body=job
+        )
+        
+        return {
+            "success": True,
+            "message": f"Restore started for tenant {tenant_id} from backup {backup_timestamp}"
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+### 9.6 API Endpoints for Backup Management
+
+```python
+# routes/backups.py
+from flask import Blueprint, request, jsonify
+from services.backup import (
+    create_ondemand_backup, 
+    list_tenant_backups,
+    restore_tenant_backup
+)
+
+bp = Blueprint("backups", __name__, url_prefix="/api/backups")
+
+@bp.route("/create/<tenant_id>", methods=["POST"])
+def create_backup(tenant_id):
+    """Create an on-demand backup for a tenant"""
+    result = create_ondemand_backup(tenant_id)
+    return jsonify(result)
+
+@bp.route("/list/<tenant_id>", methods=["GET"])
+def list_backups(tenant_id):
+    """List all backups for a tenant"""
+    result = list_tenant_backups(tenant_id)
+    return jsonify(result)
+
+@bp.route("/restore/<tenant_id>", methods=["POST"])
+def restore_backup(tenant_id):
+    """Restore a tenant from backup"""
+    data = request.json
+    backup_timestamp = data.get("backup_timestamp")
+    
+    if not backup_timestamp:
+        return jsonify({"success": False, "error": "backup_timestamp is required"}), 400
+    
+    result = restore_tenant_backup(tenant_id, backup_timestamp)
+    return jsonify(result)
+```
+
+### 9.7 Backup Retention Policy Implementation
+
+A separate CronJob should be created to enforce backup retention policies:
+
+```python
+def create_backup_cleanup_job():
+    """Create CronJob for cleaning up old backups"""
+    try:
+        # Load Kubernetes configuration
+        config.load_kube_config()
+        batch_v1 = client.BatchV1Api()
+        
+        # Define CronJob
+        cronjob = client.V1CronJob(
+            api_version="batch/v1beta1",
+            kind="CronJob",
+            metadata=client.V1ObjectMeta(
+                name="backup-cleanup",
+                namespace="saas-system"
+            ),
+            spec=client.V1CronJobSpec(
+                schedule="0 3 * * *",  # Daily at 3 AM
+                job_template=client.V1JobTemplateSpec(
+                    spec=client.V1JobSpec(
+                        template=client.V1PodTemplateSpec(
+                            spec=client.V1PodSpec(
+                                containers=[
+                                    client.V1Container(
+                                        name="cleanup-job",
+                                        image="bitnami/kubectl:latest",
+                                        command=["/bin/sh", "-c"],
+                                        args=[
+                                            """
+                                            # Retain last 7 daily backups
+                                            find /backups -mindepth 2 -maxdepth 2 -type d | sort -r | awk 'NR>7' | xargs -r rm -rf
+                                            """
+                                        ],
+                                        volume_mounts=[
+                                            client.V1VolumeMount(
+                                                name="backup-storage",
+                                                mount_path="/backups"
+                                            )
+                                        ]
+                                    )
+                                ],
+                                restart_policy="OnFailure",
+                                volumes=[
+                                    client.V1Volume(
+                                        name="backup-storage",
+                                        persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                            claim_name="tenant-backups-pvc"
+                                        )
+                                    )
+                                ]
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        
+        # Create the CronJob
+        batch_v1.create_namespaced_cron_job(
+            namespace="saas-system",
+            body=cronjob
+        )
+        
+        return {"success": True, "message": "Backup cleanup job created successfully"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+The backup system provides:
+1. Automatic daily backups of all tenant instances
+2. On-demand backups through API
+3. Backup listing and restoration capabilities
+4. Simple retention policy (last 7 backups)
+5. Comprehensive backup of both database and file storage
