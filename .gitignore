@@ -1,0 +1,138 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+.kube/
+
+# Secrets and sensitive data
+secrets/
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+config/secrets/
+k8s/overlays/*/secrets/
+security/certificates/*/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+*.sql.gz
+
+# Node.js (if using any Node tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Monitoring data
+monitoring/data/
+grafana/data/
+prometheus/data/
+
+# Build artifacts
+*.tar.gz
+*.zip
+*.war
+*.jar
+
+# Local development
+local/
+dev-data/
+test-data/
+
+# Helm charts (if used)
+charts/*/charts/
+charts/*/requirements.lock
+
+# Terraform (if used)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Generated files
+generated/
+auto-generated/ 

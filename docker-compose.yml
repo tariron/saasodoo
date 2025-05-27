@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: saasodoo
+      POSTGRES_USER: saasodoo
+      POSTGRES_PASSWORD: saasodoo123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/database/postgresql.conf:/etc/postgresql/postgresql.conf
+    networks:
+      - saasodoo-network
+
+  # Redis for caching and task queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - saasodoo-network
+
+  # Backend Flask API
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://saasodoo:saasodoo123@postgres:5432/saasodoo
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app/backend
+      - ./config:/app/config
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
+      - "traefik.http.services.backend.loadbalancer.server.port=5000"
+    command: python -m flask run --host=0.0.0.0 --port=5000
+
+  # Frontend Flask App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001" # Expose port for frontend app
+    volumes:
+      - ./frontend:/app # Mount frontend code for development
+    networks:
+      - saasodoo-network
+    depends_on: # Optional: if frontend needs to wait for backend for API calls during build or startup
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=5001" # Port for Flask frontend
+    command: python app.py # Or flask run --host=0.0.0.0 --port=5001
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - saasodoo-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/monitoring/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./config/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - saasodoo-network
+
+  # Kill Bill for billing (optional for development)
+  killbill:
+    image: killbill/killbill:0.24.0
+    ports:
+      - "8081:8080"
+    environment:
+      - KILLBILL_DAO_URL=jdbc:postgresql://postgres:5432/killbill
+      - KILLBILL_DAO_USER=saasodoo
+      - KILLBILL_DAO_PASSWORD=saasodoo123
+    depends_on:
+      - postgres
+    networks:
+      - saasodoo-network
+
+  # Traefik for ingress (development)
+  traefik:
+    image: traefik:v3.0
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8082:8080"  # Traefik dashboard
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - saasodoo-network
+
+  # MinIO for object storage (development)
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - saasodoo-network
+
+  # Celery worker for background tasks
+  celery-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://saasodoo:saasodoo123@postgres:5432/saasodoo
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app/backend
+      - ./config:/app/config
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - saasodoo-network
+    command: celery -A backend.app.celery worker --loglevel=info
+
+  # Celery beat for scheduled tasks
+  celery-beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://saasodoo:saasodoo123@postgres:5432/saasodoo
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app/backend
+      - ./config:/app/config
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - saasodoo-network
+    command: celery -A backend.app.celery beat --loglevel=info
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  minio_data:
+
+networks:
+  saasodoo-network:
+    driver: bridge 

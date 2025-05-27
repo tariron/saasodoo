@@ -14,7 +14,7 @@ saasodoo/
 ├── LICENSE                                      # MIT License
 ├── .gitignore                                   # Git ignore rules
 ├── .env.example                                 # Environment variables template
-├── requirements.txt                             # Python dependencies
+├── requirements.txt                             # Python dependencies for backend & celery
 ├── docker-compose.yml                           # Local development setup
 ├── Dockerfile                                   # Backend container image
 ├── Dockerfile.frontend                          # Frontend container image
@@ -29,7 +29,8 @@ saasodoo/
 │   ├── deployment-guide.md                     # Deployment instructions
 │   └── troubleshooting.md                      # Common issues and solutions
 │
-├── backend/                                     # Flask API application
+├── backend/                                     # Flask API application & Celery workers
+│   ├── Dockerfile                              # Container image for backend & celery
 │   ├── app.py                                  # Main Flask application
 │   ├── config.py                               # Configuration management
 │   ├── requirements.txt                        # Backend-specific dependencies
@@ -86,51 +87,28 @@ saasodoo/
 │       ├── test_database_strategy.py           # Database strategy tests
 │       └── test_billing.py                     # Billing integration tests
 │
-├── frontend/                                   # Web UI
-│   ├── index.html                              # Main landing page
-│   ├── login.html                              # Login page
-│   ├── register.html                           # Registration page
-│   ├── dashboard.html                          # User dashboard
-│   ├── admin.html                              # Admin dashboard
-│   ├── tenant-create.html                      # Tenant creation form
-│   ├── billing.html                            # Billing management
-│   │
-│   ├── css/                                    # Stylesheets
-│   │   ├── main.css                            # Main stylesheet
-│   │   ├── dashboard.css                       # Dashboard styles
-│   │   ├── admin.css                           # Admin panel styles
-│   │   ├── responsive.css                      # Mobile responsive styles
-│   │   └── components.css                      # Reusable components
-│   │
-│   ├── js/                                     # JavaScript files
-│   │   ├── main.js                             # Main application logic
-│   │   ├── auth.js                             # Authentication handling
-│   │   ├── dashboard.js                        # Dashboard functionality
-│   │   ├── admin.js                            # Admin panel logic
-│   │   ├── tenant-management.js                # Tenant operations
-│   │   ├── billing.js                          # Billing integration
-│   │   ├── api-client.js                       # API communication
-│   │   └── utils.js                            # Utility functions
-│   │
-│   ├── assets/                                 # Static assets
-│   │   ├── images/
-│   │   │   ├── logo.png
-│   │   │   ├── favicon.ico
-│   │   │   └── screenshots/
-│   │   ├── fonts/
-│   │   └── icons/
-│   │
-│   └── templates/                              # HTML templates
-│       ├── layout.html                         # Base template
-│       ├── components/
-│       │   ├── header.html
-│       │   ├── footer.html
-│       │   ├── sidebar.html
-│       │   └── tenant-card.html
-│       └── modals/
-│           ├── create-tenant.html
-│           ├── confirm-delete.html
-│           └── billing-info.html
+├── frontend/                                   # Flask Web UI
+│   ├── Dockerfile                              # Container image for frontend Flask app
+│   ├── app.py                                  # Flask app for serving frontend pages
+│   ├── requirements.txt                        # Frontend-specific Python dependencies
+│   ├── templates/                              # HTML templates
+│   │   ├── index.html                          # Main landing page
+│   │   ├── login.html                          # Login page
+│   │   ├── register.html                       # Registration page (if any)
+│   │   ├── dashboard.html                      # User dashboard
+│   │   ├── admin.html                          # Admin dashboard (if any)
+│   │   ├── profile.html                        # User profile page
+│   │   ├── buy.html                            # Buy credits page
+│   │   ├── layout.html                         # Base HTML layout (optional)
+│   │   └── components/                         # Reusable template components (optional)
+│   └── static/                                 # Static assets (CSS, JS, images)
+│       ├── css/
+│       │   └── main.css                        # Main stylesheet
+│       ├── js/
+│       │   ├── main.js                         # Main JavaScript
+│       │   └── api-client.js                   # Optional: for backend API calls
+│       └── images/
+│           └── logo.png                        # Example image
 │
 ├── k8s/                                        # Kubernetes manifests
 │   ├── base/                                   # Base configurations
@@ -445,6 +423,7 @@ saasodoo/
 ### Core Application Files
 
 **Backend Core:**
+- `backend/Dockerfile` - Container image definition
 - `backend/app.py` - Main Flask application with route registration
 - `backend/config.py` - Environment-based configuration management
 - `backend/services/tenant_service.py` - Core tenant provisioning logic
@@ -452,11 +431,13 @@ saasodoo/
 - `backend/services/kubernetes_service.py` - Kubernetes API integration
 
 **Frontend Core:**
-- `frontend/index.html` - Landing page with service overview
-- `frontend/dashboard.html` - User tenant management interface
-- `frontend/admin.html` - Administrative dashboard
-- `frontend/js/api-client.js` - Backend API communication
-- `frontend/js/tenant-management.js` - Tenant operations interface
+- `frontend/Dockerfile` - Container image definition for frontend Flask app
+- `frontend/app.py` - Flask application for serving HTML pages
+- `frontend/templates/index.html` - Landing page template
+- `frontend/templates/dashboard.html` - User dashboard template
+- `frontend/static/css/main.css` - Main stylesheet (example)
+- `frontend/static/js/main.js` - Main frontend JavaScript (example)
+- `frontend/static/js/api-client.js` - Backend API communication (example, if used)
 
 ### Deployment and Infrastructure
 
