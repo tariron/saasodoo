@@ -6,7 +6,7 @@ This guide focuses on key considerations when developing the Odoo SaaS Kit that 
 1. Development using a cloud server with MicroK8s and Docker
 2. Production deployment on Contabo Ubuntu VPS
 
-The platform programmatically creates isolated Odoo instances for customers in Kubernetes namespaces, with each tenant having a dedicated Odoo instance and PostgreSQL database.
+The platform programmatically creates isolated Odoo instances for customers in Kubernetes namespaces, with each tenant having a dedicated Odoo instance and either a shared or dedicated PostgreSQL database based on their subscription tier and requirements.
 
 ## Infrastructure Setup
 
@@ -36,10 +36,16 @@ The SaaS platform will utilize the following namespace structure:
 2. **One namespace per tenant**
    - Each customer gets their own isolated namespace
    - Contains dedicated Odoo instance
-   - Dedicated PostgreSQL database
+   - Database connection (shared or dedicated based on tier)
    - Any tenant-specific services or customizations
 
-3. **Development namespace** (`saas-dev`)
+3. **Shared database namespaces** (`postgres-shared-*`)
+   - Contains shared PostgreSQL instances serving multiple tenants
+   - Each shared instance supports up to 50 tenants
+   - Separate databases within each PostgreSQL server
+   - Centralized monitoring and backup management
+
+4. **Development namespace** (`saas-dev`)
    - Used for platform development and testing
    - Isolated from production tenants
    - Simulates tenant provisioning and management
@@ -112,16 +118,30 @@ Ensure consistent tenant isolation approach across environments:
 - **Namespace isolation** - Each tenant gets its own Kubernetes namespace
 - **Network policies** - Restrict cross-tenant communication
 - **Resource quotas** - Prevent resource starvation between tenants
-- **Dedicated databases** - Each tenant has its own PostgreSQL database
+- **Database isolation** - Hybrid approach based on tenant requirements:
+  
+  **Shared Database Isolation:**
+  - Separate database per tenant within shared PostgreSQL server
+  - Database-level access controls and permissions
+  - Tenant-specific connection pools and schemas
+  - Row-level security policies for additional protection
+  
+  **Dedicated Database Isolation:**
+  - Complete PostgreSQL server isolation per tenant
+  - Full administrative control and resource allocation
+  - Independent backup and maintenance schedules
+  - Custom PostgreSQL configuration options
 
 ### 6. Testing Strategies
 
 Create systematic testing procedures:
 
 1. **API functionality tests** - Test SaaS controller functionality
-2. **Tenant provisioning tests** - Test provisioning/deprovisioning workflows
-3. **Isolation tests** - Verify tenant boundaries are correctly enforced
-4. **Performance tests** - Verify resource usage and limits
+2. **Tenant provisioning tests** - Test provisioning/deprovisioning workflows with both database strategies
+3. **Database strategy tests** - Verify correct strategy assignment and isolation for both shared and dedicated approaches
+4. **Isolation tests** - Verify tenant boundaries are correctly enforced for both database strategies
+5. **Performance tests** - Verify resource usage and limits for both shared and dedicated database approaches
+6. **Migration tests** - Test movement between database strategies if implemented
 
 ## Practical Implementation Recommendations
 

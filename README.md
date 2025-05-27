@@ -6,17 +6,17 @@ A lightweight, scalable platform for deploying isolated Odoo instances on Kubern
 
 Odoo SaaS Kit enables you to create a multi-tenant Odoo hosting platform with complete tenant isolation, allowing each customer to have their own dedicated Odoo instance and PostgreSQL database in isolated Kubernetes namespaces. Built with Flask, MicroK8s, and Traefik, this platform enables quick deployment while maintaining proper security boundaries between tenants.
 
-## Features
+> **Note: Generic SaaS Platform Foundation**  
+> While this kit is initially configured for Odoo deployment, the underlying architecture is designed as a generic SaaS foundation. The same isolation patterns, tenant management, and resource allocation mechanisms can be adapted for nearly any containerized SaaS application with minimal modifications to the core platform.
 
-- **User Registration & Authentication**: Powered by Supabase (cloud-hosted)
-- **Self-Service Odoo Provisioning**: Create new instances in minutes
-- **Complete Tenant Isolation**: Separate namespaces and dedicated PostgreSQL servers
-- **Custom Subdomains**: Each tenant gets their own subdomain under your main domain
+## Key Features
+
+- **Instant Odoo Deployment**: Deploy a new Odoo instance in under 2 minutes
+- **Complete Tenant Isolation**: Separate namespaces with hybrid database strategies (shared or dedicated)
 - **Pre-Configured Admin Credentials**: Set during instance creation
-- **Multi-Node Distribution**: Tenants spread across multiple Kubernetes nodes
-- **Resource Monitoring**: Basic CPU and memory usage tracking
-- **Admin Dashboard**: Manage all tenants from a central location
-- **Tiered Resource Plans**: Different resource allocation based on subscription tier
+- **Custom Subdomains**: Each tenant gets tenant.yourdomain.com
+- **Admin Dashboard**: Manage all tenants from a central location with real-time status updates
+- **Multi-Node Distribution**: Tenants distributed across cluster nodes for high availability
 - **Comprehensive Network Policies**: Full network isolation between tenant namespaces
 - **Automated & On-Demand Backups**: Daily backups with 7-day retention and restoration capability
 - **Simple Server Migration**: Easily migrate all tenants between servers with minimal downtime
@@ -24,62 +24,110 @@ Odoo SaaS Kit enables you to create a multi-tenant Odoo hosting platform with co
 ## Architecture
 
 ```
-┌───────────────────────┐     ┌───────────────────────┐
-│  Supabase Cloud        │     │  MicroK8s Cluster     │
-│  (Authentication)      │     │                       │
-└───────────┬───────────┘     │  ┌─────────────────┐  │
-            │                  │  │ Traefik Ingress │  │
-┌───────────┴───────────┐     │  └────────┬────────┘  │
-│  Flask API             │────┼───────────┘           │
-│  (Tenant Management)   │     │                       │
-└───────────────────────┘     │  ┌─────────────────┐  │
-                               │  │ Tenant 1        │  │
-                               │  │ ┌─────┐ ┌─────┐ │  │
-                               │  │ │Odoo │ │ DB  │ │  │
-                               │  │ └─────┘ └─────┘ │  │
-                               │  └─────────────────┘  │
-                               │                       │
-                               │  ┌─────────────────┐  │
-                               │  │ Tenant 2        │  │
-                               │  │ ┌─────┐ ┌─────┐ │  │
-                               │  │ │Odoo │ │ DB  │ │  │
-                               │  │ └─────┘ └─────┘ │  │
-                               │  └─────────────────┘  │
-                               └───────────────────────┘
+┌──────────────────────────────┐     ┌───────────────────────────┐
+│  Supabase Cloud               │     │  MicroK8s Cluster         │
+│  ┌────────────┐ ┌──────────┐ │     │                           │
+│  │ Auth       │ │ Database │ │     │  ┌─────────────────────┐  │
+│  └────────────┘ └──────────┘ │     │  │ Traefik Ingress     │  │
+└───────────┬──────────────────┘     │  └─────────┬───────────┘  │
+            │                         │            │              │
+┌───────────┴───────────┐            │            │              │
+│  Flask API             │───────────┼────────────┘              │
+│  (Tenant Management)   │            │                           │
+└───────────┬───────────┘            │  ┌─────────────────────┐  │
+            │                         │  │ Tenant 1 (Shared)  │  │
+            │                         │  │ ┌─────┐             │  │
+            │                         │  │ │Odoo │    ┌──────┐ │  │
+┌───────────┴───────────┐            │  │ └─────┘    │Shared│ │  │
+│  Kill Bill             │            │  └────────────│ DB   │─┘  │
+│  (Billing & Payment)   │            │               └──────┘    │
+└───────────────────────┘            │                           │
+                                      │  ┌─────────────────────┐  │
+                                      │  │ Tenant 2 (Dedicated)│  │
+                                      │  │ ┌─────┐ ┌─────┐     │  │
+                                      │  │ │Odoo │ │ DB  │     │  │
+                                      │  │ └─────┘ └─────┘     │  │
+                                      │  └─────────────────────┘  │
+                                      └───────────────────────────┘
 ```
 
-## Tenant Isolation & Security
+### Supabase Integration
 
-The platform implements a comprehensive tenant isolation strategy using multiple Kubernetes security mechanisms:
+The platform leverages Supabase for multiple aspects of the SaaS platform:
 
-### Network Isolation
+- **Authentication**: User registration, login, and session management
+- **User Management**: Profiles, preferences, and user metadata
+- **Tenant Metadata**: Configuration, status, and relationship to users
+- **Resource Tracking**: Usage metrics and quota management
+- **Platform Configuration**: System-wide settings and feature flags
+- **Real-time Updates**: Dashboard updates using Supabase's real-time capabilities
 
-- **Default Deny Policies**: Each tenant namespace starts with all ingress and egress traffic blocked
-- **Explicit Allowlists**: Only necessary communication paths are permitted:
-  - Internal namespace communication between Odoo and PostgreSQL
-  - Controlled ingress from Traefik for user access
-  - DNS resolution for service discovery
-- **Cross-Tenant Blocking**: Direct communication between tenant namespaces is explicitly prevented
-- **Verified Isolation**: Automated testing ensures isolation boundaries are enforced
+This integrated approach provides several benefits:
+- Simplified infrastructure with fewer components to manage
+- Consistent data access patterns across the application
+- Real-time capabilities for improved user experience
+- Reduced development time by leveraging Supabase's built-in features
 
-### Resource Separation
+### Kill Bill Integration
 
-- **Namespace Boundaries**: Each tenant runs in a dedicated Kubernetes namespace
-- **Dedicated Databases**: Every tenant gets their own PostgreSQL instance
-- **Resource Quotas**: CPU/memory limits prevent resource contention between tenants
+The platform integrates Kill Bill as its billing and payment solution:
+
+- **Subscription Management**: Define and manage subscription plans aligned with resource tiers
+- **Payment Processing**: Support for multiple payment providers (Stripe, PayPal, etc.)
+- **Usage-Based Billing**: Track and bill based on actual resource consumption
+- **Invoicing**: Automated invoice generation and delivery
+- **Trial Periods**: Support for free trials with automatic conversion to paid plans
+- **Customer Management**: Track customer payment information and billing history
+- **Payment Gateway Integration**: Pre-built integrations with popular payment gateways
+
+This integration provides several benefits:
+- Mature, production-ready billing solution with minimal development effort
+- Flexible subscription models to support various pricing strategies
+- Reliable payment processing with support for global payment methods
+- Complete billing lifecycle management from trial to paid subscriptions
+- Open-source nature aligns with the platform's philosophy and avoids vendor lock-in
+
+## Tenant Isolation
+
+The platform ensures complete isolation between tenants through multiple layers:
+
+### Kubernetes-Level Isolation
+
+- **Namespace Separation**: Each tenant operates in its own Kubernetes namespace
+- **Resource Quotas**: CPU and memory limits prevent resource contention between tenants
+- **Network Policies**: Traffic isolation ensures tenants cannot communicate with each other
+- **Storage Isolation**: Separate persistent volumes for each tenant
+
+### Database Isolation Strategies
+
+The platform implements a hybrid database approach based on tenant requirements:
+
+#### Shared PostgreSQL Strategy
+- **Target Tiers**: Basic and Standard subscription tiers
+- **Isolation Method**: Separate databases within shared PostgreSQL servers
+- **Security**: Database-level access controls and tenant-specific schemas
+- **Benefits**: Cost-effective resource utilization and simplified management
+- **Capacity**: Up to 50 tenants per shared PostgreSQL instance
+
+#### Dedicated PostgreSQL Strategy  
+- **Target Tiers**: Premium and Enterprise subscription tiers
+- **Isolation Method**: Complete PostgreSQL server isolation per tenant
+- **Security**: Full administrative control and independent resource allocation
+- **Benefits**: Maximum security, compliance-ready, custom configurations
+- **Use Cases**: High-performance requirements, regulatory compliance, large datasets
 
 ## Resource Management
 
-The platform implements tiered resource plans for tenants through Kubernetes resource quotas and limits:
+The platform implements tiered resource plans for tenants through Kubernetes resource quotas and limits, which are directly mapped to Kill Bill subscription plans:
 
 ### Standard Tiers
 
-| Tier | CPU Limit | Memory Limit | Storage | Price |
-|------|-----------|--------------|---------|-------|
-| Basic | 1 CPU | 1GB | 5GB | Free tier |
-| Standard | 2 CPU | 2GB | 10GB | $19/month |
-| Premium | 4 CPU | 4GB | 20GB | $39/month |
-| Enterprise | 8 CPU | 8GB | 50GB | $99/month |
+| Tier | CPU Limit | Memory Limit | Storage | Database Strategy | Price | Billing Cycle |
+|------|-----------|--------------|---------|-------------------|-------|---------------|
+| Basic | 1 CPU | 1GB | 5GB | Shared PostgreSQL | Free tier | N/A |
+| Standard | 2 CPU | 2GB | 10GB | Shared PostgreSQL | $19/month | Monthly |
+| Premium | 4 CPU | 4GB | 20GB | Dedicated PostgreSQL | $39/month | Monthly/Annual |
+| Enterprise | 8 CPU | 8GB | 50GB | Dedicated PostgreSQL | $99/month | Monthly/Annual |
 
 ### Implementation Details
 
@@ -138,6 +186,7 @@ A detailed [Migration Guide](migration-guide.md) is provided that includes:
 - Docker installed on the server
 - MicroK8s installed on the server
 - Supabase cloud account
+- Kill Bill instance (self-hosted or cloud)
 - Domain name with DNS access
 
 ### Development Setup
@@ -176,6 +225,9 @@ A detailed [Migration Guide](migration-guide.md) is provided that includes:
    ```bash
    export SUPABASE_URL="your_supabase_url"
    export SUPABASE_KEY="your_supabase_key"
+   export KILLBILL_URL="your_killbill_url"
+   export KILLBILL_API_KEY="your_killbill_api_key"
+   export KILLBILL_API_SECRET="your_killbill_api_secret"
    export DOMAIN_NAME="your_domain.com"
    ```
 

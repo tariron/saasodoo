@@ -57,11 +57,14 @@ This guide provides detailed instructions for migrating your Odoo SaaS platform 
 
 1. Create a backup directory structure
 2. For each tenant namespace:
-   - Back up the PostgreSQL database
+   - **Database Strategy Detection**: Identify if tenant uses shared or dedicated PostgreSQL
+   - **Shared Database Backup**: For tenants using shared PostgreSQL, backup specific database within shared instance
+   - **Dedicated Database Backup**: For tenants using dedicated PostgreSQL, backup entire PostgreSQL instance
    - Export the Odoo filestore
-   - Capture tenant-specific secrets
-3. Backup central system database if present
-4. Archive existing platform backups
+   - Capture tenant-specific secrets and database strategy metadata
+3. **Shared Instance Backup**: Create consolidated backups of shared PostgreSQL instances
+4. Backup central system database if present
+5. Archive existing platform backups
 
 ### 3.2 Create Archive of All Exported Data
 
@@ -100,12 +103,15 @@ This guide provides detailed instructions for migrating your Odoo SaaS platform 
 1. For each tenant in the backup:
    - Create tenant namespace
    - Apply network policies
-   - Deploy PostgreSQL instance
-   - Restore database from backup
-   - Deploy Odoo instance
+   - **Database Strategy Restoration**:
+     - **Shared Strategy**: Assign to appropriate shared PostgreSQL instance or create new shared instance
+     - **Dedicated Strategy**: Deploy dedicated PostgreSQL instance
+   - Restore database from backup (strategy-specific)
+   - Deploy Odoo instance with appropriate database connection configuration
    - Restore filestore data
    - Apply ingress configuration
-2. Verify tenant restoration
+2. **Shared Instance Management**: Ensure shared PostgreSQL instances are properly configured for multi-tenant access
+3. Verify tenant restoration and database strategy assignment
 
 ## 7. Configure DNS and Test
 
@@ -121,11 +127,17 @@ This guide provides detailed instructions for migrating your Odoo SaaS platform 
    - Authentication
    - Admin dashboard
    - Monitoring systems
+   - Database strategy management
 2. Test sample tenants:
    - Verify access to instances
-   - Confirm database integrity
+   - Confirm database integrity for both shared and dedicated strategies
    - Validate user accounts
-3. Run comprehensive test suite
+   - Test database strategy assignment accuracy
+3. **Database Strategy Testing**:
+   - Verify shared PostgreSQL instances serve multiple tenants correctly
+   - Confirm dedicated PostgreSQL instances are properly isolated
+   - Test database connection routing for both strategies
+4. Run comprehensive test suite
 
 ## 8. Final Verification
 

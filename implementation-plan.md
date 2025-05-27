@@ -29,16 +29,17 @@
 |------|------|---------|
 | 9:00 - 9:30 | Project structure setup | Create directory structure, initialize git repo |
 | 9:30 - 10:30 | MicroK8s setup | Configure MicroK8s, enable addons, test connectivity |
-| 10:30 - 12:00 | Traefik configuration | Set up Traefik ingress, configure for subdomains |
-| 12:00 - 13:00 | Kubernetes templates | Create base templates for namespace, Odoo, PostgreSQL |
+| 10:30 - 11:30 | Traefik configuration | Set up Traefik ingress, configure for subdomains |
+| 11:30 - 13:00 | Kubernetes templates | Create templates for namespace, shared PostgreSQL, dedicated PostgreSQL, Odoo |
 
 ### 2.2 Saturday Afternoon (4 hours): Core Services
 
 | Time | Task | Details |
 |------|------|---------|
 | 14:00 - 15:00 | Supabase integration | Set up Supabase client, auth endpoints |
-| 15:00 - 16:30 | Tenant provisioning | Implement tenant creation service |
-| 16:30 - 18:00 | Flask API setup | Create basic API endpoints for tenants |
+| 15:00 - 16:00 | Database strategy service | Implement hybrid database selection logic |
+| 16:00 - 17:00 | Tenant provisioning | Implement tenant creation service with database strategy |
+| 17:00 - 18:00 | Flask API setup | Create basic API endpoints for tenants and database management |
 
 ### 2.3 Saturday Evening (4 hours): Frontend & Testing
 
@@ -53,8 +54,9 @@
 | Time | Task | Details |
 |------|------|---------|
 | 9:00 - 10:00 | Resource monitoring | Implement resource usage monitoring |
-| 10:00 - 11:00 | Node distribution | Implement pod anti-affinity, distribution testing |
-| 11:00 - 13:00 | Admin dashboard | Create admin interface for tenant management |
+| 10:00 - 11:00 | Database strategy monitoring | Implement shared instance monitoring and capacity tracking |
+| 11:00 - 12:00 | Node distribution | Implement pod anti-affinity, distribution testing |
+| 12:00 - 13:00 | Admin dashboard | Create admin interface for tenant and database strategy management |
 
 ### 2.5 Sunday Afternoon (4 hours): Polishing & Deployment
 
@@ -84,23 +86,27 @@
 ### 3.2 Kubernetes Configuration
 
 1. Create tenant namespace templates
-2. Prepare PostgreSQL deployment templates
-3. Prepare Odoo deployment templates
-4. Configure network policies for tenant isolation:
+2. Prepare shared PostgreSQL deployment templates
+3. Prepare dedicated PostgreSQL deployment templates
+4. Prepare Odoo deployment templates with database strategy configuration
+5. Configure network policies for tenant isolation:
    - Default deny all traffic
    - Allow same-namespace communication
-   - Configure PostgreSQL access only from Odoo
+   - Configure PostgreSQL access only from Odoo (both shared and dedicated)
    - Allow Traefik ingress to Odoo pods
    - Permit DNS resolution
+6. Create database strategy management templates
 
 ### 3.3 Backend Implementation
 
 1. Create Flask application structure
 2. Implement authentication using Supabase
-3. Develop tenant provisioning service
-4. Create Kubernetes integration for tenant deployment
-5. Configure network policy application
-6. Implement resource monitoring and quota enforcement
+3. Develop database strategy selection service
+4. Develop tenant provisioning service with hybrid database support
+5. Create Kubernetes integration for both shared and dedicated database deployment
+6. Configure network policy application
+7. Implement resource monitoring and quota enforcement
+8. Implement database strategy migration capabilities
 
 ### 3.4 Frontend Implementation
 
@@ -141,23 +147,31 @@
 ### 4.1 Tenant Creation Testing
 
 1. Register a new user
-2. Create a new Odoo instance
-3. Verify creation process and accessibility
-4. Test Odoo functionality
+2. Create new Odoo instances with different tiers (basic → shared, premium → dedicated)
+3. Verify database strategy assignment
+4. Test Odoo functionality on both shared and dedicated instances
 
-### 4.2 Multi-Node Distribution Testing
+### 4.2 Database Strategy Testing
 
-1. Create multiple tenants
+1. Create tenants with different subscription tiers
+2. Verify correct database strategy assignment
+3. Test shared PostgreSQL instance with multiple tenants
+4. Test dedicated PostgreSQL isolation
+5. Verify network policies for both strategies
+
+### 4.3 Multi-Node Distribution Testing
+
+1. Create multiple tenants with various database strategies
 2. Verify distribution across nodes
 3. Test pod anti-affinity rules
-4. Monitor resource allocation
+4. Monitor resource allocation for both shared and dedicated instances
 
-### 4.3 Production Deployment Testing
+### 4.4 Production Deployment Testing
 
 1. Deploy to production server
-2. Verify all services
-3. Test end-to-end functionality
-4. Perform security verification
+2. Verify all services including database strategy selection
+3. Test end-to-end functionality with both database approaches
+4. Perform security verification for both isolation models
 
 ## 5. Challenges and Contingency Plans
 
@@ -168,6 +182,10 @@
 | Supabase authentication issues | Medium | Implement simple JWT authentication |
 | Kubernetes resource constraints | Medium | Reduce resource requests or add nodes |
 | DNS propagation delays | Low | Use local hosts file for testing |
+| Shared PostgreSQL connection limits | Medium | Implement connection pooling and monitoring |
+| Database strategy selection complexity | Medium | Start with simple tier-based rules, expand gradually |
+| Shared database security configuration | High | Implement database-level isolation with strict access controls |
+| Migration between database strategies | Low | Implement in post-MVP phase if needed |
 
 ## 6. Post-Weekend Enhancements
 

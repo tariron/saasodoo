@@ -43,6 +43,18 @@ saasodoo
     └── test-distribution.py # Node distribution test
 ```
 
+> **Generalization Note: Adapting for Other SaaS Applications**  
+> This architecture and code structure is designed to be adaptable for various SaaS applications beyond Odoo. When extending this platform for other applications:
+> 
+> 1. **Application Templates**: Replace Odoo-specific deployment templates in `kubernetes/odoo/` with templates for your target application
+> 2. **Database Adapters**: Modify database provisioning in `services/tenant.py` to support your application's database requirements
+> 3. **Environment Variables**: Update the environment variable configurations for your specific application
+> 4. **Service Integration**: Add additional services or sidecars required by your application in the tenant provisioning process
+> 5. **Resource Profiles**: Adjust resource profiles and tiers based on your application's specific requirements
+> 6. **UI Customization**: Modify frontend components to reflect your application's management needs
+> 
+> The core tenant isolation and provisioning mechanisms remain largely unchanged regardless of the specific application being deployed.
+
 ## 2. Flask Application Patterns
 
 ### 2.1 Simplified Flask App Structure
@@ -131,6 +143,193 @@ def login_user(email, password):
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+```
+
+### 2.3 Expanded Supabase Integration for Platform Data
+
+Supabase can be leveraged beyond authentication to handle various aspects of the platform's data management needs:
+
+```python
+# services/platform_data.py
+from services.auth import supabase
+from datetime import datetime
+
+class TenantMetadata:
+    """Tenant metadata storage and retrieval using Supabase"""
+    
+    @staticmethod
+    def create_tenant_record(user_id, tenant_id, subdomain, tier="basic"):
+        """Create a new tenant record in Supabase"""
+        tenant_data = {
+            "user_id": user_id,
+            "tenant_id": tenant_id,
+            "subdomain": subdomain,
+            "status": "creating",
+            "tier": tier,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_accessed": datetime.utcnow().isoformat(),
+            "resource_quota": {
+                "cpu": 1,
+                "memory": "1Gi",
+                "storage": "5Gi"
+            }
+        }
+        
+        result = supabase.table("tenants").insert(tenant_data).execute()
+        return result.data[0] if result.data else None
+    
+    @staticmethod
+    def update_tenant_status(tenant_id, status):
+        """Update tenant status"""
+        result = supabase.table("tenants")\
+            .update({"status": status, "updated_at": datetime.utcnow().isoformat()})\
+            .eq("tenant_id", tenant_id)\
+            .execute()
+        return result.data[0] if result.data else None
+    
+    @staticmethod
+    def get_tenant_by_id(tenant_id):
+        """Get tenant by ID"""
+        result = supabase.table("tenants")\
+            .select("*")\
+            .eq("tenant_id", tenant_id)\
+            .execute()
+        return result.data[0] if result.data else None
+    
+    @staticmethod
+    def get_tenants_by_user(user_id):
+        """Get all tenants for a user"""
+        result = supabase.table("tenants")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .execute()
+        return result.data
+    
+    @staticmethod
+    def update_resource_usage(tenant_id, cpu_usage, memory_usage, storage_usage):
+        """Update resource usage metrics"""
+        usage_data = {
+            "tenant_id": tenant_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "cpu_usage": cpu_usage,
+            "memory_usage": memory_usage,
+            "storage_usage": storage_usage
+        }
+        
+        result = supabase.table("resource_usage").insert(usage_data).execute()
+        return result.data[0] if result.data else None
+
+
+class UserProfiles:
+    """User profile management using Supabase"""
+    
+    @staticmethod
+    def create_user_profile(user_id, email, name=None, company=None):
+        """Create or update user profile"""
+        profile_data = {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "company": company,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("user_profiles")\
+            .upsert(profile_data)\
+            .execute()
+        return result.data[0] if result.data else None
+    
+    @staticmethod
+    def get_user_profile(user_id):
+        """Get user profile by ID"""
+        result = supabase.table("user_profiles")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .execute()
+        return result.data[0] if result.data else None
+    
+    @staticmethod
+    def update_user_preferences(user_id, preferences):
+        """Update user preferences"""
+        result = supabase.table("user_profiles")\
+            .update({"preferences": preferences, "updated_at": datetime.utcnow().isoformat()})\
+            .eq("user_id", user_id)\
+            .execute()
+        return result.data[0] if result.data else None
+
+
+class PlatformConfig:
+    """Platform configuration management using Supabase"""
+    
+    @staticmethod
+    def get_system_settings():
+        """Get system-wide settings"""
+        result = supabase.table("platform_config")\
+            .select("*")\
+            .eq("config_type", "system")\
+            .execute()
+        return result.data[0] if result.data else {}
+    
+    @staticmethod
+    def get_resource_tiers():
+        """Get all resource tier definitions"""
+        result = supabase.table("resource_tiers")\
+            .select("*")\
+            .order("tier_level")\
+            .execute()
+        return result.data
+    
+    @staticmethod
+    def update_feature_flag(flag_name, enabled):
+        """Update a feature flag"""
+        result = supabase.table("feature_flags")\
+            .update({"enabled": enabled, "updated_at": datetime.utcnow().isoformat()})\
+            .eq("flag_name", flag_name)\
+            .execute()
+        return result.data[0] if result.data else None
+```
+
+### 2.4 Supabase Real-time Updates for Dashboard
+
+```python
+# frontend/js/dashboard.js
+
+// Initialize Supabase client in the frontend
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+// Subscribe to changes in tenant status for real-time updates
+const tenantStatusSubscription = supabase
+  .channel('public:tenants')
+  .on('postgres_changes', 
+    { 
+      event: 'UPDATE', 
+      schema: 'public', 
+      table: 'tenants',
+      filter: `user_id=eq.${currentUserId}`
+    }, 
+    (payload) => {
+      // Update UI with new tenant status
+      updateTenantStatusInUI(payload.new)
+    }
+  )
+  .subscribe()
+
+// Listen for resource usage updates
+const resourceUsageSubscription = supabase
+  .channel('public:resource_usage')
+  .on('postgres_changes', 
+    { 
+      event: 'INSERT', 
+      schema: 'public', 
+      table: 'resource_usage',
+      filter: `tenant_id=eq.${currentTenantId}`
+    }, 
+    (payload) => {
+      // Update resource usage charts
+      updateResourceCharts(payload.new)
+    }
+  )
+  .subscribe()
 ```
 
 ## 3. Kubernetes Integration Patterns
@@ -1283,3 +1482,667 @@ The backup system provides:
 3. Backup listing and restoration capabilities
 4. Simple retention policy (last 7 backups)
 5. Comprehensive backup of both database and file storage
+
+## 10. Kill Bill Integration Patterns
+
+Kill Bill is used as the subscription billing and payment platform for the SaaS service. This section outlines the implementation patterns for integrating Kill Bill with the tenant management system.
+
+### 10.1 Kill Bill Client Setup
+
+```python
+# services/billing.py
+import os
+import requests
+import base64
+import uuid
+from datetime import datetime
+
+class KillBillClient:
+    """Client for interacting with Kill Bill API"""
+    
+    def __init__(self):
+        self.base_url = os.environ.get("KILLBILL_URL")
+        self.api_key = os.environ.get("KILLBILL_API_KEY")
+        self.api_secret = os.environ.get("KILLBILL_API_SECRET")
+        # Create basic auth header
+        auth_string = f"{self.api_key}:{self.api_secret}"
+        self.auth_header = base64.b64encode(auth_string.encode()).decode()
+        
+    def get_headers(self, tenant_api_key=None, additional_headers=None):
+        """Get standard headers for Kill Bill API requests"""
+        headers = {
+            "Authorization": f"Basic {self.auth_header}",
+            "Content-Type": "application/json",
+            "X-Killbill-CreatedBy": "saas-platform",
+        }
+        
+        if tenant_api_key:
+            headers["X-Killbill-ApiKey"] = tenant_api_key
+            
+        if additional_headers:
+            headers.update(additional_headers)
+            
+        return headers
+    
+    def create_tenant(self, external_key, api_key, api_secret):
+        """Create a new tenant in Kill Bill"""
+        url = f"{self.base_url}/1.0/kb/tenants"
+        headers = self.get_headers()
+        data = {
+            "apiKey": api_key,
+            "apiSecret": api_secret,
+            "externalKey": external_key
+        }
+        
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code in (201, 200):
+            return response.json()
+        else:
+            raise Exception(f"Failed to create tenant: {response.text}")
+    
+    def create_customer(self, tenant_api_key, external_key, email, name=None, company=None):
+        """Create a new customer in Kill Bill"""
+        url = f"{self.base_url}/1.0/kb/accounts"
+        headers = self.get_headers(tenant_api_key)
+        data = {
+            "name": name or email.split('@')[0],
+            "email": email,
+            "externalKey": external_key,
+            "company": company
+        }
+        
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code in (201, 200):
+            return response.json()
+        else:
+            raise Exception(f"Failed to create customer: {response.text}")
+    
+    def get_available_plans(self, tenant_api_key):
+        """Get available subscription plans"""
+        url = f"{self.base_url}/1.0/kb/catalog/availableAddons"
+        headers = self.get_headers(tenant_api_key)
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Failed to get plans: {response.text}")
+    
+    def create_subscription(self, tenant_api_key, account_id, plan_name, 
+                           is_trial=False, trial_days=14):
+        """Create a new subscription for a customer"""
+        url = f"{self.base_url}/1.0/kb/subscriptions"
+        headers = self.get_headers(tenant_api_key)
+        
+        data = {
+            "accountId": account_id,
+            "productName": plan_name,
+            "productCategory": "BASE",
+            "billingPeriod": "MONTHLY",
+            "priceList": "DEFAULT"
+        }
+        
+        if is_trial:
+            # Add trial phase
+            additional_headers = {
+                "X-Killbill-CreatedBy": "saas-platform-trial"
+            }
+            headers.update(additional_headers)
+            # Add days parameter to URL
+            url = f"{url}?trialLength={trial_days}"
+        
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code in (201, 200):
+            return response.json()
+        else:
+            raise Exception(f"Failed to create subscription: {response.text}")
+    
+    def record_usage(self, tenant_api_key, subscription_id, usage_type, amount, 
+                    tracking_id=None):
+        """Record usage for a subscription"""
+        url = f"{self.base_url}/1.0/kb/usages"
+        
+        tracking_id = tracking_id or str(uuid.uuid4())
+        headers = self.get_headers(
+            tenant_api_key, 
+            {
+                "X-Killbill-CreatedBy": "saas-platform-usage",
+                "X-Killbill-Reason": "record-usage"
+            }
+        )
+        
+        data = {
+            "subscriptionId": subscription_id,
+            "unitUsageRecords": [
+                {
+                    "unitType": usage_type,
+                    "usageRecords": [
+                        {
+                            "recordDate": datetime.utcnow().strftime("%Y-%m-%d"),
+                            "amount": amount
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code in (201, 200):
+            return {"success": True, "tracking_id": tracking_id}
+        else:
+            raise Exception(f"Failed to record usage: {response.text}")
+    
+    def get_account_by_key(self, tenant_api_key, external_key):
+        """Get Kill Bill account by external key"""
+        url = f"{self.base_url}/1.0/kb/accounts?externalKey={external_key}"
+        headers = self.get_headers(tenant_api_key)
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 404:
+            return None
+        else:
+            raise Exception(f"Failed to get account: {response.text}")
+    
+    def get_invoices(self, tenant_api_key, account_id):
+        """Get invoices for an account"""
+        url = f"{self.base_url}/1.0/kb/accounts/{account_id}/invoices"
+        headers = self.get_headers(tenant_api_key)
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Failed to get invoices: {response.text}")
+    
+    def add_payment_method(self, tenant_api_key, account_id, payment_data, 
+                         is_default=True):
+        """Add a payment method to an account"""
+        url = f"{self.base_url}/1.0/kb/accounts/{account_id}/paymentMethods"
+        headers = self.get_headers(tenant_api_key)
+        
+        params = {"isDefault": "true" if is_default else "false"}
+        
+        response = requests.post(url, headers=headers, json=payment_data, params=params)
+        if response.status_code in (201, 200):
+            return response.json()
+        else:
+            raise Exception(f"Failed to add payment method: {response.text}")
+```
+
+### 10.2 Integrating Kill Bill with Tenant Provisioning
+
+```python
+# services/tenant.py (extended with billing integration)
+from services.billing import KillBillClient
+from services.platform_data import TenantMetadata
+
+def provision_tenant_with_billing(user_id, subdomain, admin_email, admin_password, 
+                               tier="standard", is_trial=False):
+    """Create a new tenant with billing setup"""
+    try:
+        # Generate tenant ID from subdomain
+        tenant_id = subdomain.lower().replace('.', '-')
+        
+        # Initialize Kill Bill client
+        kb_client = KillBillClient()
+        
+        # Create or get Kill Bill account for the user
+        tenant_api_key = "tenant_api_key"  # In production, use tenant-specific key
+        user_profile = UserProfiles.get_user_profile(user_id)
+        
+        kb_account = kb_client.get_account_by_key(tenant_api_key, user_id)
+        if not kb_account:
+            # Create new Kill Bill account for this user
+            kb_account = kb_client.create_customer(
+                tenant_api_key,
+                user_id,
+                user_profile.get("email"),
+                user_profile.get("name"),
+                user_profile.get("company")
+            )
+        
+        # Create subscription for the tenant
+        subscription = kb_client.create_subscription(
+            tenant_api_key,
+            kb_account["accountId"],
+            f"odoo-{tier}",
+            is_trial=is_trial,
+            trial_days=14 if is_trial else 0
+        )
+        
+        # Store subscription ID in tenant metadata
+        subscription_id = subscription["subscriptionId"]
+        
+        # Create Kubernetes resources for tenant
+        k8s_result = create_tenant(subdomain, admin_email, admin_password)
+        
+        # Store tenant record in Supabase with billing info
+        tenant_record = TenantMetadata.create_tenant_record(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            subdomain=subdomain,
+            tier=tier
+        )
+        
+        # Add subscription information to tenant record
+        TenantMetadata.update_billing_info(
+            tenant_id=tenant_id,
+            subscription_id=subscription_id,
+            plan=tier,
+            is_trial=is_trial,
+            trial_end=subscription.get("trialEndDate", None)
+        )
+        
+        return {
+            "tenant_id": tenant_id,
+            "subdomain": subdomain,
+            "status": "creating",
+            "url": f"https://{subdomain}.example.com",
+            "subscription_id": subscription_id,
+            "is_trial": is_trial
+        }
+    except Exception as e:
+        # Handle errors, rollback if needed
+        raise APIError(f"Failed to provision tenant: {str(e)}", 500)
+```
+
+### 10.3 Usage Tracking for Billing
+
+```python
+# services/usage_tracker.py
+from services.billing import KillBillClient
+from services.monitoring import get_tenant_resource_usage
+from services.platform_data import TenantMetadata
+import schedule
+import time
+import threading
+
+class UsageTracker:
+    """Track resource usage and report to Kill Bill for billing"""
+    
+    @staticmethod
+    def track_all_tenants():
+        """Track usage for all tenants and report to Kill Bill"""
+        # Get all active tenants
+        tenants = TenantMetadata.get_all_active_tenants()
+        
+        kb_client = KillBillClient()
+        tenant_api_key = "tenant_api_key"  # In production, use tenant-specific key
+        
+        for tenant in tenants:
+            try:
+                # Skip if tenant doesn't have a subscription
+                if not tenant.get("subscription_id"):
+                    continue
+                
+                # Get resource usage
+                usage = get_tenant_resource_usage(tenant["tenant_id"])
+                
+                # Report CPU usage
+                if "cpu_usage" in usage:
+                    kb_client.record_usage(
+                        tenant_api_key,
+                        tenant["subscription_id"],
+                        "CPU",
+                        usage["cpu_usage"]
+                    )
+                
+                # Report memory usage
+                if "memory_usage_mb" in usage:
+                    kb_client.record_usage(
+                        tenant_api_key,
+                        tenant["subscription_id"],
+                        "MEMORY",
+                        usage["memory_usage_mb"]
+                    )
+                
+                # Update usage stats in tenant metadata
+                TenantMetadata.update_resource_usage(
+                    tenant["tenant_id"],
+                    usage.get("cpu_usage", 0),
+                    usage.get("memory_usage_mb", 0),
+                    0  # Storage usage not available in this example
+                )
+            except Exception as e:
+                print(f"Error tracking usage for tenant {tenant['tenant_id']}: {str(e)}")
+    
+    @staticmethod
+    def start_scheduler():
+        """Start the usage tracking scheduler in a background thread"""
+        def run_scheduler():
+            # Track usage every hour
+            schedule.every().hour.do(UsageTracker.track_all_tenants)
+            
+            while True:
+                schedule.run_pending()
+                time.sleep(60)
+        
+        # Start in background thread
+        thread = threading.Thread(target=run_scheduler, daemon=True)
+        thread.start()
+        return thread
+```
+
+### 10.4 Admin Dashboard Integration with Kill Bill
+
+```python
+# routes/admin.py (extended with billing endpoints)
+from flask import Blueprint, request, jsonify
+from services.billing import KillBillClient
+from services.platform_data import TenantMetadata
+
+bp = Blueprint("admin", __name__, url_prefix="/api/admin")
+
+@bp.route("/billing/invoices/<tenant_id>", methods=["GET"])
+def get_tenant_invoices(tenant_id):
+    """Get invoices for a tenant"""
+    try:
+        # Get tenant metadata
+        tenant = TenantMetadata.get_tenant_by_id(tenant_id)
+        if not tenant:
+            return jsonify({"success": False, "error": "Tenant not found"}), 404
+        
+        # Get subscription ID
+        subscription_id = tenant.get("subscription_id")
+        if not subscription_id:
+            return jsonify({"success": False, "error": "No subscription found"}), 404
+        
+        # Get user ID
+        user_id = tenant.get("user_id")
+        
+        # Initialize Kill Bill client
+        kb_client = KillBillClient()
+        tenant_api_key = "tenant_api_key"  # In production, use tenant-specific key
+        
+        # Get account
+        account = kb_client.get_account_by_key(tenant_api_key, user_id)
+        if not account:
+            return jsonify({"success": False, "error": "Account not found in Kill Bill"}), 404
+        
+        # Get invoices
+        invoices = kb_client.get_invoices(tenant_api_key, account["accountId"])
+        
+        return jsonify({
+            "success": True,
+            "tenant_id": tenant_id,
+            "invoices": invoices
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@bp.route("/billing/change-plan/<tenant_id>", methods=["POST"])
+def change_tenant_plan(tenant_id):
+    """Change the billing plan for a tenant"""
+    try:
+        data = request.json
+        new_plan = data.get("plan")
+        
+        if not new_plan:
+            return jsonify({"success": False, "error": "New plan is required"}), 400
+        
+        # Get tenant metadata
+        tenant = TenantMetadata.get_tenant_by_id(tenant_id)
+        if not tenant:
+            return jsonify({"success": False, "error": "Tenant not found"}), 404
+        
+        # Get subscription ID
+        subscription_id = tenant.get("subscription_id")
+        if not subscription_id:
+            return jsonify({"success": False, "error": "No subscription found"}), 404
+        
+        # Initialize Kill Bill client
+        kb_client = KillBillClient()
+        tenant_api_key = "tenant_api_key"  # In production, use tenant-specific key
+        
+        # Change plan in Kill Bill (this is a simplified version)
+        # In reality, this would involve more Kill Bill API calls
+        # to handle plan changes correctly
+        
+        # Update tenant record
+        TenantMetadata.update_billing_info(
+            tenant_id=tenant_id,
+            plan=new_plan,
+            is_trial=False
+        )
+        
+        # Update Kubernetes resources based on new plan
+        # This would adjust CPU/memory/storage limits according to the new plan
+        
+        return jsonify({
+            "success": True,
+            "tenant_id": tenant_id,
+            "message": f"Plan changed to {new_plan}"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+```
+
+### 10.5 Kill Bill Catalog Configuration Example
+
+Kill Bill uses a catalog to define the available plans and pricing. Here's an example configuration:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<catalog xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="CatalogSchema.xsd">
+    <effectiveDate>2023-01-01T00:00:00+00:00</effectiveDate>
+    <catalogName>SaasOdooCatalog</catalogName>
+    
+    <currencies>
+        <currency>USD</currency>
+        <currency>EUR</currency>
+    </currencies>
+    
+    <units>
+        <unit name="CPU">
+            <prettyName>CPU Core Hours</prettyName>
+        </unit>
+        <unit name="MEMORY">
+            <prettyName>Memory GB Hours</prettyName>
+        </unit>
+        <unit name="STORAGE">
+            <prettyName>Storage GB</prettyName>
+        </unit>
+    </units>
+    
+    <products>
+        <product name="odoo-base">
+            <category>BASE</category>
+            <included>
+                <addonConfig>
+                    <amount>1</amount>
+                </addonConfig>
+            </included>
+        </product>
+        <product name="odoo-standard">
+            <category>BASE</category>
+            <included>
+                <addonConfig>
+                    <amount>2</amount>
+                </addonConfig>
+            </included>
+        </product>
+        <product name="odoo-premium">
+            <category>BASE</category>
+            <included>
+                <addonConfig>
+                    <amount>4</amount>
+                </addonConfig>
+            </included>
+        </product>
+        <product name="odoo-enterprise">
+            <category>BASE</category>
+            <included>
+                <addonConfig>
+                    <amount>8</amount>
+                </addonConfig>
+            </included>
+        </product>
+    </products>
+    
+    <rules>
+        <changePolicy>
+            <changePolicyCase>
+                <policy>IMMEDIATE</policy>
+            </changePolicyCase>
+        </changePolicy>
+        <cancelPolicy>
+            <cancelPolicyCase>
+                <policy>IMMEDIATE</policy>
+            </cancelPolicyCase>
+        </cancelPolicy>
+    </rules>
+    
+    <plans>
+        <plan name="odoo-base-monthly">
+            <product>odoo-base</product>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>MONTHLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>0</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+        
+        <plan name="odoo-standard-monthly">
+            <product>odoo-standard</product>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>MONTHLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>1900</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+        
+        <plan name="odoo-premium-monthly">
+            <product>odoo-premium</product>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>MONTHLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>3900</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+        
+        <plan name="odoo-enterprise-monthly">
+            <product>odoo-enterprise</product>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>MONTHLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>9900</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+    </plans>
+    
+    <priceLists>
+        <defaultPriceList name="DEFAULT">
+            <plans>
+                <plan>odoo-base-monthly</plan>
+                <plan>odoo-standard-monthly</plan>
+                <plan>odoo-premium-monthly</plan>
+                <plan>odoo-enterprise-monthly</plan>
+            </plans>
+        </defaultPriceList>
+    </priceLists>
+</catalog>
+```
+
+This Kill Bill integration provides a complete billing and payment solution for the SaaS platform, supporting subscription management, payment processing, and usage-based billing without having to build these complex systems from scratch.
