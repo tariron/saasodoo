@@ -1,0 +1,1 @@
+# Database model for Users (if extending Supabase locally) 

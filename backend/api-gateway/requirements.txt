@@ -1,0 +1,3 @@
+# Dependencies for API Gateway service
+# flask or fastapi
+# requests (if calling other services directly, though often not needed for a pure gateway) 

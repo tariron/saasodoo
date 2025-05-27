@@ -1,0 +1,1 @@
+# Initializes the blueprints package for frontend views 

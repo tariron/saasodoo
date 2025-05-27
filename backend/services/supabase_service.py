@@ -1,0 +1,1 @@
+# Service for interacting with Supabase (auth, database) 

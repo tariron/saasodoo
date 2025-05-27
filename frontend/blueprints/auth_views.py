@@ -1,0 +1,1 @@
+# Blueprint for authentication views (login, register, profile) 
