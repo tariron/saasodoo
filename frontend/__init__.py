@@ -1,1 +1,0 @@
-# Frontend application factory (create_app function) 

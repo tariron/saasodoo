@@ -1,1 +1,0 @@
-# Blueprint for user dashboard views (instance listing, management) 

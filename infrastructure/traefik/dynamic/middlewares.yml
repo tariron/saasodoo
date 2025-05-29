@@ -1,0 +1,99 @@
+http:
+  middlewares:
+    # Security Headers
+    secure-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - OPTIONS
+          - PUT
+          - POST
+          - DELETE
+          - PATCH
+        accessControlAllowOriginList:
+          - "*"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlMaxAge: 86400
+        frameDeny: true
+        sslRedirect: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+
+    # Rate Limiting for APIs
+    api-rate-limit:
+      rateLimit:
+        burst: 200
+        average: 100
+        period: "1m"
+
+    # Rate Limiting for Web UI
+    web-rate-limit:
+      rateLimit:
+        burst: 50
+        average: 25
+        period: "1m"
+
+    # Authentication for Admin Interfaces
+    admin-auth:
+      basicAuth:
+        users:
+          - "admin:$2y$10$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
+
+    # IP Whitelist for sensitive endpoints
+    internal-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    # Compression
+    compression:
+      compress: {}
+
+    # Retry logic
+    retry:
+      retry:
+        attempts: 3
+
+    # Circuit breaker
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.30"
+
+    # Request size limit
+    body-limit:
+      buffering:
+        maxRequestBodyBytes: 10485760  # 10MB
+
+    # CORS for microservices
+    microservice-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "https://${APP_DOMAIN}"
+          - "https://${ADMIN_DOMAIN}"
+          - "http://localhost:3000"
+          - "http://localhost:3001"
+        accessControlAllowHeaders:
+          - "Authorization"
+          - "Content-Type"
+          - "X-Requested-With"
+          - "X-Tenant-ID"
+          - "X-API-Key"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400 

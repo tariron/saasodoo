@@ -1,0 +1,50 @@
+-- PostgreSQL Extensions Installation
+-- Install required extensions for Odoo SaaS Kit
+
+-- Create extensions in the main database
+\c saas_odoo;
+
+-- UUID extension for generating unique identifiers
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- PostgreSQL Crypto extension for password hashing
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Full text search extension
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+-- Additional useful extensions for analytics
+CREATE EXTENSION IF NOT EXISTS "tablefunc";
+
+-- JSON aggregation functions (if PostgreSQL < 14)
+-- CREATE EXTENSION IF NOT EXISTS "aggs_for_arrays";
+
+-- Install extensions in auth database
+\c auth;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+-- Install extensions in billing database
+\c billing;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Install extensions in tenant database
+\c tenant;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Install extensions in communication database
+\c communication;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+-- Install extensions in analytics database
+\c analytics;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "tablefunc";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+-- Return to main database
+\c saas_odoo; 

@@ -1,0 +1,127 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'saasodoo-dev'
+    replica: 'prometheus-1'
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Traefik metrics
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik:8080']
+    metrics_path: /metrics
+
+  # Node Exporter (if added later)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis Exporter
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # RabbitMQ
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+    metrics_path: /metrics
+
+  # SaaSOdoo Microservices
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:8001']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'tenant-service'
+    static_configs:
+      - targets: ['tenant-service:8002']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'billing-service'
+    static_configs:
+      - targets: ['billing-service:8003']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'communication-service'
+    static_configs:
+      - targets: ['communication-service:8004']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'analytics-service'
+    static_configs:
+      - targets: ['analytics-service:8005']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8000']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: 'web-app'
+    static_configs:
+      - targets: ['web-app:3000']
+    metrics_path: /metrics
+    scrape_interval: 60s
+
+  - job_name: 'admin-app'
+    static_configs:
+      - targets: ['admin-app:3001']
+    metrics_path: /metrics
+    scrape_interval: 60s
+
+  # Cadvisor for container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+
+  # Docker daemon metrics (if enabled)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+    scrape_interval: 30s
+
+  # Blackbox exporter for endpoint monitoring
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://${APP_DOMAIN}
+        - https://${ADMIN_DOMAIN}
+        - https://${API_DOMAIN}/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115 

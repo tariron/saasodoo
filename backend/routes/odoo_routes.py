@@ -1,1 +1,0 @@
-# API routes for Odoo specific operations (e.g., /api/odoo/*) 

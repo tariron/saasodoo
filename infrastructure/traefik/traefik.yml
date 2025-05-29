@@ -1,0 +1,151 @@
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+api:
+  dashboard: true
+  debug: true
+  insecure: true
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        options: default
+
+serversTransport:
+  insecureSkipVerify: true
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: saasodoo-network
+    defaultRule: "Host(`{{ normalize .Name }}.${BASE_DOMAIN}`)"
+
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${SSL_EMAIL}
+      storage: /certificates/acme.json
+      httpChallenge:
+        entryPoint: web
+      # For development, use staging server
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+
+  letsencrypt-prod:
+    acme:
+      email: ${SSL_EMAIL}
+      storage: /certificates/acme-prod.json
+      httpChallenge:
+        entryPoint: web
+      # Production server
+      caServer: https://acme-v02.api.letsencrypt.org/directory
+
+# TLS Configuration
+tls:
+  options:
+    default:
+      minVersion: "VersionTLS12"
+      cipherSuites:
+        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+        - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+
+# Logging
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    defaultMode: keep
+    names:
+      ClientUsername: drop
+    headers:
+      defaultMode: keep
+      names:
+        User-Agent: redact
+        Authorization: drop
+        Content-Type: keep
+
+# Metrics
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    buckets:
+      - 0.1
+      - 0.3
+      - 1.2
+      - 5.0
+
+# Rate limiting middleware (defined globally)
+http:
+  middlewares:
+    # Security headers
+    security-headers:
+      headers:
+        frameDeny: true
+        sslRedirect: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+
+    # Rate limiting
+    rate-limit:
+      rateLimit:
+        burst: 100
+        average: 50
+
+    # CORS for APIs
+    api-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - OPTIONS
+          - PUT
+          - POST
+          - DELETE
+          - PATCH
+        accessControlAllowOriginList:
+          - "*"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlMaxAge: 86400
+
+    # Authentication middleware
+    auth:
+      basicAuth:
+        users:
+          - "admin:$2y$10$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
+
+    # IP whitelist for admin interfaces
+    admin-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16" 

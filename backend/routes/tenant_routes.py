@@ -1,1 +1,0 @@
-# API routes for tenant management (e.g., /api/tenants/*) 

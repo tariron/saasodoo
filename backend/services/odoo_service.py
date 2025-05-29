@@ -1,1 +1,0 @@
-# Service for logic related to Odoo instance interactions 

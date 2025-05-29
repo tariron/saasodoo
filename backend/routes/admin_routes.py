@@ -1,1 +1,0 @@
-# API routes for admin specific functionalities (e.g., /api/admin/*) 

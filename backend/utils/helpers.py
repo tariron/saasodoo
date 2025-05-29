@@ -1,1 +1,0 @@
-# Example utility functions for the backend 

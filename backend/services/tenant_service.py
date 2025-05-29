@@ -1,1 +1,0 @@
-# Business logic for tenant management (K8s, DB, Supabase metadata) 
