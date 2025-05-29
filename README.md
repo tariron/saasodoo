@@ -25,6 +25,7 @@ A comprehensive SaaS platform for provisioning and managing Odoo instances with 
 ### Infrastructure
 - **Traefik** - Reverse proxy and load balancer
 - **PostgreSQL** - Primary database
+- **pgAdmin** - Database management interface
 - **Redis** - Caching and sessions
 - **Prometheus/Grafana** - Monitoring stack
 

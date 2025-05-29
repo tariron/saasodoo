@@ -13,15 +13,18 @@ help: ## Show this help message
 
 dev-up: ## Start development environment
 	@echo "🚀 Starting development environment..."
-	docker-compose -f infrastructure/compose/docker-compose.yml up -d
+	@echo "📋 Ensuring environment file is in place..."
+	@copy .env infrastructure\compose\.env > nul 2>&1 || cp .env infrastructure/compose/.env > /dev/null 2>&1 || true
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml up -d
 	@echo "✅ Development environment started!"
 	@echo "   Web App: http://localhost"
 	@echo "   Admin: http://admin.localhost"
 	@echo "   API Docs: http://api.localhost/docs"
+	@echo "   pgAdmin: http://pgadmin.saasodoo.local"
 
 dev-down: ## Stop development environment
 	@echo "🛑 Stopping development environment..."
-	docker-compose -f infrastructure/compose/docker-compose.yml down
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml down
 	@echo "✅ Development environment stopped!"
 
 dev-restart: ## Restart development environment
@@ -30,16 +33,16 @@ dev-restart: ## Restart development environment
 	$(MAKE) dev-up
 
 dev-logs: ## View development logs
-	docker-compose -f infrastructure/compose/docker-compose.yml logs -f
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml logs -f
 
 dev-logs-service: ## View logs for specific service (usage: make dev-logs-service SERVICE=web-app)
-	docker-compose -f infrastructure/compose/docker-compose.yml logs -f $(SERVICE)
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml logs -f $(SERVICE)
 
 dev-shell: ## Access shell in specific service (usage: make dev-shell SERVICE=web-app)
-	docker-compose -f infrastructure/compose/docker-compose.yml exec $(SERVICE) /bin/bash
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml exec $(SERVICE) /bin/bash
 
 dev-ps: ## Show running development services
-	docker-compose -f infrastructure/compose/docker-compose.yml ps
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml ps
 
 # =============================================================================
 # TESTING COMMANDS
@@ -52,7 +55,7 @@ test: ## Run all tests
 
 test-service: ## Run tests for specific service (usage: make test-service SERVICE=user-service)
 	@echo "🧪 Running tests for $(SERVICE)..."
-	docker-compose -f infrastructure/compose/docker-compose.yml exec $(SERVICE) python -m pytest tests/ -v
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml exec $(SERVICE) python -m pytest tests/ -v
 	@echo "✅ Tests for $(SERVICE) completed!"
 
 test-integration: ## Run integration tests
@@ -72,12 +75,12 @@ build: ## Build all Docker images
 
 build-service: ## Build specific service image (usage: make build-service SERVICE=web-app)
 	@echo "🔨 Building $(SERVICE) image..."
-	docker-compose -f infrastructure/compose/docker-compose.yml build $(SERVICE)
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml build $(SERVICE)
 	@echo "✅ $(SERVICE) image built!"
 
 build-no-cache: ## Build all images without cache
 	@echo "🔨 Building all images without cache..."
-	docker-compose -f infrastructure/compose/docker-compose.yml build --no-cache
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml build --no-cache
 	@echo "✅ All images built without cache!"
 
 # =============================================================================
@@ -91,8 +94,8 @@ db-test: ## Test database connectivity and setup
 
 db-reset: ## Reset development database
 	@echo "🗄️ Resetting development database..."
-	docker-compose -f infrastructure/compose/docker-compose.yml down -v
-	docker-compose -f infrastructure/compose/docker-compose.yml up -d postgres redis
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml down -v
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml up -d postgres redis
 	@echo "⏳ Waiting for database to be ready..."
 	sleep 10
 	$(MAKE) dev-up
@@ -105,8 +108,23 @@ db-backup: ## Create database backup
 
 db-restore: ## Restore database from backup (usage: make db-restore BACKUP_FILE=backup.sql)
 	@echo "📥 Restoring database from $(BACKUP_FILE)..."
-	docker exec -i $$(docker-compose -f infrastructure/compose/docker-compose.yml ps -q postgres) psql -U odoo_user -d saas_odoo < $(BACKUP_FILE)
+	docker exec -i $$(docker-compose -f infrastructure/compose/docker-compose.dev.yml ps -q postgres) psql -U odoo_user -d saas_odoo < $(BACKUP_FILE)
 	@echo "✅ Database restore completed!"
+
+pgadmin-open: ## Open pgAdmin in browser
+	@echo "🌐 Opening pgAdmin in browser..."
+	@if [ "$(OS)" = "Windows_NT" ]; then start http://pgadmin.saasodoo.local; else open http://pgadmin.saasodoo.local || xdg-open http://pgadmin.saasodoo.local; fi
+	@echo "📝 Login with: admin@saasodoo.local / pgadmin_password_change_me"
+
+pgadmin-reset: ## Reset pgAdmin configuration and data
+	@echo "🔄 Resetting pgAdmin configuration..."
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml down pgadmin
+	docker volume rm saasodoo_pgadmin-data || true
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml up -d pgadmin
+	@echo "✅ pgAdmin reset completed!"
+
+pgadmin-logs: ## View pgAdmin logs
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml logs -f pgadmin
 
 # =============================================================================
 # PRODUCTION COMMANDS

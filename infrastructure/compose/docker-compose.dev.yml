@@ -50,6 +50,30 @@ services:
     labels:
       - "traefik.enable=false"
 
+  # Database Management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: saasodoo-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@saasodoo.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_DISABLE_POSTFIX: true
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ../../shared/configs/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.pgadmin.service=pgadmin"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
   # Redis Cache & Session Store
   redis:
     image: redis:7-alpine
@@ -84,7 +108,7 @@ services:
       - "15672:15672"  # Management UI
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE__DOMAIN}`)"
+      - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE_DOMAIN}`)"
       - "traefik.http.routers.rabbitmq.service=rabbitmq"
       - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
 
@@ -219,4 +243,6 @@ volumes:
   minio-data:
     driver: local
   traefik-certificates:
+    driver: local
+  pgadmin-data:
     driver: local 
