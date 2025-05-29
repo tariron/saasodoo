@@ -2,7 +2,7 @@
 -- Install required extensions for Odoo SaaS Kit
 
 -- Create extensions in the main database
-\c saas_odoo;
+\c ${POSTGRES_DB};
 
 -- UUID extension for generating unique identifiers
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -47,4 +47,4 @@ CREATE EXTENSION IF NOT EXISTS "tablefunc";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- Return to main database
-\c saas_odoo; 
+\c ${POSTGRES_DB}; 
