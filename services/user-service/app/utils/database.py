@@ -299,4 +299,23 @@ class CustomerDatabase:
         
         if result:
             return dict(result)
-        return None 
+        return None
+    
+    @staticmethod
+    async def invalidate_customer_session(session_token: str) -> bool:
+        """
+        Invalidate/delete customer session
+        
+        Args:
+            session_token: Session token to invalidate
+            
+        Returns:
+            bool: Success status
+        """
+        query = """
+        DELETE FROM user_sessions 
+        WHERE session_token = $1
+        """
+        
+        result = await db_manager.execute_command(query, session_token)
+        return result == "DELETE 1" 

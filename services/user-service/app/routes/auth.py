@@ -5,6 +5,7 @@ Customer registration, login, password reset, and email verification
 
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import bcrypt
 import secrets
 from datetime import datetime, timedelta
@@ -28,6 +29,9 @@ from app.utils.supabase_client import supabase_client
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Security scheme for JWT tokens
+security = HTTPBearer()
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register_customer(
@@ -136,7 +140,8 @@ async def login_customer(
 @router.post("/logout", response_model=dict)
 async def logout_customer(
     current_customer: CurrentCustomer,
-    db: DatabaseDep
+    db: DatabaseDep,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     """
     Customer logout
@@ -144,8 +149,20 @@ async def logout_customer(
     Invalidates current session and tokens
     """
     try:
-        # Logout customer
-        logout_result = await AuthService.logout_customer(current_customer['id'])
+        # Extract session token for invalidation
+        session_token = credentials.credentials
+        
+        # Logout customer with token invalidation
+        logout_result = await AuthService.logout_customer(
+            current_customer['id'], 
+            session_token
+        )
+        
+        if not logout_result['success']:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=logout_result.get('error', 'Logout failed')
+            )
         
         logger.info(f"Customer logged out: {current_customer['email']}")
         

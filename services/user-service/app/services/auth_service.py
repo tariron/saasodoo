@@ -202,19 +202,29 @@ class AuthService:
             }
     
     @staticmethod
-    async def logout_customer(customer_id: str) -> Dict:
+    async def logout_customer(customer_id: str, session_token: str = None) -> Dict:
         """
-        Logout customer
+        Logout customer and invalidate session
         
         Args:
             customer_id: Customer ID
+            session_token: Session token to invalidate (optional)
             
         Returns:
             dict: Logout result
         """
         try:
-            # For now, we don't track active sessions to invalidate
-            # In production, you would invalidate the session tokens here
+            # Invalidate the local session token if provided
+            if session_token:
+                success = await CustomerDatabase.invalidate_customer_session(session_token)
+                if success:
+                    logger.info(f"Local session invalidated for customer: {customer_id}")
+                else:
+                    logger.warning(f"Failed to invalidate session for customer: {customer_id}")
+                    return {
+                        'success': False,
+                        'error': 'Failed to invalidate session'
+                    }
             
             logger.info(f"Customer logged out: {customer_id}")
             return {
