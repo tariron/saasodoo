@@ -65,6 +65,25 @@ GRANT ALL PRIVILEGES ON DATABASE auth TO auth_service;
 GRANT ALL PRIVILEGES ON DATABASE billing TO billing_service;
 GRANT ALL PRIVILEGES ON DATABASE tenant TO tenant_service;
 
+-- Grant table-level permissions for each service user on their database
+-- Auth service permissions on auth database
+\c auth;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO auth_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_service;
+
+-- Billing service permissions on billing database  
+\c billing;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO billing_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO billing_service;
+
+-- Tenant service permissions on tenant database
+\c tenant;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tenant_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tenant_service;
+
+-- Return to main database
+\c saas_odoo;
+
 -- Grant backup permissions
 GRANT CONNECT ON DATABASE saas_odoo TO backup_user;
 GRANT CONNECT ON DATABASE auth TO backup_user;

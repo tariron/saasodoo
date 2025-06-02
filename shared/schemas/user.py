@@ -33,7 +33,7 @@ class UserSchema(BaseModel):
     last_name: str = Field(..., min_length=1, max_length=50)
     role: UserRole = UserRole.USER
     status: UserStatus = UserStatus.PENDING
-    phone: Optional[str] = Field(None, regex=r'^\+?[1-9]\d{1,14}$')
+    phone: Optional[str] = Field(None, pattern=r'^\+?[1-9]\d{1,14}$')
     company: Optional[str] = Field(None, max_length=100)
     country: Optional[str] = Field(None, max_length=50)
     timezone: Optional[str] = Field(None, max_length=50)
@@ -82,7 +82,7 @@ class UserCreateSchema(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
-    phone: Optional[str] = Field(None, regex=r'^\+?[1-9]\d{1,14}$')
+    phone: Optional[str] = Field(None, pattern=r'^\+?[1-9]\d{1,14}$')
     company: Optional[str] = Field(None, max_length=100)
     country: Optional[str] = Field(None, max_length=50)
     timezone: Optional[str] = Field(None, max_length=50)
@@ -124,7 +124,7 @@ class UserUpdateSchema(BaseModel):
     """Schema for updating user information"""
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
-    phone: Optional[str] = Field(None, regex=r'^\+?[1-9]\d{1,14}$')
+    phone: Optional[str] = Field(None, pattern=r'^\+?[1-9]\d{1,14}$')
     company: Optional[str] = Field(None, max_length=100)
     country: Optional[str] = Field(None, max_length=50)
     timezone: Optional[str] = Field(None, max_length=50)
@@ -261,9 +261,9 @@ class UserPreferencesSchema(BaseModel):
     email_notifications: Optional[bool] = True
     sms_notifications: Optional[bool] = False
     marketing_emails: Optional[bool] = False
-    theme: Optional[str] = Field(None, regex=r'^(light|dark|auto)$')
-    date_format: Optional[str] = Field(None, regex=r'^(DD/MM/YYYY|MM/DD/YYYY|YYYY-MM-DD)$')
-    time_format: Optional[str] = Field(None, regex=r'^(12|24)$')
+    theme: Optional[str] = Field(None, pattern=r'^(light|dark|auto)$')
+    date_format: Optional[str] = Field(None, pattern=r'^(DD/MM/YYYY|MM/DD/YYYY|YYYY-MM-DD)$')
+    time_format: Optional[str] = Field(None, pattern=r'^(12|24)$')
     currency: Optional[str] = Field(None, max_length=3)
 
     @validator('timezone')

@@ -38,8 +38,19 @@ class DatabaseManager:
         host = os.getenv("POSTGRES_HOST", "localhost")
         port = os.getenv("POSTGRES_PORT", "5432")
         database = os.getenv("POSTGRES_DB", "saas_odoo")
-        username = os.getenv("POSTGRES_USER", "odoo_user")
-        password = os.getenv("POSTGRES_PASSWORD", "")
+        
+        # Enforce service-specific database users for security
+        service_user = os.getenv("DB_SERVICE_USER")
+        service_password = os.getenv("DB_SERVICE_PASSWORD")
+        
+        if not service_user or not service_password:
+            raise ValueError(
+                "DB_SERVICE_USER and DB_SERVICE_PASSWORD must be set for database security. "
+                "Each service must use its specific database user (e.g., auth_service, billing_service)."
+            )
+        
+        username = service_user
+        password = service_password
         
         return f"postgresql://{username}:{password}@{host}:{port}/{database}"
     

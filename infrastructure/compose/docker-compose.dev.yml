@@ -222,6 +222,68 @@ services:
       - "traefik.http.routers.minio-api.service=minio-api"
       - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
 
+  # ===== MICROSERVICES =====
+  
+  # User Service - Customer Authentication & Management
+  user-service:
+    build:
+      context: ../../services/user-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-user-service
+    restart: unless-stopped
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: auth
+      DB_SERVICE_USER: ${POSTGRES_AUTH_SERVICE_USER:-auth_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_AUTH_SERVICE_PASSWORD:-auth_service_secure_pass_change_me}
+      
+      # Supabase Configuration (Optional)
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # JWT Configuration
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.user-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/user`)"
+      - "traefik.http.routers.user-service.service=user-service"
+      - "traefik.http.services.user-service.loadbalancer.server.port=8001"
+      # Auth routes  
+      - "traefik.http.routers.user-auth.rule=Host(`auth.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.user-auth.service=user-service"
+      # Strip /user prefix for clean API
+      - "traefik.http.middlewares.user-strip.stripprefix.prefixes=/user"
+      - "traefik.http.routers.user-service.middlewares=user-strip"
+    ports:
+      - "8001:8001"  # Expose user-service port to host
+
 networks:
   saasodoo-network:
     driver: bridge
