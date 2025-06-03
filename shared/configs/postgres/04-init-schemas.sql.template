@@ -77,34 +77,85 @@ CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status);
 -- Initialize tenant database schema
 \c tenant;
 
+-- Create tenants table (updated for tenant-service)
 CREATE TABLE IF NOT EXISTS tenants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL,
-    subdomain VARCHAR(100) UNIQUE NOT NULL,
-    domain VARCHAR(255),
-    odoo_version VARCHAR(20) NOT NULL,
-    status VARCHAR(50) DEFAULT 'provisioning',
-    database_name VARCHAR(100) NOT NULL,
-    container_name VARCHAR(100),
+    customer_id UUID NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    subdomain VARCHAR(50) UNIQUE NOT NULL,
+    plan VARCHAR(20) DEFAULT 'starter',
+    status VARCHAR(20) DEFAULT 'provisioning',
+    max_instances INTEGER DEFAULT 1,
+    max_users INTEGER DEFAULT 5,
+    custom_domain VARCHAR(255),
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS tenant_configs (
+-- Create instances table (new for tenant-service)
+CREATE TABLE IF NOT EXISTS instances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-    config_key VARCHAR(100) NOT NULL,
-    config_value TEXT,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    odoo_version VARCHAR(10) DEFAULT '17.0',
+    instance_type VARCHAR(20) DEFAULT 'development',
+    status VARCHAR(20) DEFAULT 'creating',
+    
+    -- Resource allocation
+    cpu_limit DECIMAL(3,1) DEFAULT 1.0,
+    memory_limit VARCHAR(10) DEFAULT '1G',
+    storage_limit VARCHAR(10) DEFAULT '10G',
+    
+    -- Odoo configuration
+    admin_email VARCHAR(255) NOT NULL,
+    database_name VARCHAR(50) NOT NULL,
+    demo_data BOOLEAN DEFAULT false,
+    
+    -- Container information
+    container_id VARCHAR(255),
+    container_name VARCHAR(255),
+    
+    -- Network information
+    internal_port INTEGER DEFAULT 8069,
+    external_port INTEGER,
+    internal_url VARCHAR(255),
+    external_url VARCHAR(255),
+    
+    -- Database information
+    db_host VARCHAR(255),
+    db_port INTEGER DEFAULT 5432,
+    db_user VARCHAR(255),
+    
+    -- Addons and modules (stored as JSON arrays)
+    custom_addons JSONB DEFAULT '[]',
+    disabled_modules JSONB DEFAULT '[]',
+    environment_vars JSONB DEFAULT '{}',
+    
+    -- Status information
+    last_health_check TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    
+    -- Timestamps
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(tenant_id, config_key)
+    started_at TIMESTAMP WITH TIME ZONE,
+    
+    -- Metadata
+    metadata JSONB DEFAULT '{}'
 );
 
 -- Create indexes for tenant database
-CREATE INDEX IF NOT EXISTS idx_tenants_user_id ON tenants(user_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_customer_id ON tenants(customer_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_subdomain ON tenants(subdomain);
 CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
-CREATE INDEX IF NOT EXISTS idx_tenant_configs_tenant_id ON tenant_configs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_plan ON tenants(plan);
+
+CREATE INDEX IF NOT EXISTS idx_instances_tenant_id ON instances(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_instances_status ON instances(status);
+CREATE INDEX IF NOT EXISTS idx_instances_name ON instances(name);
+CREATE INDEX IF NOT EXISTS idx_instances_created_at ON instances(created_at);
 
 -- Initialize communication database schema
 \c communication;

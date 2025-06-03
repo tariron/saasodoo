@@ -182,7 +182,7 @@ def test_database_schemas() -> bool:
     schema_tests = {
         "auth": ["users", "user_sessions", "password_resets"],
         "billing": ["subscriptions", "payments"],
-        "tenant": ["tenants", "tenant_configs"],
+        "tenant": ["tenants", "instances"],
         "communication": ["email_templates", "email_queue"],
         "analytics": ["user_activities", "system_metrics"]
     }

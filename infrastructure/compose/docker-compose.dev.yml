@@ -264,7 +264,7 @@ services:
       - postgres
       - redis
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -283,6 +283,57 @@ services:
       - "traefik.http.routers.user-service.middlewares=user-strip"
     ports:
       - "8001:8001"  # Expose user-service port to host
+
+  # Tenant Service - Odoo Instance & Tenant Management
+  tenant-service:
+    build:
+      context: ../../services/tenant-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-tenant-service
+    restart: unless-stopped
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: tenant
+      DB_SERVICE_USER: ${POSTGRES_TENANT_SERVICE_USER:-tenant_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_TENANT_SERVICE_PASSWORD:-tenant_service_secure_pass_change_me}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Docker Configuration (for instance management)
+      DOCKER_HOST: unix:///var/run/docker.sock
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.tenant-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/tenant`)"
+      - "traefik.http.routers.tenant-service.service=tenant-service"
+      - "traefik.http.services.tenant-service.loadbalancer.server.port=8002"
+      # Strip /tenant prefix for clean API
+      - "traefik.http.middlewares.tenant-strip.stripprefix.prefixes=/tenant"
+      - "traefik.http.routers.tenant-service.middlewares=tenant-strip"
+    ports:
+      - "8002:8002"  # Expose tenant-service port to host
 
 networks:
   saasodoo-network:
