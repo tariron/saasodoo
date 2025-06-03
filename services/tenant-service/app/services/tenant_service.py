@@ -62,12 +62,14 @@ class TenantService:
     async def get_customer_total_instances(self, customer_id: UUID) -> int:
         """
         Get total instance count for a customer across all tenants
-        This method is called by user-service to replace the workaround
+        NOTE: This method now returns 0 since instances are managed by instance-service
+        The caller should query the instance-service directly for accurate counts
         """
         try:
-            count = await self.db.get_instances_by_customer(customer_id)
-            logger.info("Retrieved customer instance count", customer_id=str(customer_id), count=count)
-            return count
+            # Instance counts are now managed by instance-service
+            # Return 0 for backward compatibility
+            logger.warning("Instance counting moved to instance-service", customer_id=str(customer_id))
+            return 0
             
         except Exception as e:
             logger.error("Failed to get customer instance count", customer_id=str(customer_id), error=str(e))
@@ -132,6 +134,7 @@ class TenantService:
     async def delete_customer_tenants(self, customer_id: UUID) -> int:
         """
         Delete all tenants for a customer (called when customer is deleted)
+        NOTE: Caller should ensure instances are deleted via instance-service first
         Returns number of tenants deleted
         """
         try:
@@ -142,12 +145,9 @@ class TenantService:
                 if tenant_data['status'] != TenantStatus.TERMINATED.value:
                     tenant_id = UUID(tenant_data['id'])
                     
-                    # Check if tenant has active instances
-                    instances_data = await self.db.get_instances_by_tenant(tenant_id, page=1, page_size=1)
-                    if instances_data['total'] > 0:
-                        # TODO: Delete all instances first
-                        logger.warning("Tenant has active instances, should delete instances first", 
-                                     tenant_id=str(tenant_id))
+                    # Note: Instance validation is now handled by instance-service
+                    # The caller should check with instance-service before deleting tenant
+                    logger.info("Deleting tenant", tenant_id=str(tenant_id))
                     
                     success = await self.db.delete_tenant(tenant_id)
                     if success:
@@ -177,35 +177,8 @@ class TenantService:
             if not tenant:
                 raise ValueError("Tenant not found")
             
-            # Get instance statistics
-            instances_data = await self.db.get_instances_by_tenant(tenant_id, page=1, page_size=100)
-            
-            # Count instances by status
-            status_counts = {}
-            for instance in instances_data['instances']:
-                status = instance['status']
-                status_counts[status] = status_counts.get(status, 0) + 1
-            
-            # Calculate resource usage
-            total_cpu = sum(instance['cpu_limit'] for instance in instances_data['instances'])
-            total_memory_mb = 0
-            total_storage_gb = 0
-            
-            for instance in instances_data['instances']:
-                # Parse memory (e.g., "1G" -> 1024, "512M" -> 512)
-                memory_str = instance['memory_limit']
-                if memory_str.endswith('G'):
-                    total_memory_mb += int(memory_str[:-1]) * 1024
-                elif memory_str.endswith('M'):
-                    total_memory_mb += int(memory_str[:-1])
-                
-                # Parse storage (e.g., "10G" -> 10, "5000M" -> 5)
-                storage_str = instance['storage_limit']
-                if storage_str.endswith('G'):
-                    total_storage_gb += int(storage_str[:-1])
-                elif storage_str.endswith('M'):
-                    total_storage_gb += int(storage_str[:-1]) / 1024
-            
+            # Instance statistics are now provided by instance-service
+            # This method now returns basic tenant information only
             statistics = {
                 'tenant_id': str(tenant_id),
                 'tenant_name': tenant.name,
@@ -216,18 +189,13 @@ class TenantService:
                     'max_instances': tenant.max_instances,
                     'max_users': tenant.max_users
                 },
-                'usage': {
-                    'instance_count': instances_data['total'],
-                    'cpu_cores': total_cpu,
-                    'memory_mb': total_memory_mb,
-                    'storage_gb': total_storage_gb
-                },
-                'instances_by_status': status_counts,
-                'utilization': {
-                    'instance_percentage': (instances_data['total'] / tenant.max_instances * 100) if tenant.max_instances > 0 else 0
-                }
+                'created_at': tenant.created_at.isoformat() if tenant.created_at else None,
+                'updated_at': tenant.updated_at.isoformat() if tenant.updated_at else None,
+                'custom_domain': tenant.custom_domain,
+                'metadata': tenant.metadata or {}
             }
             
+            logger.info("Retrieved tenant statistics", tenant_id=str(tenant_id))
             return statistics
             
         except Exception as e:

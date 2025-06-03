@@ -1,7 +1,5 @@
 """
-API routes for tenant service
+Tenant service routes
 """
 
-from . import health, tenants, instances
-
-__all__ = ["health", "tenants", "instances"] 
+from . import health, tenants 

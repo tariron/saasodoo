@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 import structlog
 
-from app.utils.database import TenantDatabase
+from app.utils.database import InstanceDatabase
 from app.models.instance import Instance, InstanceCreate, InstanceUpdate, InstanceStatus
 
 
@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 class InstanceService:
     """High-level instance business logic service"""
     
-    def __init__(self, db: TenantDatabase):
+    def __init__(self, db: InstanceDatabase):
         self.db = db
     
     async def create_instance_for_tenant(self, tenant_id: UUID, instance_data: InstanceCreate) -> Instance:
@@ -24,20 +24,19 @@ class InstanceService:
         Create a new Odoo instance for a tenant with business logic validation
         """
         try:
-            # Validate tenant exists and is active
-            tenant = await self.db.get_tenant(tenant_id)
-            if not tenant:
+            # Get tenant info for validation (basic info only)
+            tenant_info = await self.db.get_tenant_info(tenant_id)
+            if not tenant_info:
                 raise ValueError("Tenant not found")
             
-            if tenant.status != "active":
-                raise ValueError(f"Cannot create instance for tenant with status: {tenant.status}")
+            if tenant_info['status'] != "active":
+                raise ValueError(f"Cannot create instance for tenant with status: {tenant_info['status']}")
             
             # Check instance limits
-            instances_data = await self.db.get_instances_by_tenant(tenant_id, page=1, page_size=1)
-            current_count = instances_data['total']
+            current_count = await self.db.get_tenant_instance_count(tenant_id)
             
-            if current_count >= tenant.max_instances:
-                raise ValueError(f"Tenant has reached maximum instance limit: {tenant.max_instances}")
+            if current_count >= tenant_info['max_instances']:
+                raise ValueError(f"Tenant has reached maximum instance limit: {tenant_info['max_instances']}")
             
             # Set tenant_id in instance data
             instance_data.tenant_id = tenant_id

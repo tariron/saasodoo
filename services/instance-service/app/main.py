@@ -1,6 +1,6 @@
 """
-Tenant Service - Main Application
-Handles Odoo tenant management and subscription plans
+Instance Service - Main Application
+Handles Odoo instance provisioning and lifecycle management
 """
 
 import os
@@ -13,8 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
 
-from app.utils.database import TenantDatabase
-from app.routes import health, tenants
+from app.utils.database import InstanceDatabase
+from app.routes import instances
 
 
 # Configure structured logging
@@ -37,11 +37,11 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events"""
-    logger.info("Starting Tenant Service")
+    logger.info("Starting Instance Service")
     
     # Initialize database connection
     try:
-        db = TenantDatabase()
+        db = InstanceDatabase()
         await db.initialize()
         app.state.db = db
         logger.info("Database connection initialized")
@@ -56,13 +56,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await app.state.db.close()
         logger.info("Database connection closed")
     
-    logger.info("Tenant Service shutdown complete")
+    logger.info("Instance Service shutdown complete")
 
 
 # Create FastAPI application
 app = FastAPI(
-    title="SaaS Odoo - Tenant Service",
-    description="Manages Odoo tenant instances and provisioning",
+    title="SaaS Odoo - Instance Service",
+    description="Manages Odoo instance provisioning and lifecycle",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -121,9 +121,44 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Service health check"""
+    return {
+        "status": "healthy",
+        "service": "instance-service",
+        "version": "1.0.0"
+    }
+
+
+# Database health check endpoint
+@app.get("/health/database")
+async def database_health_check(request: Request):
+    """Database connection health check"""
+    try:
+        db = request.app.state.db
+        async with db.pool.acquire() as conn:
+            result = await conn.fetchval('SELECT COUNT(*) FROM instances')
+            return {
+                "status": "healthy",
+                "database": "connected",
+                "instance_count": result
+            }
+    except Exception as e:
+        logger.error("Database health check failed", error=str(e))
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "failed",
+                "error": str(e)
+            }
+        )
+
+
 # Register routes
-app.include_router(health.router, tags=["Health"])
-app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["Tenants"])
+app.include_router(instances.router, prefix="/api/v1/instances", tags=["Instances"])
 
 
 # Root endpoint
@@ -131,7 +166,7 @@ app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["Tenants"])
 async def root():
     """Root endpoint"""
     return {
-        "service": "tenant-service",
+        "service": "instance-service",
         "version": "1.0.0",
         "status": "running",
         "docs": "/docs"
@@ -143,7 +178,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8002,
+        port=8003,
         reload=True,
         log_level="info"
     ) 

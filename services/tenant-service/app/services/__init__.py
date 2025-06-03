@@ -1,8 +1,5 @@
 """
-Business logic services for tenant service
+Tenant service business logic
 """
 
-from .tenant_service import TenantService
-from .instance_service import InstanceService
-
-__all__ = ["TenantService", "InstanceService"] 
+from .tenant_service import TenantService 

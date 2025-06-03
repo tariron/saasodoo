@@ -13,14 +13,14 @@ from app.models.instance import (
     InstanceStatus
 )
 from app.utils.validators import validate_instance_resources, validate_database_name, validate_addon_names
-from app.utils.database import TenantDatabase
+from app.utils.database import InstanceDatabase
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
 
-def get_database(request: Request) -> TenantDatabase:
+def get_database(request: Request) -> InstanceDatabase:
     """Dependency to get database instance"""
     return request.app.state.db
 
@@ -28,7 +28,7 @@ def get_database(request: Request) -> TenantDatabase:
 @router.post("/", response_model=InstanceResponse, status_code=201)
 async def create_instance(
     instance_data: InstanceCreate,
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Create a new Odoo instance"""
     try:
@@ -101,7 +101,7 @@ async def create_instance(
 @router.get("/{instance_id}", response_model=InstanceResponse)
 async def get_instance(
     instance_id: UUID,
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Get instance by ID"""
     try:
@@ -149,7 +149,7 @@ async def list_instances(
     status: Optional[InstanceStatus] = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """List instances with optional filtering"""
     try:
@@ -212,7 +212,7 @@ async def list_instances(
 async def update_instance(
     instance_id: UUID,
     update_data: InstanceUpdate,
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Update instance information"""
     try:
@@ -284,7 +284,7 @@ async def update_instance(
 @router.delete("/{instance_id}")
 async def delete_instance(
     instance_id: UUID,
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Delete instance (soft delete)"""
     try:
@@ -307,7 +307,7 @@ async def delete_instance(
 async def perform_instance_action(
     instance_id: UUID,
     action_request: InstanceActionRequest,
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Perform action on instance (start, stop, restart, etc.)"""
     try:
@@ -360,7 +360,7 @@ async def perform_instance_action(
 @router.get("/{instance_id}/status")
 async def get_instance_status(
     instance_id: UUID,
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Get current instance status and health"""
     try:
@@ -392,7 +392,7 @@ async def get_instance_status(
 async def get_instance_logs(
     instance_id: UUID,
     lines: int = Query(100, ge=1, le=1000, description="Number of log lines to retrieve"),
-    db: TenantDatabase = Depends(get_database)
+    db: InstanceDatabase = Depends(get_database)
 ):
     """Get instance logs"""
     try:
@@ -439,7 +439,7 @@ def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction
     return action_map.get(status, [])
 
 
-async def _start_instance(instance_id: UUID, db: TenantDatabase) -> dict:
+async def _start_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
     """Start instance containers"""
     from datetime import datetime
     
@@ -470,7 +470,7 @@ async def _start_instance(instance_id: UUID, db: TenantDatabase) -> dict:
         raise
 
 
-async def _stop_instance(instance_id: UUID, db: TenantDatabase) -> dict:
+async def _stop_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
     """Stop instance containers"""
     from datetime import datetime
     
@@ -495,7 +495,7 @@ async def _stop_instance(instance_id: UUID, db: TenantDatabase) -> dict:
         raise
 
 
-async def _restart_instance(instance_id: UUID, db: TenantDatabase) -> dict:
+async def _restart_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
     """Restart instance containers"""
     from datetime import datetime
     
@@ -520,7 +520,7 @@ async def _restart_instance(instance_id: UUID, db: TenantDatabase) -> dict:
         raise
 
 
-async def _update_instance_software(instance_id: UUID, db: TenantDatabase, parameters: dict) -> dict:
+async def _update_instance_software(instance_id: UUID, db: InstanceDatabase, parameters: dict) -> dict:
     """Update instance software/modules"""
     from datetime import datetime
     
@@ -546,7 +546,7 @@ async def _update_instance_software(instance_id: UUID, db: TenantDatabase, param
         raise
 
 
-async def _backup_instance(instance_id: UUID, db: TenantDatabase, parameters: dict) -> dict:
+async def _backup_instance(instance_id: UUID, db: InstanceDatabase, parameters: dict) -> dict:
     """Create instance backup"""
     from datetime import datetime
     
@@ -570,7 +570,7 @@ async def _backup_instance(instance_id: UUID, db: TenantDatabase, parameters: di
         }
 
 
-async def _restore_instance(instance_id: UUID, db: TenantDatabase, parameters: dict) -> dict:
+async def _restore_instance(instance_id: UUID, db: InstanceDatabase, parameters: dict) -> dict:
     """Restore instance from backup"""
     from datetime import datetime
     

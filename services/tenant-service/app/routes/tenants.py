@@ -2,7 +2,7 @@
 Tenant management routes
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Request, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse
@@ -75,44 +75,32 @@ async def create_tenant(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/{tenant_id}", response_model=TenantResponse)
+@router.get("/{tenant_id}", response_model=Dict[str, Any])
 async def get_tenant(
     tenant_id: UUID,
     db: TenantDatabase = Depends(get_database)
 ):
-    """Get tenant by ID"""
-    try:
-        tenant = await db.get_tenant(tenant_id)
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
-        
-        # Get instance count
-        instances_data = await db.get_instances_by_tenant(tenant_id, page=1, page_size=1)
-        instance_count = instances_data['total']
-        
-        response_data = {
-            "id": str(tenant.id),
-            "customer_id": str(tenant.customer_id),
-            "name": tenant.name,
-            "subdomain": tenant.subdomain,
-            "plan": tenant.plan,
-            "status": tenant.status,
-            "max_instances": tenant.max_instances,
-            "max_users": tenant.max_users,
-            "custom_domain": tenant.custom_domain,
-            "instance_count": instance_count,
-            "created_at": tenant.created_at.isoformat(),
-            "updated_at": tenant.updated_at.isoformat(),
-            "metadata": tenant.metadata or {}
-        }
-        
-        return TenantResponse(**response_data)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get tenant", tenant_id=str(tenant_id), error=str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+    """Get tenant details"""
+    tenant = await db.get_tenant(tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    # Note: Instance count is now provided by instance-service
+    # Return basic tenant information
+    return {
+        "id": str(tenant.id),
+        "customer_id": str(tenant.customer_id),
+        "name": tenant.name,
+        "subdomain": tenant.subdomain,
+        "plan": tenant.plan.value,
+        "status": tenant.status.value,
+        "max_instances": tenant.max_instances,
+        "max_users": tenant.max_users,
+        "custom_domain": tenant.custom_domain,
+        "created_at": tenant.created_at,
+        "updated_at": tenant.updated_at,
+        "metadata": tenant.metadata
+    }
 
 
 @router.get("/", response_model=TenantListResponse)
@@ -193,10 +181,7 @@ async def update_tenant(
         if not updated_tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
         
-        # Get instance count
-        instances_data = await db.get_instances_by_tenant(tenant_id, page=1, page_size=1)
-        instance_count = instances_data['total']
-        
+        # Instance count is now managed by instance-service
         response_data = {
             "id": str(updated_tenant.id),
             "customer_id": str(updated_tenant.customer_id),
@@ -207,7 +192,7 @@ async def update_tenant(
             "max_instances": updated_tenant.max_instances,
             "max_users": updated_tenant.max_users,
             "custom_domain": updated_tenant.custom_domain,
-            "instance_count": instance_count,
+            "instance_count": 0,  # Instance count handled by instance-service
             "created_at": updated_tenant.created_at.isoformat(),
             "updated_at": updated_tenant.updated_at.isoformat(),
             "metadata": updated_tenant.metadata or {}
@@ -259,10 +244,7 @@ async def get_tenant_by_subdomain(
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
         
-        # Get instance count
-        instances_data = await db.get_instances_by_tenant(tenant.id, page=1, page_size=1)
-        instance_count = instances_data['total']
-        
+        # Instance count is now managed by instance-service
         response_data = {
             "id": str(tenant.id),
             "customer_id": str(tenant.customer_id),
@@ -273,7 +255,7 @@ async def get_tenant_by_subdomain(
             "max_instances": tenant.max_instances,
             "max_users": tenant.max_users,
             "custom_domain": tenant.custom_domain,
-            "instance_count": instance_count,
+            "instance_count": 0,  # Instance count handled by instance-service
             "created_at": tenant.created_at.isoformat(),
             "updated_at": tenant.updated_at.isoformat(),
             "metadata": tenant.metadata or {}

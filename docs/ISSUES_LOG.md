@@ -190,6 +190,75 @@ tenant-service:
 
 ---
 
+## Issue #007 - Instance Creation Endpoint Failure
+
+**Status**: 🔄 Open  
+**Priority**: High  
+**Component**: instance-service  
+**Date**: 2025-06-03  
+**Reporter**: Endpoint Testing  
+
+### Description
+The instance creation endpoint `POST /api/v1/instances/` returns HTTP 500 Internal Server Error when attempting to create new Odoo instances. This prevents the core functionality of provisioning new Odoo instances for tenants.
+
+### Test Case That Failed
+```bash
+curl -X POST http://localhost:8003/api/v1/instances/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "7e705917-0594-490e-a9dc-9447206539f2",
+    "name": "Test Instance",
+    "description": "Test Odoo Instance",
+    "odoo_version": "17.0",
+    "instance_type": "development",
+    "cpu_limit": 1.0,
+    "memory_limit": "2G",
+    "storage_limit": "10G",
+    "admin_email": "admin@example.com",
+    "demo_data": true,
+    "database_name": "test_db_123",
+    "custom_addons": ["sale", "purchase"]
+  }'
+
+Response: {"detail":"Internal server error"}
+```
+
+### Working Endpoints
+✅ `GET /health` - Service health check working  
+✅ `GET /health/database` - Database connection healthy  
+✅ `GET /` - Root endpoint working  
+✅ `GET /api/v1/instances/?tenant_id=...` - List instances working (returns empty array)  
+
+### Suspected Root Causes
+1. **Database Schema Issues**: Instance creation may require database tables/triggers not yet initialized
+2. **Docker Socket Permissions**: Instance provisioning requires Docker access for container creation
+3. **Validation Logic**: Instance validation rules may be failing
+4. **Resource Allocation**: CPU/memory limit validation may be rejecting valid inputs
+
+### Impact
+- **Critical**: Prevents core SaaS functionality of instance provisioning
+- **Blocks**: End-to-end workflow testing
+- **Affects**: Customer onboarding and tenant activation
+
+### Investigation Needed
+- [ ] Check instance-service application logs for detailed error messages
+- [ ] Verify instance database schema and table creation
+- [ ] Test Docker socket accessibility from instance-service container
+- [ ] Review instance validation logic in `create_instance()` method
+- [ ] Check required environment variables and configuration
+
+### Temporary Workaround
+No workaround available - this is core functionality that must be fixed for MVP completion.
+
+### Files to Investigate
+- `services/instance-service/app/routes/instances.py` - Instance creation endpoint
+- `services/instance-service/app/utils/database.py` - Database operations
+- `services/instance-service/app/models/instance.py` - Instance data models
+- `infrastructure/compose/docker-compose.dev.yml` - Docker socket mounting
+- `shared/configs/postgres/` - Database initialization scripts
+
+---
+
 ## Resolution Categories
 
 - 🚫 **Critical Security**: Issues that compromise system security

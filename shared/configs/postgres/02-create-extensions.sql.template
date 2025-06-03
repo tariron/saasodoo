@@ -35,6 +35,11 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- Install extensions in instance database
+\c instance;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 -- Install extensions in communication database
 \c communication;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

@@ -6,7 +6,6 @@ from typing import Dict, Any, List
 from uuid import UUID
 
 from app.models.tenant import TenantPlan, TenantStatus
-from app.models.instance import InstanceType, OdooVersion
 
 
 def validate_tenant_limits(plan: TenantPlan, max_instances: int, max_users: int) -> List[str]:
@@ -40,90 +39,6 @@ def validate_tenant_limits(plan: TenantPlan, max_instances: int, max_users: int)
             f"Plan {plan} allows maximum {limits['max_users']} users per instance, "
             f"but {max_users} requested"
         )
-    
-    return errors
-
-
-def validate_instance_resources(instance_type: InstanceType, cpu_limit: float, 
-                               memory_limit: str, storage_limit: str) -> List[str]:
-    """
-    Validate instance resource allocation based on instance type
-    Returns list of validation errors
-    """
-    errors = []
-    
-    # Define resource limits by instance type
-    type_limits = {
-        InstanceType.DEVELOPMENT: {
-            'max_cpu': 2.0,
-            'max_memory_gb': 4,
-            'max_storage_gb': 20
-        },
-        InstanceType.STAGING: {
-            'max_cpu': 4.0,
-            'max_memory_gb': 8,
-            'max_storage_gb': 50
-        },
-        InstanceType.PRODUCTION: {
-            'max_cpu': 8.0,
-            'max_memory_gb': 16,
-            'max_storage_gb': 100
-        }
-    }
-    
-    limits = type_limits.get(instance_type)
-    if not limits:
-        errors.append(f"Invalid instance type: {instance_type}")
-        return errors
-    
-    # Validate CPU
-    if cpu_limit > limits['max_cpu']:
-        errors.append(
-            f"Instance type {instance_type} allows maximum {limits['max_cpu']} CPU cores, "
-            f"but {cpu_limit} requested"
-        )
-    
-    # Validate memory
-    try:
-        memory_value = int(memory_limit[:-1])
-        memory_unit = memory_limit[-1].upper()
-        
-        if memory_unit == 'G':
-            memory_gb = memory_value
-        elif memory_unit == 'M':
-            memory_gb = memory_value / 1024
-        else:
-            errors.append(f"Invalid memory format: {memory_limit}")
-            return errors
-        
-        if memory_gb > limits['max_memory_gb']:
-            errors.append(
-                f"Instance type {instance_type} allows maximum {limits['max_memory_gb']}GB memory, "
-                f"but {memory_gb}GB requested"
-            )
-    except (ValueError, IndexError):
-        errors.append(f"Invalid memory format: {memory_limit}")
-    
-    # Validate storage
-    try:
-        storage_value = int(storage_limit[:-1])
-        storage_unit = storage_limit[-1].upper()
-        
-        if storage_unit == 'G':
-            storage_gb = storage_value
-        elif storage_unit == 'M':
-            storage_gb = storage_value / 1024
-        else:
-            errors.append(f"Invalid storage format: {storage_limit}")
-            return errors
-        
-        if storage_gb > limits['max_storage_gb']:
-            errors.append(
-                f"Instance type {instance_type} allows maximum {limits['max_storage_gb']}GB storage, "
-                f"but {storage_gb}GB requested"
-            )
-    except (ValueError, IndexError):
-        errors.append(f"Invalid storage format: {storage_limit}")
     
     return errors
 
@@ -176,46 +91,6 @@ def validate_subdomain(subdomain: str, existing_subdomains: List[str] = None) ->
     return errors
 
 
-def validate_database_name(database_name: str, tenant_databases: List[str] = None) -> List[str]:
-    """
-    Validate database name format and uniqueness within tenant
-    Returns list of validation errors
-    """
-    errors = []
-    
-    if not database_name:
-        errors.append("Database name is required")
-        return errors
-    
-    if len(database_name) < 1:
-        errors.append("Database name must be at least 1 character long")
-    
-    if len(database_name) > 50:
-        errors.append("Database name must be no more than 50 characters long")
-    
-    # Character validation
-    if not database_name.replace('_', '').replace('-', '').isalnum():
-        errors.append("Database name must contain only alphanumeric characters, underscores, and hyphens")
-    
-    if database_name.startswith('_') or database_name.startswith('-'):
-        errors.append("Database name cannot start with underscore or hyphen")
-    
-    # PostgreSQL reserved names
-    reserved_names = [
-        'postgres', 'template0', 'template1', 'information_schema',
-        'pg_catalog', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1'
-    ]
-    
-    if database_name.lower() in reserved_names:
-        errors.append(f"Database name '{database_name}' is reserved and cannot be used")
-    
-    # Check uniqueness within tenant if provided
-    if tenant_databases and database_name.lower() in [db.lower() for db in tenant_databases]:
-        errors.append(f"Database name '{database_name}' already exists in this tenant")
-    
-    return errors
-
-
 def validate_custom_domain(domain: str) -> List[str]:
     """
     Validate custom domain format
@@ -228,50 +103,31 @@ def validate_custom_domain(domain: str) -> List[str]:
     
     # Basic domain validation
     if '.' not in domain:
-        errors.append("Domain must contain at least one dot")
-        return errors
-    
-    parts = domain.split('.')
-    
-    for part in parts:
-        if not part:
-            errors.append("Domain parts cannot be empty")
-            break
-        
-        if len(part) > 63:
-            errors.append("Domain parts cannot be longer than 63 characters")
-            break
-        
-        if not part.replace('-', '').isalnum():
-            errors.append("Domain parts must contain only alphanumeric characters and hyphens")
-            break
-        
-        if part.startswith('-') or part.endswith('-'):
-            errors.append("Domain parts cannot start or end with hyphen")
-            break
+        errors.append("Invalid domain format - must contain at least one dot")
     
     if len(domain) > 253:
-        errors.append("Domain cannot be longer than 253 characters")
+        errors.append("Domain name is too long (max 253 characters)")
     
-    return errors
-
-
-def validate_addon_names(addon_names: List[str]) -> List[str]:
-    """
-    Validate addon names format
-    Returns list of validation errors
-    """
-    errors = []
+    if domain.startswith('.') or domain.endswith('.'):
+        errors.append("Domain cannot start or end with dot")
     
-    for addon in addon_names:
-        if not addon:
-            errors.append("Addon names cannot be empty")
+    if '..' in domain:
+        errors.append("Domain cannot contain consecutive dots")
+    
+    # Check each label
+    labels = domain.split('.')
+    for label in labels:
+        if not label:
+            errors.append("Domain contains empty label")
             continue
         
-        if not addon.replace('_', '').isalnum():
-            errors.append(f"Addon name '{addon}' must contain only alphanumeric characters and underscores")
+        if len(label) > 63:
+            errors.append(f"Domain label '{label}' is too long (max 63 characters)")
         
-        if addon.startswith('_') or addon.endswith('_'):
-            errors.append(f"Addon name '{addon}' cannot start or end with underscore")
+        if not label.replace('-', '').isalnum():
+            errors.append(f"Domain label '{label}' contains invalid characters")
+        
+        if label.startswith('-') or label.endswith('-'):
+            errors.append(f"Domain label '{label}' cannot start or end with hyphen")
     
     return errors 
