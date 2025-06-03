@@ -4,6 +4,7 @@ Database utilities for tenant service
 
 import os
 import asyncio
+import json
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
@@ -91,7 +92,7 @@ class TenantDatabase:
                     tenant_data.max_instances,
                     tenant_data.max_users,
                     tenant_data.custom_domain,
-                    tenant_data.metadata,
+                    json.dumps(tenant_data.metadata or {}),  # PostgreSQL handles dict to JSONB conversion
                     TenantStatus.PROVISIONING.value,
                     datetime.utcnow(),
                     datetime.utcnow()
@@ -115,7 +116,11 @@ class TenantDatabase:
                     tenant_id
                 )
                 if row:
-                    return Tenant(**dict(row))
+                    row_dict = dict(row)
+                    # Parse JSON metadata back to dict
+                    if row_dict.get('metadata'):
+                        row_dict['metadata'] = json.loads(row_dict['metadata'])
+                    return Tenant(**row_dict)
                 return None
                 
             except Exception as e:
@@ -131,7 +136,11 @@ class TenantDatabase:
                     subdomain
                 )
                 if row:
-                    return Tenant(**dict(row))
+                    row_dict = dict(row)
+                    # Parse JSON metadata back to dict
+                    if row_dict.get('metadata'):
+                        row_dict['metadata'] = json.loads(row_dict['metadata'])
+                    return Tenant(**row_dict)
                 return None
                 
             except Exception as e:
@@ -166,7 +175,14 @@ class TenantDatabase:
                     LIMIT $2 OFFSET $3
                 """, customer_id, page_size, offset)
                 
-                tenants = [dict(row) for row in rows]
+                # Parse metadata for each tenant
+                tenants = []
+                for row in rows:
+                    tenant_dict = dict(row)
+                    # Parse JSON metadata back to dict
+                    if tenant_dict.get('metadata'):
+                        tenant_dict['metadata'] = json.loads(tenant_dict['metadata'])
+                    tenants.append(tenant_dict)
                 
                 return {
                     'tenants': tenants,
@@ -308,7 +324,7 @@ class TenantDatabase:
                     instance_data.custom_addons,
                     instance_data.disabled_modules,
                     instance_data.environment_vars,
-                    instance_data.metadata,
+                    json.dumps(instance_data.metadata or {}),
                     InstanceStatus.CREATING.value,
                     datetime.utcnow(),
                     datetime.utcnow()
