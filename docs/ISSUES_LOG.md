@@ -389,3 +389,256 @@ Implement **Option 1** first (quick fix), then migrate to **Option 2** for produ
 ---
 
 Last Updated: 2025-06-05 
+
+# Instance Service Issue Log
+
+## Issue #1: Docker SDK Version Compatibility
+**Status**: ✅ RESOLVED  
+**Severity**: Critical  
+**Date Discovered**: 2025-06-05  
+**Component**: Instance Service Worker  
+
+### Description
+Instance provisioning failed with Docker connection error: `"Error while fetching server API version: Not supported URL scheme http+docker"`
+
+### Root Cause
+- Docker SDK version mismatch: requirements.txt specified `docker==7.1.0` but containers had `docker==4.4.4` installed
+- Docker SDK versions < 7.1.0 are incompatible with requests library 2.32.0+ due to URL scheme handler changes
+- Docker build cache prevented proper dependency updates during rebuilds
+
+### Impact
+- All instance provisioning tasks failed immediately at Docker client initialization
+- Users could create instance records but no actual Odoo containers were deployed
+- Error propagated to instance status as "error" with meaningful error message
+
+### Files Affected
+- `services/instance-service/requirements.txt` (381B) - Correct version specified
+- `services/instance-service/Dockerfile` (1.0KB) - Build process cached old dependencies
+- `services/instance-service/app/tasks/provisioning.py` (11.7KB) - Docker client initialization at line 174
+
+### Resolution
+1. Stopped and removed existing containers
+2. Deleted cached Docker images completely
+3. Rebuilt containers with `--no-cache` to force fresh dependency installation
+4. Verified Docker SDK 7.1.0 installation in worker container
+5. Confirmed Docker connection now works: `Docker connection successful`
+
+### Prevention
+- Add dependency version verification to health checks
+- Implement more aggressive cache invalidation in CI/CD
+- Consider pinning transitive dependencies (requests, urllib3) to avoid future conflicts
+
+---
+
+## Issue #2: Missing DOCKER_HOST Environment Variable in Worker
+**Status**: ⚠️ PARTIALLY RESOLVED  
+**Severity**: Medium  
+**Date Discovered**: 2025-06-05  
+**Component**: Instance Service Worker Configuration  
+
+### Description
+The `instance-worker` service in docker-compose.dev.yml lacks the `DOCKER_HOST` environment variable, while the main `instance-service` has it properly configured.
+
+### Root Cause
+Configuration inconsistency between instance-service and instance-worker:
+- `instance-service` has: `DOCKER_HOST: unix:///var/run/docker.sock`
+- `instance-worker` missing this environment variable
+
+### Impact
+- Worker relies on Docker SDK's auto-detection which can be unreliable
+- Potential for inconsistent behavior between main service and worker
+- Docker client initialization may fail in some environments
+
+### Files Affected
+- `infrastructure/compose/docker-compose.dev.yml` (18.5KB) - Lines 335-420 (worker config section)
+
+### Current Workaround
+Docker SDK 7.1.0 auto-detection works with properly mounted socket
+
+### Recommended Fix
+Add `DOCKER_HOST: unix:///var/run/docker.sock` to instance-worker environment section
+
+---
+
+## Issue #3: Environment Variables Processing Bug
+**Status**: 🔴 ACTIVE - BLOCKING  
+**Severity**: Critical  
+**Date Discovered**: 2025-06-05  
+**Component**: Instance Provisioning Logic  
+
+### Description
+Instance provisioning fails during container deployment with error:
+```
+ValueError: dictionary update sequence element #0 has length 1; 2 is required
+```
+
+### Root Cause
+Located in `/app/app/tasks/provisioning.py` at line 192:
+```python
+environment.update(instance['environment_vars'])
+```
+
+The code expects `instance['environment_vars']` to be a dictionary but receives incompatible data structure.
+
+### Stack Trace
+```
+File "/app/app/tasks/provisioning.py", line 64, in _provision_instance_workflow
+  container_info = await _deploy_odoo_container(instance, db_info)
+File "/app/app/tasks/provisioning.py", line 192, in _deploy_odoo_container
+  environment.update(instance['environment_vars'])
+ValueError: dictionary update sequence element #0 has length 1; 2 is required
+```
+
+### Impact
+- All instance provisioning fails after Docker connection is established
+- Instance status shows "error" with cryptic error message
+- No Odoo containers are created despite successful database provisioning
+
+### Files Affected
+- `services/instance-service/app/tasks/provisioning.py` (11.7KB) - Line 192 in `_deploy_odoo_container` function
+- `services/instance-service/app/models/instance.py` (10.6KB) - InstanceCreate model definition
+- Test data structure in API requests
+
+### Debug Data
+Test instance data causing the error:
+```json
+"environment_vars": {
+    "ODOO_WORKERS": "2",
+    "ODOO_MAX_CRON_THREADS": "1"
+}
+```
+
+### Investigation Needed
+1. Check how `environment_vars` is stored/retrieved from database
+2. Verify data serialization/deserialization in database layer
+3. Examine type conversion between Pydantic model and database record
+
+---
+
+## Issue #4: Architectural Anti-Pattern - Module Level Docker Client
+**Status**: 🟡 DESIGN ISSUE  
+**Severity**: Medium  
+**Date Discovered**: 2025-06-05 (from audit report)  
+**Component**: Async Celery Integration  
+
+### Description
+Current code uses `docker.from_env()` in function scope which is correct, but the overall pattern needs improvement for production reliability.
+
+### Root Cause
+Based on Docker SDK 6.1.3 Async Celery Compatibility analysis:
+- Docker SDK is fundamentally synchronous, not designed for asyncio
+- Celery multiprocessing creates isolation challenges
+- Module-level Docker client initialization would fail in worker processes
+
+### Current Implementation Status
+✅ Good: Per-task client initialization  
+❌ Missing: Proper async integration patterns  
+❌ Missing: Thread-safe client management  
+❌ Missing: Comprehensive error handling  
+
+### Files Affected
+- `services/instance-service/app/tasks/provisioning.py` (11.7KB) - All Docker operations
+- `services/instance-service/app/celery_config.py` (1.2KB) - Worker configuration
+
+### Recommended Improvements
+1. Implement `asyncio.to_thread()` wrappers for Docker operations
+2. Add thread-local storage for client reuse
+3. Implement comprehensive retry logic
+4. Consider aiodocker migration for true async support
+
+---
+
+## Issue #5: Database Name Validation Working Correctly
+**Status**: ✅ FUNCTIONING  
+**Severity**: Info  
+**Date Discovered**: 2025-06-05  
+**Component**: Instance Validation  
+
+### Description
+Duplicate database name validation is working properly - returned appropriate error when attempting to reuse `test_instance_001`.
+
+### Evidence
+API Response: `{"detail":"Database name 'test_instance_001' already exists for this tenant"}`
+
+### Files Affected
+- `services/instance-service/app/utils/validators.py` - Database name validation
+- `services/instance-service/app/routes/instances.py` (24KB) - Validation integration
+
+---
+
+## Issue #6: Dependency Version Conflicts (Historical)
+**Status**: ✅ RESOLVED  
+**Severity**: High  
+**Date Discovered**: From compatibility audit  
+**Component**: Python Dependencies  
+
+### Description
+Multiple dependency layers created compatibility matrix issues:
+- urllib3 conflicts with Docker SDK < 6.1.0
+- requests 2.32.0+ breaks Docker SDK < 7.1.0
+- Legacy versions had chunked parameter issues
+
+### Resolution
+Upgraded to stable compatibility matrix:
+```
+docker>=7.1.0
+requests>=2.32.2  
+urllib3>=2.0.2
+```
+
+### Files Affected
+- `services/instance-service/requirements.txt` (381B) - All dependency versions
+
+---
+
+## Testing Results Summary
+
+### ✅ Working Components
+1. **API Layer**: Instance creation, validation, status retrieval
+2. **Database Integration**: PostgreSQL connection, instance record creation
+3. **Celery Integration**: Task queuing and worker communication  
+4. **Docker SDK**: Version 7.1.0 connection and API access
+5. **Health Checks**: Service availability monitoring
+6. **Error Handling**: Proper error propagation and status updates
+
+### 🔴 Blocking Issues
+1. **Environment Variables Processing**: Critical bug preventing container deployment
+2. **Container Provisioning**: Cannot complete instance creation workflow
+
+### 🟡 Improvement Areas
+1. **Async Integration**: Need proper asyncio patterns
+2. **Error Recovery**: Missing comprehensive retry logic
+3. **Resource Management**: No cleanup automation
+4. **Performance**: Synchronous Docker operations in async context
+
+---
+
+## Next Actions Required
+
+### Immediate (Critical Path)
+1. **Fix environment_vars processing bug** - investigate data serialization issue
+2. **Add DOCKER_HOST to worker config** - ensure consistent Docker access
+3. **Test complete provisioning workflow** - verify end-to-end functionality
+
+### Short Term (Reliability)
+1. **Implement asyncio.to_thread() wrappers** - proper async integration
+2. **Add comprehensive error handling** - retry logic and cleanup
+3. **Thread-safe client management** - production reliability
+
+### Long Term (Architecture)
+1. **Evaluate aiodocker migration** - true async Docker operations  
+2. **Performance optimization** - reduce blocking operations
+3. **Monitoring integration** - comprehensive observability
+
+---
+
+## File Size Reference
+- `docker-compose.dev.yml`: 18.5KB (473 lines)
+- `provisioning.py`: 11.7KB (347 lines) 
+- `instances.py`: 24KB (595 lines)
+- `instance.py` models: 10.6KB (265 lines)
+- `requirements.txt`: 381B (22 lines)
+- `Dockerfile`: 1.0KB (41 lines)
+- `celery_config.py`: 1.2KB (39 lines)
+
+**Total codebase analysis**: ~67KB across 7 core files for instance service functionality. 
