@@ -310,4 +310,82 @@ This log should be updated whenever:
 - Workarounds are applied
 - Final resolutions are implemented
 
-Last Updated: 2025-06-02 
+---
+
+## Issue #008 - Instance Worker Database Privileges Security Issue
+
+**Status**: ⚠️ Temporary Workaround Applied  
+**Priority**: High (Security Issue)  
+**Component**: instance-service worker  
+**Date**: 2025-06-05  
+**Reporter**: Instance Testing  
+
+### Description
+The instance-service worker needs to create new PostgreSQL databases for each Odoo instance but currently requires admin-level database credentials (superuser) to perform `CREATE DATABASE` operations. This violates the principle of least privilege.
+
+### Current Security Issue
+The worker container now has access to admin database credentials (`POSTGRES_USER` and `POSTGRES_PASSWORD`) which grants broad privileges including:
+- Creating/dropping any database
+- Creating/dropping any user
+- Accessing any database in the system
+- Potential system administration operations
+
+### Root Cause
+The provisioning workflow requires creating dedicated databases for each Odoo instance:
+```sql
+CREATE DATABASE "test_db_1";
+CREATE USER "odoo_test_db_1" WITH PASSWORD 'generated_password';
+GRANT ALL PRIVILEGES ON DATABASE "test_db_1" TO "odoo_test_db_1";
+```
+
+The `instance_service` user only has privileges on the `instance` database and cannot create new databases.
+
+### Temporary Workaround Applied
+Added admin credentials to instance-worker environment in docker-compose.dev.yml:
+```yaml
+# Database Configuration - Admin credentials for creating new databases (SECURITY ISSUE - TO FIX)
+POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
+POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+```
+
+### Proper Solutions to Implement
+
+**Option 1: Limited Privilege Escalation**
+- Grant `CREATEDB` privilege to `instance_service` user
+- Create a dedicated `instance_db_manager` user with only `CREATEDB` privileges
+- Remove admin credentials from worker
+
+**Option 2: Database Provisioning Service**
+- Create separate microservice for database operations
+- Worker calls API to request database creation
+- Database service runs with appropriate privileges
+- Better separation of concerns
+
+**Option 3: Pre-provisioned Database Pool**
+- Pre-create a pool of empty databases
+- Worker assigns databases from pool instead of creating new ones
+- Background service maintains database pool
+
+### Recommended Solution
+Implement **Option 1** first (quick fix), then migrate to **Option 2** for production (better architecture).
+
+### Security Impact
+- **Current Risk**: Worker has excessive database privileges
+- **Exposure**: Admin credentials stored in container environment
+- **Mitigation**: Development environment only, not production-ready
+
+### Tasks to Complete
+- [ ] Create `instance_db_manager` user with `CREATEDB` privilege only
+- [ ] Update worker to use limited privilege user instead of admin
+- [ ] Remove admin credentials from worker environment
+- [ ] Test database creation with limited privileges
+- [ ] Update provisioning.py to use new credentials
+
+### Files to Modify
+- `infrastructure/compose/docker-compose.dev.yml` - Remove admin credentials
+- `shared/configs/postgres/03-create-users.sh` - Add db manager user
+- `services/instance-service/app/tasks/provisioning.py` - Update connection logic
+
+---
+
+Last Updated: 2025-06-05 

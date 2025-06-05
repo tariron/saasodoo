@@ -400,6 +400,49 @@ services:
     ports:
       - "8003:8003"  # Expose instance-service port to host
 
+  # Instance Service Worker - Background Task Processing
+  instance-worker:
+    build:
+      context: ../../services/instance-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-instance-worker
+    restart: unless-stopped
+    command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_maintenance
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: instance
+      DB_SERVICE_USER: ${POSTGRES_INSTANCE_SERVICE_USER:-instance_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD:-instance_service_secure_pass_change_me}
+      
+      # Database Configuration - Admin credentials for creating new databases (SECURITY ISSUE - TO FIX)
+      POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # RabbitMQ Configuration
+      RABBITMQ_USER: ${RABBITMQ_USER:-saasodoo}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-saasodoo123}
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    labels:
+      - "traefik.enable=false"
+
 networks:
   saasodoo-network:
     driver: bridge

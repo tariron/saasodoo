@@ -23,8 +23,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create non-root user
+# Create non-root user with Docker access
 RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Add user to docker group (gid 1001) for socket access
+RUN groupadd -g 1001 docker || true && usermod -a -G docker appuser
 RUN chown -R appuser:appuser /app
 USER appuser
 

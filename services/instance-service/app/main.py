@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from app.utils.database import InstanceDatabase
-from app.routes import instances
+from app.routes import instances, admin
 
 
 # Configure structured logging
@@ -159,6 +159,7 @@ async def database_health_check(request: Request):
 
 # Register routes
 app.include_router(instances.router, prefix="/api/v1/instances", tags=["Instances"])
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 
 
 # Root endpoint

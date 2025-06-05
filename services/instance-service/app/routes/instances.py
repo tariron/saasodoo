@@ -14,6 +14,7 @@ from app.models.instance import (
 )
 from app.utils.validators import validate_instance_resources, validate_database_name, validate_addon_names
 from app.utils.database import InstanceDatabase
+from app.tasks.provisioning import provision_instance_task
 
 logger = structlog.get_logger(__name__)
 
@@ -54,10 +55,14 @@ async def create_instance(
         if addon_errors:
             raise HTTPException(status_code=400, detail={"errors": addon_errors})
         
-        # Create instance in database
+        # Create instance in database (status: CREATING)
         instance = await db.create_instance(instance_data)
         
-        # Convert to response format
+        # Queue background provisioning job
+        job = provision_instance_task.delay(str(instance.id))
+        logger.info("Provisioning job queued", instance_id=str(instance.id), job_id=job.id)
+        
+        # Convert to response format and return immediately
         response_data = {
             "id": str(instance.id),
             "tenant_id": str(instance.tenant_id),
@@ -65,7 +70,7 @@ async def create_instance(
             "description": instance.description,
             "odoo_version": instance.odoo_version,
             "instance_type": instance.instance_type,
-            "status": instance.status,
+            "status": instance.status,  # Will be "creating"
             "cpu_limit": instance.cpu_limit,
             "memory_limit": instance.memory_limit,
             "storage_limit": instance.storage_limit,
@@ -84,10 +89,6 @@ async def create_instance(
         }
         
         logger.info("Instance created successfully", instance_id=str(instance.id))
-        
-        # TODO: Trigger async instance provisioning here
-        # await provision_instance_async(instance.id)
-        
         return InstanceResponse(**response_data)
         
     except ValueError as e:

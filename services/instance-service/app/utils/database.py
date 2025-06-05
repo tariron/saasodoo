@@ -340,4 +340,22 @@ class InstanceDatabase:
                 
             except Exception as e:
                 logger.error("Failed to get tenant instance count", tenant_id=str(tenant_id), error=str(e))
+                raise
+    
+    async def get_instances_by_status(self, status: InstanceStatus, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get instances by status"""
+        async with self.pool.acquire() as conn:
+            try:
+                rows = await conn.fetch("""
+                    SELECT id, name, tenant_id, status, error_message, created_at, updated_at
+                    FROM instances 
+                    WHERE status = $1
+                    ORDER BY updated_at DESC
+                    LIMIT $2
+                """, status.value, limit)
+                
+                return [dict(row) for row in rows]
+                
+            except Exception as e:
+                logger.error("Failed to get instances by status", status=status.value, error=str(e))
                 raise 
