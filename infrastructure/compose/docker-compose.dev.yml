@@ -428,6 +428,9 @@ services:
       RABBITMQ_USER: ${RABBITMQ_USER:-saasodoo}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-saasodoo123}
       
+      # Docker Configuration (for instance lifecycle management)
+      DOCKER_HOST: unix:///var/run/docker.sock
+      
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}

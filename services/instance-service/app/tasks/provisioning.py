@@ -101,7 +101,32 @@ async def _get_instance_from_db(instance_id: str) -> Dict[str, Any]:
     try:
         row = await conn.fetchrow("SELECT * FROM instances WHERE id = $1", UUID(instance_id))
         if row:
-            return dict(row)
+            instance_data = dict(row)
+            
+            # Deserialize JSON fields (same logic as InstanceDatabase.get_instance)
+            import json
+            
+            if instance_data.get('custom_addons'):
+                instance_data['custom_addons'] = json.loads(instance_data['custom_addons'])
+            else:
+                instance_data['custom_addons'] = []
+                
+            if instance_data.get('disabled_modules'):
+                instance_data['disabled_modules'] = json.loads(instance_data['disabled_modules'])
+            else:
+                instance_data['disabled_modules'] = []
+                
+            if instance_data.get('environment_vars'):
+                instance_data['environment_vars'] = json.loads(instance_data['environment_vars'])
+            else:
+                instance_data['environment_vars'] = {}
+                
+            if instance_data.get('metadata'):
+                instance_data['metadata'] = json.loads(instance_data['metadata'])
+            else:
+                instance_data['metadata'] = {}
+            
+            return instance_data
         return None
     finally:
         await conn.close()
@@ -146,14 +171,16 @@ async def _create_odoo_database(instance: Dict[str, Any]) -> Dict[str, str]:
         db_user = f"odoo_{database_name}"
         db_password = f"odoo_pass_{instance['id'].hex[:8]}"
         
-        # Create database
-        await admin_conn.execute(f'CREATE DATABASE "{database_name}"')
+        # Create database user first
+        await admin_conn.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\'')
+        logger.info("Database user created", user=db_user)
+        
+        # Create database with owner
+        await admin_conn.execute(f'CREATE DATABASE "{database_name}" OWNER "{db_user}"')
         logger.info("Database created", database=database_name)
         
-        # Create database user
-        await admin_conn.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\'')
+        # Grant additional privileges
         await admin_conn.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{database_name}" TO "{db_user}"')
-        logger.info("Database user created", user=db_user)
         
         return {
             "db_name": database_name,
@@ -209,7 +236,6 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             cpu_count=int(cpu_limit),
             detach=True,
             restart_policy={"Name": "unless-stopped"},
-            networks=['saasodoo-network'],
             labels={
                 'saasodoo.instance.id': str(instance['id']),
                 'saasodoo.instance.name': instance['name'],
@@ -222,12 +248,31 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             }
         )
         
+        # Connect to network after creation
+        try:
+            network = client.networks.get('saasodoo-network')
+            network.connect(container)
+            logger.info("Container connected to network", container_name=container_name, network='saasodoo-network')
+        except docker.errors.NotFound:
+            logger.warning("Network saasodoo-network not found, skipping network connection")
+        
         logger.info("Container created and started", container_id=container.id, name=container_name)
         
         # Get container network info
         container.reload()
-        network_info = container.attrs['NetworkSettings']['Networks']['saasodoo-network']
-        internal_ip = network_info['IPAddress']
+        internal_ip = None
+        if 'saasodoo-network' in container.attrs['NetworkSettings']['Networks']:
+            network_info = container.attrs['NetworkSettings']['Networks']['saasodoo-network']
+            internal_ip = network_info['IPAddress']
+        else:
+            # Fallback to first available network
+            networks = container.attrs['NetworkSettings']['Networks']
+            if networks:
+                first_network = next(iter(networks.values()))
+                internal_ip = first_network['IPAddress']
+        
+        if not internal_ip:
+            internal_ip = 'localhost'  # Fallback
         
         return {
             'container_id': container.id,
