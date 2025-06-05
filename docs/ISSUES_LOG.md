@@ -192,7 +192,7 @@ tenant-service:
 
 ## Issue #007 - Instance Creation Endpoint Failure
 
-**Status**: 🔄 Open  
+**Status**: ✅ Resolved  
 **Priority**: High  
 **Component**: instance-service  
 **Date**: 2025-06-03  
@@ -223,39 +223,72 @@ curl -X POST http://localhost:8003/api/v1/instances/ \
 Response: {"detail":"Internal server error"}
 ```
 
-### Working Endpoints
-✅ `GET /health` - Service health check working  
-✅ `GET /health/database` - Database connection healthy  
-✅ `GET /` - Root endpoint working  
-✅ `GET /api/v1/instances/?tenant_id=...` - List instances working (returns empty array)  
+### Root Cause Analysis
+**Error**: `invalid input for query argument $12: ['sale'] (expected str, got list)`
 
-### Suspected Root Causes
-1. **Database Schema Issues**: Instance creation may require database tables/triggers not yet initialized
-2. **Docker Socket Permissions**: Instance provisioning requires Docker access for container creation
-3. **Validation Logic**: Instance validation rules may be failing
-4. **Resource Allocation**: CPU/memory limit validation may be rejecting valid inputs
+The issue was a **data type mismatch** in the database layer:
+- Database schema defines `custom_addons`, `disabled_modules`, and `environment_vars` as `JSONB` fields
+- Python code was passing Python `list`/`dict` objects directly to asyncpg 
+- AsyncPG expects JSON-serialized strings for JSONB fields, not Python objects
+
+### Resolution Implemented
+1. **Fixed Database Insertion**: Updated `create_instance()` method to JSON-serialize list/dict fields:
+   ```python
+   # Before (causing error)
+   instance_data.custom_addons,        # Raw Python list: ['sale']
+   instance_data.disabled_modules,     # Raw Python list: []
+   instance_data.environment_vars,     # Raw Python dict: {}
+   
+   # After (working)
+   json.dumps(instance_data.custom_addons),        # JSON string: '["sale"]'
+   json.dumps(instance_data.disabled_modules),     # JSON string: '[]'
+   json.dumps(instance_data.environment_vars),     # JSON string: '{}'
+   ```
+
+2. **Fixed Database Retrieval**: Updated `get_instance()` and `get_instances_by_tenant()` methods to JSON-deserialize the fields when reading from database
+
+3. **Fixed Updates**: Updated `update_instance()` method to handle JSON serialization for update operations
+
+### Code Changes
+- `services/instance-service/app/utils/database.py`:
+  - Lines 94-96: Added `json.dumps()` calls for JSONB fields in create operation
+  - Lines 118-140: Added JSON deserialization logic in get_instance method
+  - Lines 168-188: Added JSON deserialization logic in get_instances_by_tenant method  
+  - Line 213: Added JSON serialization check in update_instance method
+
+### Test Results
+✅ **Before Fix**: HTTP 500 Internal Server Error  
+✅ **After Fix**: Instance creation successful with proper JSON handling
+
+```json
+{
+  "id": "373332f4-cec9-45f5-be33-43f6ea04c3b5",
+  "tenant_id": "7e705917-0594-490e-a9dc-9447206539f2",
+  "name": "Complete Test Instance",
+  "status": "creating",
+  "custom_addons": ["sale", "purchase"],
+  "database_name": "complete_test_db"
+}
+```
+
+### Verification Completed
+✅ Instance creation - Working  
+✅ Instance retrieval - Working  
+✅ Instance listing - Working  
+✅ Instance updates - Working  
+✅ Instance actions - Working (with proper status validation)
+
+### Working Endpoints
+✅ `POST /api/v1/instances/` - Instance creation working  
+✅ `GET /api/v1/instances/{id}` - Instance retrieval working  
+✅ `PUT /api/v1/instances/{id}` - Instance updates working  
+✅ `GET /api/v1/instances/?tenant_id=...` - List instances working  
+✅ `POST /api/v1/instances/{id}/actions` - Instance actions working  
 
 ### Impact
-- **Critical**: Prevents core SaaS functionality of instance provisioning
-- **Blocks**: End-to-end workflow testing
-- **Affects**: Customer onboarding and tenant activation
-
-### Investigation Needed
-- [ ] Check instance-service application logs for detailed error messages
-- [ ] Verify instance database schema and table creation
-- [ ] Test Docker socket accessibility from instance-service container
-- [ ] Review instance validation logic in `create_instance()` method
-- [ ] Check required environment variables and configuration
-
-### Temporary Workaround
-No workaround available - this is core functionality that must be fixed for MVP completion.
-
-### Files to Investigate
-- `services/instance-service/app/routes/instances.py` - Instance creation endpoint
-- `services/instance-service/app/utils/database.py` - Database operations
-- `services/instance-service/app/models/instance.py` - Instance data models
-- `infrastructure/compose/docker-compose.dev.yml` - Docker socket mounting
-- `shared/configs/postgres/` - Database initialization scripts
+- **Critical bug resolved**: Core SaaS functionality now operational
+- **End-to-end workflow**: Customer → Tenant → Instance creation flow working
+- **MVP milestone**: Instance provisioning capability achieved
 
 ---
 

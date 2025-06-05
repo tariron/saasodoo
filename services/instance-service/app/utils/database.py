@@ -92,9 +92,9 @@ class InstanceDatabase:
                     instance_data.admin_email,
                     instance_data.database_name,
                     instance_data.demo_data,
-                    instance_data.custom_addons,
-                    instance_data.disabled_modules,
-                    instance_data.environment_vars,
+                    json.dumps(instance_data.custom_addons),
+                    json.dumps(instance_data.disabled_modules),
+                    json.dumps(instance_data.environment_vars),
                     json.dumps(instance_data.metadata or {}),
                     InstanceStatus.CREATING.value,
                     datetime.utcnow(),
@@ -118,7 +118,31 @@ class InstanceDatabase:
                     instance_id
                 )
                 if row:
-                    return Instance(**dict(row))
+                    # Convert row to dict and deserialize JSON fields
+                    instance_data = dict(row)
+                    
+                    # Deserialize JSON fields
+                    if instance_data.get('custom_addons'):
+                        instance_data['custom_addons'] = json.loads(instance_data['custom_addons'])
+                    else:
+                        instance_data['custom_addons'] = []
+                        
+                    if instance_data.get('disabled_modules'):
+                        instance_data['disabled_modules'] = json.loads(instance_data['disabled_modules'])
+                    else:
+                        instance_data['disabled_modules'] = []
+                        
+                    if instance_data.get('environment_vars'):
+                        instance_data['environment_vars'] = json.loads(instance_data['environment_vars'])
+                    else:
+                        instance_data['environment_vars'] = {}
+                        
+                    if instance_data.get('metadata'):
+                        instance_data['metadata'] = json.loads(instance_data['metadata'])
+                    else:
+                        instance_data['metadata'] = {}
+                    
+                    return Instance(**instance_data)
                 return None
                 
             except Exception as e:
@@ -145,7 +169,32 @@ class InstanceDatabase:
                     LIMIT $2 OFFSET $3
                 """, tenant_id, page_size, offset)
                 
-                instances = [dict(row) for row in rows]
+                instances = []
+                for row in rows:
+                    instance_data = dict(row)
+                    
+                    # Deserialize JSON fields
+                    if instance_data.get('custom_addons'):
+                        instance_data['custom_addons'] = json.loads(instance_data['custom_addons'])
+                    else:
+                        instance_data['custom_addons'] = []
+                        
+                    if instance_data.get('disabled_modules'):
+                        instance_data['disabled_modules'] = json.loads(instance_data['disabled_modules'])
+                    else:
+                        instance_data['disabled_modules'] = []
+                        
+                    if instance_data.get('environment_vars'):
+                        instance_data['environment_vars'] = json.loads(instance_data['environment_vars'])
+                    else:
+                        instance_data['environment_vars'] = {}
+                        
+                    if instance_data.get('metadata'):
+                        instance_data['metadata'] = json.loads(instance_data['metadata'])
+                    else:
+                        instance_data['metadata'] = {}
+                    
+                    instances.append(instance_data)
                 
                 return {
                     'instances': instances,
@@ -189,6 +238,9 @@ class InstanceDatabase:
                         update_fields.append(f"{field} = ${param_index}")
                         if hasattr(value, 'value'):  # Handle enum values
                             update_values.append(value.value)
+                        elif field in ['custom_addons', 'disabled_modules', 'environment_vars', 'metadata']:
+                            # JSON serialize list/dict fields
+                            update_values.append(json.dumps(value))
                         else:
                             update_values.append(value)
                         param_index += 1

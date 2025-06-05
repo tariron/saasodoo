@@ -1,0 +1,428 @@
+**8.2** Test multiple instances:
+```bash
+# Create multiple instances rapidly
+for i in {1..3}; do
+  curl -X POST "http://localhost:8003/api/v1/instances/" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "test-instance-'$i'",
+      "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+      "odoo_version": "17.0",
+      "instance_type": "development",
+      "description": "Load test instance '$i'",
+      "admin_email": "admin'$i'@test.com",
+      "database_name": "test_db_'$i'",
+      "demo_data": false,
+      "cpu_limit": 1.0,
+      "memory_limit": "1G",
+      "storage_limit": "10G"
+    }' &
+done
+wait
+```
+
+**8.3** Monitor distributed processing:
+```bash
+# Watch both workers processing jobs
+docker-compose -f docker-compose.dev.yml logs -f instance-worker
+
+# Check RabbitMQ queue distribution
+# Go to: http://rabbitmq.saasodoo.local
+# Check "instance_provisioning" queue - should see jobs being distributed
+
+# Monitor instance statuses
+watch -n 5 'curl -s "http://localhost:8003/api/v1/instances/?tenant_id=123e4567-e89b-12d3-a456-426614174000" | jq ".instances[] | {name: .name, status: .status}"'
+```
+
+**Test Step 8:**
+```bash
+# Verify all instances reach RUNNING status
+curl -s "http://localhost:8003/api/v1/instances/?tenant_id=123e4567-e89b-12d3-a456-426614174000" | jq '.instances[] | select(.status != "running")'
+
+# Should return empty if all successful
+```
+
+---
+
+### **Step 9: Test Instance Lifecycle Operations**
+
+**9.1** Test instance start/stop operations:
+```bash
+# Get a running instance ID
+INSTANCE_ID=$(curl -s "http://localhost:8003/api/v1/instances/?tenant_id=123e4567-e89b-12d3-a456-426614174000" | jq -r '.instances[0].id')
+
+# Stop instance
+curl -X POST "http://localhost:8003/api/v1/instances/$INSTANCE_ID/actions" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "stop"}'
+
+# Check status
+curl -s "http://localhost:8003/api/v1/instances/$INSTANCE_ID" | jq '.status'
+
+# Start instance
+curl -X POST "http://localhost:8003/api/v1/instances/$INSTANCE_ID/actions" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "start"}'
+
+# Monitor status change
+watch -n 2 'curl -s "http://localhost:8003/api/v1/instances/'$INSTANCE_ID'" | jq ".status"'
+```
+
+**9.2** Test instance deletion:
+```bash
+# Delete an instance
+curl -X DELETE "http://localhost:8003/api/v1/instances/$INSTANCE_ID"
+
+# Verify container and database cleanup
+docker ps | grep odoo_test_db
+docker-compose -f docker-compose.dev.yml exec postgres psql -U saasodoo -l | grep test_db
+```
+
+---
+
+### **Step 10: Test Error Handling and Admin Recovery**
+
+**10.1** Create a failure scenario:
+```bash
+# Stop PostgreSQL temporarily to cause provisioning failure
+docker-compose -f docker-compose.dev.yml stop postgres
+
+# Create instance (should fail)
+curl -X POST "http://localhost:8003/api/v1/instances/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "failure-test",
+    "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+    "odoo_version": "17.0",
+    "instance_type": "development",
+    "description": "This should fail",
+    "admin_email": "fail@test.com",
+    "database_name": "failure_db",
+    "demo_data": false
+  }'
+
+# Watch it fail in worker logs
+docker-compose -f docker-compose.dev.yml logs -f instance-worker
+
+# Restart PostgreSQL
+docker-compose -f docker-compose.dev.yml start postgres
+```
+
+**10.2** Test admin recovery:
+```bash
+# Check failed instances
+curl -s "http://localhost:8003/admin/failed-instances" | jq '.'
+
+# Get failed instance ID
+FAILED_ID=$(curl -s "http://localhost:8003/admin/failed-instances" | jq -r '.failed_instances[0].id')
+
+# Retry the failed instance
+curl -X POST "http://localhost:8003/admin/retry-instance/$FAILED_ID"
+
+# Monitor retry
+watch -n 3 'curl -s "http://localhost:8003/api/v1/instances/'$FAILED_ID'" | jq ".status"'
+```
+
+---
+
+### **Step 11: Test External Access via Traefik**
+
+**11.1** Verify Traefik routing:
+```bash
+# Check Traefik dashboard for new routes
+# Go to: http://traefik.saasodoo.local:8080
+# Look for routes like "test_db_1.odoo.saasodoo.local"
+
+# Test external access to running instance
+INSTANCE_NAME=$(curl -s "http://localhost:8003/api/v1/instances/?tenant_id=123e4567-e89b-12d3-a456-426614174000" | jq -r '.instances[] | select(.status == "running") | .database_name' | head -1)
+
+curl -I "http://$INSTANCE_NAME.odoo.saasodoo.local"
+# Should return 200 or 303 (Odoo redirect)
+```
+
+**11.2** Test Odoo login:
+```bash
+# Get instance details including admin password from container
+docker logs $(docker ps | grep "odoo_$INSTANCE_NAME" | awk '{print $1}') 2>&1 | grep -E "(password|Password)"
+
+# Open in browser or test with curl
+curl -L "http://$INSTANCE_NAME.odoo.saasodoo.local/web/login"
+```
+
+---
+
+### **Step 12: Performance and Resource Monitoring**
+
+**12.1** Monitor resource usage:
+```bash
+# Check Docker container resources
+docker stats $(docker ps | grep odoo | awk '{print $1}')
+
+# Check PostgreSQL database count
+docker-compose -f docker-compose.dev.yml exec postgres psql -U saasodoo -c "SELECT datname FROM pg_database WHERE datname LIKE 'test_%';"
+
+# Check RabbitMQ queue stats
+curl -u saasodoo:saasodoo123 "http://localhost:15672/api/queues" | jq '.[] | select(.name | contains("instance")) | {name, messages}'
+
+# Check Redis memory usage
+docker-compose -f docker-compose.dev.yml exec redis redis-cli info memory
+```
+
+**12.2** Test worker scaling under load:
+```bash
+# Create many instances to test scaling
+for i in {10..20}; do
+  curl -X POST "http://localhost:8003/api/v1/instances/" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "load-test-'$i'",
+      "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+      "odoo_version": "17.0",
+      "instance_type": "development",
+      "description": "Load test '$i'",
+      "admin_email": "load'$i'@test.com",
+      "database_name": "load_db_'$i'",
+      "demo_data": false
+    }' &
+done
+wait
+
+# Scale workers to handle load
+docker-compose -f docker-compose.dev.yml up -d --scale instance-worker=4
+
+# Monitor queue processing
+watch -n 5 'curl -u saasodoo:saasodoo123 "http://localhost:15672/api/queues/%%2F/instance_provisioning" | jq "{messages, consumers}"'
+```
+
+---
+
+### **Step 13: Add Database Schema for Missing Fields**
+
+**13.1** Create database migration script for container fields:
+```sql
+-- Run this in PostgreSQL to add missing columns
+-- Connect to instance database
+\c instance;
+
+-- Add container-related columns if they don't exist
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS container_id VARCHAR(255);
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS container_name VARCHAR(255);
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS internal_port INTEGER DEFAULT 8069;
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS external_port INTEGER;
+
+-- Add indexes for performance
+CREATE INDEX IF NOT EXISTS idx_instances_container_id ON instances(container_id);
+CREATE INDEX IF NOT EXISTS idx_instances_status ON instances(status);
+CREATE INDEX IF NOT EXISTS idx_instances_tenant_id ON instances(tenant_id);
+
+-- Verify schema
+\d instances;
+```
+
+**13.2** Apply schema changes:
+```bash
+# Apply database changes
+docker-compose -f docker-compose.dev.yml exec postgres psql -U instance_service -d instance -f /path/to/migration.sql
+
+# Or run directly
+docker-compose -f docker-compose.dev.yml exec postgres psql -U instance_service -d instance -c "
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS container_id VARCHAR(255);
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS container_name VARCHAR(255);
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS internal_port INTEGER DEFAULT 8069;
+ALTER TABLE instances ADD COLUMN IF NOT EXISTS external_port INTEGER;
+"
+```
+
+---
+
+### **Step 14: Final Integration Testing**
+
+**14.1** End-to-end workflow test:
+```bash
+# Complete workflow test script
+#!/bin/bash
+set -e
+
+echo "=== SaaSOdoo Instance Service Integration Test ==="
+
+# 1. Create instance
+echo "Creating instance..."
+RESPONSE=$(curl -s -X POST "http://localhost:8003/api/v1/instances/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "integration-test",
+    "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+    "odoo_version": "17.0",
+    "instance_type": "development",
+    "description": "Integration test instance",
+    "admin_email": "test@integration.com",
+    "database_name": "integration_test",
+    "demo_data": true
+  }')
+
+INSTANCE_ID=$(echo $RESPONSE | jq -r '.id')
+echo "Instance created: $INSTANCE_ID"
+
+# 2. Wait for provisioning
+echo "Waiting for provisioning..."
+while true; do
+  STATUS=$(curl -s "http://localhost:8003/api/v1/instances/$INSTANCE_ID" | jq -r '.status')
+  echo "Current status: $STATUS"
+  
+  if [ "$STATUS" = "running" ]; then
+    echo "Instance is running!"
+    break
+  elif [ "$STATUS" = "error" ]; then
+    echo "Instance provisioning failed!"
+    exit 1
+  fi
+  
+  sleep 10
+done
+
+# 3. Test instance access
+echo "Testing instance access..."
+EXTERNAL_URL=$(curl -s "http://localhost:8003/api/v1/instances/$INSTANCE_ID" | jq -r '.external_url')
+echo "External URL: $EXTERNAL_URL"
+
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$EXTERNAL_URL")
+if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 303 ]; then
+  echo "Instance is accessible!"
+else
+  echo "Instance not accessible, HTTP status: $HTTP_STATUS"
+  exit 1
+fi
+
+# 4. Test instance operations
+echo "Testing instance stop/start..."
+curl -s -X POST "http://localhost:8003/api/v1/instances/$INSTANCE_ID/actions" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "stop"}'
+
+sleep 15
+
+curl -s -X POST "http://localhost:8003/api/v1/instances/$INSTANCE_ID/actions" \
+  -H "Content-Type: application/json" \
+  -d '{"action": "start"}'
+
+# 5. Cleanup
+echo "Cleaning up..."
+curl -s -X DELETE "http://localhost:8003/api/v1/instances/$INSTANCE_ID"
+
+echo "=== Integration test completed successfully! ==="
+```
+
+**14.2** Run the integration test:
+```bash
+# Make the script executable and run
+chmod +x integration_test.sh
+./integration_test.sh
+```
+
+---
+
+### **Step 15: Production Readiness Checklist**
+
+**15.1** Verify all components:
+```bash
+# Check all services are running
+docker-compose -f docker-compose.dev.yml ps
+
+# Verify worker scaling
+docker-compose -f docker-compose.dev.yml up -d --scale instance-worker=3
+
+# Check health endpoints
+curl "http://localhost:8003/health"
+curl "http://localhost:8003/health/database"
+
+# Verify admin endpoints
+curl "http://localhost:8003/admin/failed-instances"
+```
+
+**15.2** Performance verification:
+```bash
+# Create 10 instances simultaneously
+time (
+  for i in {1..10}; do
+    curl -X POST "http://localhost:8003/api/v1/instances/" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "perf-test-'$i'",
+        "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+        "odoo_version": "17.0",
+        "instance_type": "development",
+        "admin_email": "perf'$i'@test.com",
+        "database_name": "perf_db_'$i'",
+        "demo_data": false
+      }' &
+  done
+  wait
+)
+
+# Monitor provisioning completion
+watch -n 10 'curl -s "http://localhost:8003/api/v1/instances/?tenant_id=123e4567-e89b-12d3-a456-426614174000" | jq "[.instances[] | select(.name | startswith(\"perf-test\"))] | length"'
+```
+
+**15.3** Resource cleanup verification:
+```bash
+# Test cleanup after deletion
+INSTANCE_IDS=$(curl -s "http://localhost:8003/api/v1/instances/?tenant_id=123e4567-e89b-12d3-a456-426614174000" | jq -r '.instances[] | select(.name | startswith("perf-test")) | .id')
+
+for ID in $INSTANCE_IDS; do
+  curl -X DELETE "http://localhost:8003/api/v1/instances/$ID"
+  sleep 2
+done
+
+# Verify containers are removed
+docker ps | grep odoo_perf_db || echo "All performance test containers cleaned up"
+
+# Verify databases are removed  
+docker-compose -f docker-compose.dev.yml exec postgres psql -U saasodoo -l | grep perf_db || echo "All performance test databases cleaned up"
+```
+
+---
+
+## Expected Results After Implementation
+
+### **✅ Working Features:**
+1. **Fast API responses** - Instance creation returns immediately with "creating" status
+2. **Background provisioning** - Celery workers provision instances asynchronously  
+3. **Status tracking** - Instances transition: creating → starting → running
+4. **Scalable workers** - Can scale worker containers independently
+5. **Error handling** - Failed instances marked as "error" without auto-retry
+6. **Admin controls** - Manual retry functionality for failed instances
+7. **Resource management** - Proper container and database lifecycle
+8. **Traefik integration** - Automatic routing for new instances
+
+### **📊 Monitoring Points:**
+- **RabbitMQ queues** - Job distribution and processing
+- **Worker logs** - Provisioning progress and errors
+- **Container metrics** - Resource usage per instance
+- **Database growth** - New databases per instance
+- **API response times** - Should be <500ms for create operations
+
+### **🔧 Troubleshooting Commands:**
+```bash
+# Check overall system status
+docker-compose -f docker-compose.dev.yml ps
+
+# Monitor active provisioning
+docker-compose -f docker-compose.dev.yml logs -f instance-worker
+
+# Check RabbitMQ queues
+curl -u saasodoo:saasodoo123 "http://localhost:15672/api/queues"
+
+# Inspect failed instances
+curl "http://localhost:8003/admin/failed-instances"
+
+# View instance details
+curl "http://localhost:8003/api/v1/instances/INSTANCE_ID"
+
+# Check container status
+docker ps | grep odoo
+
+# Verify database creation
+docker-compose -f docker-compose.dev.yml exec postgres psql -U saasodoo -l
+```
+
+This implementation transforms your Instance Service from a placeholder API into a fully functional Odoo provisioning system with background processing, proper error handling, and admin controls for production use.
