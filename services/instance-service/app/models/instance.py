@@ -19,6 +19,7 @@ class InstanceStatus(str, Enum):
     STOPPED = "stopped"
     RESTARTING = "restarting"
     UPDATING = "updating"
+    MAINTENANCE = "maintenance"
     ERROR = "error"
     TERMINATED = "terminated"
 
@@ -262,4 +263,5 @@ class InstanceActionResponse(BaseModel):
     action: InstanceAction = Field(..., description="Action performed")
     status: str = Field(..., description="Action status")
     message: str = Field(..., description="Action result message")
-    timestamp: str = Field(..., description="Action timestamp") 
+    timestamp: str = Field(..., description="Action timestamp")
+    job_id: Optional[str] = Field(None, description="Celery job ID for tracking") 

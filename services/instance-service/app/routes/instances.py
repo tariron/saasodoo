@@ -4,6 +4,7 @@ Instance management routes
 
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException, Query, Depends
 import structlog
 
@@ -15,6 +16,8 @@ from app.models.instance import (
 from app.utils.validators import validate_instance_resources, validate_database_name, validate_addon_names
 from app.utils.database import InstanceDatabase
 from app.tasks.provisioning import provision_instance_task
+from app.tasks.lifecycle import restart_instance_task, start_instance_task, stop_instance_task
+from app.tasks.maintenance import backup_instance_task, restore_instance_task, update_instance_task
 
 logger = structlog.get_logger(__name__)
 
@@ -329,17 +332,66 @@ async def perform_instance_action(
         
         # Perform the action
         if action == InstanceAction.START:
-            result = await _start_instance(instance_id, db)
+            # Queue start task instead of direct execution
+            job = start_instance_task.delay(str(instance_id))
+            result = {
+                "status": "queued",
+                "message": f"Instance start queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         elif action == InstanceAction.STOP:
-            result = await _stop_instance(instance_id, db)
+            # Queue stop task instead of direct execution
+            job = stop_instance_task.delay(str(instance_id))
+            result = {
+                "status": "queued",
+                "message": f"Instance stop queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         elif action == InstanceAction.RESTART:
-            result = await _restart_instance(instance_id, db)
+            # Queue restart task instead of direct execution
+            job = restart_instance_task.delay(str(instance_id))
+            result = {
+                "status": "queued",
+                "message": f"Instance restart queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         elif action == InstanceAction.UPDATE:
-            result = await _update_instance_software(instance_id, db, action_request.parameters)
+            # Queue update task
+            target_version = action_request.parameters.get('version') if action_request.parameters else None
+            if not target_version:
+                raise HTTPException(status_code=400, detail="Target version required for update action")
+            job = update_instance_task.delay(str(instance_id), target_version)
+            result = {
+                "status": "queued",
+                "message": f"Instance update to {target_version} queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         elif action == InstanceAction.BACKUP:
-            result = await _backup_instance(instance_id, db, action_request.parameters)
+            # Queue backup task
+            backup_name = action_request.parameters.get('name') if action_request.parameters else None
+            job = backup_instance_task.delay(str(instance_id), backup_name)
+            result = {
+                "status": "queued",
+                "message": f"Instance backup queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         elif action == InstanceAction.RESTORE:
-            result = await _restore_instance(instance_id, db, action_request.parameters)
+            # Queue restore task
+            backup_id = action_request.parameters.get('backup_id') if action_request.parameters else None
+            if not backup_id:
+                raise HTTPException(status_code=400, detail="Backup ID required for restore action")
+            job = restore_instance_task.delay(str(instance_id), backup_id)
+            result = {
+                "status": "queued",
+                "message": f"Instance restore from backup {backup_id} queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
         
@@ -348,7 +400,8 @@ async def perform_instance_action(
             action=action,
             status=result["status"],
             message=result["message"],
-            timestamp=result["timestamp"]
+            timestamp=result["timestamp"],
+            job_id=result.get("job_id")
         )
         
     except HTTPException:
@@ -422,6 +475,64 @@ async def get_instance_logs(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/{instance_id}/backups")
+async def list_instance_backups(
+    instance_id: UUID,
+    db: InstanceDatabase = Depends(get_database)
+):
+    """List available backups for an instance"""
+    try:
+        instance = await db.get_instance(instance_id)
+        if not instance:
+            raise HTTPException(status_code=404, detail="Instance not found")
+        
+        # Get backups from filesystem (in a full implementation, this would query a backups table)
+        import os
+        import json
+        from pathlib import Path
+        
+        backup_dir = "/var/lib/odoo/backups/active"
+        backups = []
+        
+        if os.path.exists(backup_dir):
+            for file in os.listdir(backup_dir):
+                if file.endswith("_metadata.json"):
+                    metadata_path = os.path.join(backup_dir, file)
+                    try:
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                            if metadata.get('instance_id') == str(instance_id):
+                                backups.append({
+                                    "backup_id": metadata.get('backup_name'),
+                                    "backup_name": metadata.get('backup_name'),
+                                    "instance_name": metadata.get('instance_name'),
+                                    "created_at": metadata.get('created_at'),
+                                    "database_size": metadata.get('database_size', 0),
+                                    "data_size": metadata.get('data_size', 0),
+                                    "total_size": metadata.get('total_size', 0),
+                                    "odoo_version": metadata.get('odoo_version'),
+                                    "status": metadata.get('status')
+                                })
+                    except Exception as e:
+                        logger.warning("Failed to read backup metadata", file=file, error=str(e))
+        
+        # Sort by creation date (newest first)
+        backups.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        return {
+            "instance_id": str(instance_id),
+            "instance_name": instance.name,
+            "backups": backups,
+            "total_backups": len(backups)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to list instance backups", instance_id=str(instance_id), error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # Helper functions for instance actions
 
 def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction]:
@@ -434,7 +545,8 @@ def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction
         InstanceStatus.STOPPED: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE],
         InstanceStatus.RESTARTING: [],
         InstanceStatus.UPDATING: [],
-        InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART],
+        InstanceStatus.MAINTENANCE: [],  # No actions allowed during maintenance operations
+        InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE],
         InstanceStatus.TERMINATED: []
     }
     return action_map.get(status, [])

@@ -10,7 +10,7 @@ celery_app = Celery(
     "instance_service",
     broker=f"amqp://{os.getenv('RABBITMQ_USER', 'saasodoo')}:{os.getenv('RABBITMQ_PASSWORD', 'saasodoo123')}@rabbitmq:5672/saasodoo",
     backend=f"redis://redis:6379/0",
-    include=['app.tasks.provisioning']
+    include=['app.tasks.provisioning', 'app.tasks.lifecycle', 'app.tasks.maintenance']
 )
 
 # Configuration
@@ -28,6 +28,7 @@ celery_app.conf.update(
     worker_disable_rate_limits=False,
     task_routes={
         'app.tasks.provisioning.*': {'queue': 'instance_provisioning'},
+        'app.tasks.lifecycle.*': {'queue': 'instance_operations'},
         'app.tasks.maintenance.*': {'queue': 'instance_maintenance'},
     },
     # No automatic retry - admin manual retry only

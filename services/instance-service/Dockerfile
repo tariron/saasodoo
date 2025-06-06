@@ -14,6 +14,8 @@ RUN apt-get update \
         gcc \
         libpq-dev \
         curl \
+        postgresql-client \
+        sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -27,6 +29,9 @@ COPY . .
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Add user to docker group (gid 1001) for socket access
 RUN groupadd -g 1001 docker || true && usermod -a -G docker appuser
+# Create backup directories with proper ownership
+RUN mkdir -p /var/lib/odoo/backups/active /var/lib/odoo/backups/staging /var/lib/odoo/backups/temp \
+    && chown -R appuser:appuser /var/lib/odoo
 RUN chown -R appuser:appuser /app
 USER appuser
 

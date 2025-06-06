@@ -388,7 +388,122 @@ Implement **Option 1** first (quick fix), then migrate to **Option 2** for produ
 
 ---
 
-Last Updated: 2025-06-05 
+---
+
+## Issue #009 - MinIO Long-term Backup Storage Implementation
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: instance-service maintenance  
+**Date**: 2025-06-06  
+**Reporter**: Architecture Review  
+
+### Description
+Current backup implementation uses local volume storage (`/var/lib/odoo/backups`) for all backup operations. While this works for immediate backup/restore operations, we need to implement MinIO S3-compatible storage for long-term backup archival and improved scalability.
+
+### Current Implementation
+- **Storage**: Local Docker volume `odoo-backups:/var/lib/odoo/backups`
+- **Access**: Direct filesystem operations within container
+- **Limitations**: 
+  - No off-site backup capability
+  - Limited by local disk space
+  - No cross-region replication
+  - No backup deduplication
+
+### MinIO Infrastructure Available
+MinIO is already configured in `infrastructure/compose/docker-compose.dev.yml`:
+- **Container**: `saasodoo-minio` 
+- **API Endpoint**: `s3.localhost` (S3-compatible API)
+- **Web Console**: `minio.localhost`
+- **Storage**: `minio-data` volume for persistent storage
+- **Credentials**: `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`
+
+### Proposed Architecture
+
+**Two-Tier Storage Strategy**:
+```
+Local Volume (Fast)          MinIO S3 (Archival)
+├─ active/                   ├─ archived/
+├─ staging/                  ├─ compressed/
+└─ temp/                     └─ metadata/
+```
+
+**Backup Workflow**:
+1. Create backup → Local volume (fast Docker operations)
+2. Compress & process → Local staging area
+3. Upload to MinIO S3 → Long-term storage with versioning
+4. Cleanup local copy → Free local space
+5. Catalog metadata → Both local and S3
+
+**Restore Workflow**:
+1. Check local cache → Recent backups (fast path)
+2. Download from S3 → If not cached locally
+3. Stage locally → Prepare for restoration
+4. Restore operation → From local staging
+5. Cleanup staging → Remove temporary files
+
+### Implementation Tasks
+
+**Phase 1: MinIO Integration**
+- [ ] Add MinIO client library to requirements.txt (boto3 or minio-py)
+- [ ] Create MinIO connection utility in shared/utils/
+- [ ] Add MinIO configuration to instance-service environment
+- [ ] Create backup bucket structure and policies
+
+**Phase 2: Dual Storage Implementation**
+- [ ] Modify backup tasks to support both local and S3 storage
+- [ ] Implement backup upload workflow to MinIO after local creation
+- [ ] Add restore download workflow from MinIO to local staging
+- [ ] Create backup retention policies (local vs S3)
+
+**Phase 3: Management Features**
+- [ ] Backup catalog API endpoints (list S3 backups)
+- [ ] Backup lifecycle management (auto-cleanup, retention)
+- [ ] Cross-region backup replication configuration
+- [ ] Backup integrity verification and checksums
+
+### Benefits
+- **Scalability**: Unlimited backup storage capacity
+- **Durability**: S3-compatible storage with redundancy
+- **Cost Efficiency**: Cheaper long-term storage vs local SSD
+- **Disaster Recovery**: Off-site backup capability
+- **Multi-tenancy**: Isolated backup buckets per tenant
+- **Compliance**: Better audit trails and retention policies
+
+### Technical Considerations
+- **Async Uploads**: Background S3 uploads to avoid blocking operations
+- **Compression**: Reduce bandwidth and storage costs
+- **Encryption**: At-rest and in-transit encryption for sensitive data
+- **Bandwidth**: Optimize upload/download for large Odoo instances
+- **Caching**: Intelligent local caching for frequently accessed backups
+
+### Files to Create/Modify
+- `shared/utils/minio_client.py` - MinIO connection and operations
+- `services/instance-service/app/tasks/maintenance.py` - Dual storage backup logic
+- `services/instance-service/requirements.txt` - Add MinIO client dependency
+- `infrastructure/compose/docker-compose.dev.yml` - MinIO environment variables
+
+### Configuration Required
+```yaml
+# Instance Service Environment
+MINIO_ENDPOINT: minio:9000
+MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+MINIO_BUCKET_BACKUPS: odoo-backups
+MINIO_SECURE: false  # true for HTTPS in production
+```
+
+### Priority Justification
+**Medium Priority** because:
+- Local storage works for immediate needs
+- Critical for production scalability
+- Important for disaster recovery
+- Enables multi-region deployment
+- Foundation for enterprise backup features
+
+---
+
+Last Updated: 2025-06-06 
 
 # Instance Service Issue Log
 
