@@ -8,19 +8,19 @@ dont use jq
 ## Development Commands
 
 ### Docker & Environment
-- `make dev-up` - Start development environment with all services
-- `make dev-down` - Stop development environment
-- `make dev-logs` - View all service logs
-- `make dev-logs-service SERVICE=user-service` - View specific service logs
-- `make dev-shell SERVICE=user-service` - Access service shell
-- `make dev-restart` - Restart development environment
+#- `make dev-up` - Start development environment with all services
+#- `make dev-down` - Stop development environment
+#- `make dev-logs` - View all service logs
+#- `make dev-logs-service SERVICE=user-service` - View specific service logs
+#- `make dev-shell SERVICE=user-service` - Access service shell
+#- `make dev-restart` - Restart development environment
 
 ### Testing & Quality
-- `make test` - Run all tests across services
-- `make test-service SERVICE=user-service` - Run tests for specific service
-- `make format` - Format code using black and isort
-- `make lint` - Run flake8 and pylint code linting
-- `make security-scan` - Run bandit security analysis
+#- `make test` - Run all tests across services
+#- `make test-service SERVICE=user-service` - Run tests for specific service
+#- `make format` - Format code using black and isort
+#- `make lint` - Run flake8 and pylint code linting
+#- `make security-scan` - Run bandit security analysis
 
 ### Database Operations
 - `make db-test` - Test database connectivity using shared/configs/postgres/test_connectivity.py

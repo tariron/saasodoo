@@ -70,7 +70,7 @@ def update_instance_task(self, instance_id: str, target_version: str):
 
 
 async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -> Dict[str, Any]:
-    """Main backup workflow with Docker volume operations"""
+    """Main backup workflow with stop-backup-start pattern for consistent state"""
     
     instance = await _get_instance_from_db(instance_id)
     if not instance:
@@ -85,31 +85,49 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         backup_name = f"{instance['database_name']}_{instance['name'].replace(' ', '_')}_{backup_name}_{timestamp}"
     
-    logger.info("Starting backup workflow", instance_name=instance['name'], backup_name=backup_name)
+    logger.info("Starting backup workflow with stop-backup-start pattern", 
+               instance_name=instance['name'], backup_name=backup_name)
+    
+    # Remember if instance was running before backup
+    was_running = instance['status'] == InstanceStatus.RUNNING.value
     
     try:
-        # Step 1: Update status to BACKING_UP (new status)
+        # Step 1: Update status to MAINTENANCE and stop instance if running
         await _update_instance_status(instance_id, InstanceStatus.MAINTENANCE, "Creating backup")
+        
+        if was_running:
+            logger.info("Stopping instance for consistent backup")
+            await _stop_docker_container(instance)
+            # Wait a moment for clean shutdown
+            await asyncio.sleep(5)
         
         # Step 2: Ensure backup directories exist
         _ensure_backup_directories()
         
-        # Step 3: Create database backup
+        # Step 3: Create database backup (with stopped instance for consistency)
         db_backup_path = await _create_database_backup(instance, backup_name)
         logger.info("Database backup created", path=db_backup_path)
         
-        # Step 4: Create data volume backup
-        data_backup_path = await _create_data_volume_backup(instance, backup_name)
-        logger.info("Data volume backup created", path=data_backup_path)
+        # Step 4: Create data volume backup (with stopped instance for consistency)
+        data_backup_path, data_backup_size = await _create_data_volume_backup(instance, backup_name)
+        logger.info("Data volume backup created", path=data_backup_path, size=data_backup_size)
         
         # Step 5: Create backup metadata
-        backup_metadata = await _create_backup_metadata(instance, backup_name, db_backup_path, data_backup_path)
+        backup_metadata = await _create_backup_metadata(instance, backup_name, db_backup_path, data_backup_path, data_backup_size)
         
         # Step 6: Store backup info in database
         backup_id = await _store_backup_record(instance_id, backup_metadata)
         
-        # Step 7: Restore original status
-        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        # Step 7: Restart instance if it was running before backup
+        if was_running:
+            logger.info("Restarting instance after backup")
+            container_result = await _start_docker_container(instance)
+            await _wait_for_odoo_startup(container_result, timeout=120)
+            await _update_instance_network_info(instance_id, container_result)
+            await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        else:
+            # Instance was stopped, keep it stopped
+            await _update_instance_status(instance_id, InstanceStatus.STOPPED)
         
         return {
             "status": "success",
@@ -118,12 +136,24 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
             "database_backup": db_backup_path,
             "data_backup": data_backup_path,
             "backup_size": backup_metadata["total_size"],
-            "message": "Backup created successfully"
+            "was_running": was_running,
+            "message": "Backup created successfully with stop-backup-start pattern"
         }
         
     except Exception as e:
         logger.error("Backup workflow failed", error=str(e))
-        await _update_instance_status(instance_id, InstanceStatus.ERROR, str(e))
+        # Try to restore original state if something went wrong
+        if was_running:
+            try:
+                logger.info("Attempting to restart instance after backup failure")
+                container_result = await _start_docker_container(instance)
+                await _update_instance_network_info(instance_id, container_result)
+                await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+            except Exception as restore_error:
+                logger.error("Failed to restore instance state after backup failure", error=str(restore_error))
+                await _update_instance_status(instance_id, InstanceStatus.ERROR, f"Backup failed and could not restart: {str(e)}")
+        else:
+            await _update_instance_status(instance_id, InstanceStatus.ERROR, str(e))
         raise
 
 
@@ -158,19 +188,33 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         await _restore_database_permissions(instance['database_name'], instance)
         logger.info("Database permissions restored")
         
+        # Step 3.6: Reset Odoo database state to prevent startup conflicts
+        await _reset_odoo_database_state(instance['database_name'], instance)
+        logger.info("Odoo database state reset for clean startup")
+        
         # Step 4: Restore data volume from backup
         await _restore_data_volume_backup(instance, backup_info)
         logger.info("Data volume restored from backup")
         
-        # Step 5: Start instance if it was running before
+        # Step 5: Always recreate container after restore (since volume was recreated)
+        container_result = await _start_docker_container_for_restore(instance)
+        logger.info("Container recreated after restore")
+        
+        # Step 6: Start the container if instance was running before, otherwise leave it stopped
         if was_running:
-            container_result = await _start_docker_container(instance)
             await _wait_for_odoo_startup(container_result, timeout=120)
             await _update_instance_network_info(instance_id, container_result)
-            logger.info("Instance restarted after restore")
+            logger.info("Instance restarted after restore with optimized startup")
+            target_status = InstanceStatus.RUNNING
+        else:
+            # Stop the container but keep it available for starting later
+            client = docker.from_env()
+            container = client.containers.get(container_result['container_name'])
+            container.stop()
+            logger.info("Container created but stopped to match previous state")
+            target_status = InstanceStatus.STOPPED
         
-        # Step 6: Update status
-        target_status = InstanceStatus.RUNNING if was_running else InstanceStatus.STOPPED
+        # Step 7: Update status
         await _update_instance_status(instance_id, target_status)
         
         return {
@@ -296,7 +340,7 @@ async def _create_database_backup(instance: Dict[str, Any], backup_name: str) ->
     return backup_file
 
 
-async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str) -> str:
+async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str) -> tuple[str, int]:
     """Create backup of Odoo data volume"""
     client = docker.from_env()
     container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
@@ -323,35 +367,42 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
                 detach=False
             )
             logger.info("Docker tar command output", output=result)
+            
+            # Get file size from within the volume using another container
+            size_result = client.containers.run(
+                image="alpine:latest",
+                command=f"stat -c %s /backup/{backup_name}_data.tar.gz",
+                volumes={'odoo-backups': {'bind': '/backup', 'mode': 'ro'}},
+                remove=True,
+                detach=False
+            )
+            backup_size = int(size_result.decode().strip())
+            logger.info("Data volume backup completed", file=backup_file, size=backup_size)
+            return backup_file, backup_size
+            
         except Exception as docker_error:
             logger.error("Docker tar command failed", error=str(docker_error))
             # Create empty backup file to maintain consistency
             Path(backup_file).touch()
             logger.info("Created empty backup file as fallback", file=backup_file)
-            return backup_file
-        
-        # Check if backup file was created
-        if os.path.exists(backup_file):
-            logger.info("Data volume backup completed", file=backup_file, size=os.path.getsize(backup_file))
-        else:
-            logger.warning("Backup file not created, creating empty file", file=backup_file)
-            Path(backup_file).touch()
-        return backup_file
+            return backup_file, 0
         
     except docker.errors.NotFound:
         logger.warning("Container not found, skipping data volume backup", container_name=container_name)
-        # Create empty backup file to maintain consistency
+        # Create empty backup file to maintain consistency  
         Path(backup_file).touch()
-        return backup_file
+        return backup_file, 0
     except Exception as e:
         logger.error("Failed to backup data volume", error=str(e))
         raise
 
 
-async def _create_backup_metadata(instance: Dict[str, Any], backup_name: str, db_backup_path: str, data_backup_path: str) -> Dict[str, Any]:
+async def _create_backup_metadata(instance: Dict[str, Any], backup_name: str, db_backup_path: str, data_backup_path: str, data_size: int = None) -> Dict[str, Any]:
     """Create backup metadata"""
     db_size = os.path.getsize(db_backup_path) if os.path.exists(db_backup_path) else 0
-    data_size = os.path.getsize(data_backup_path) if os.path.exists(data_backup_path) else 0
+    # Use provided data_size if available, otherwise try to get from filesystem
+    if data_size is None:
+        data_size = os.path.getsize(data_backup_path) if os.path.exists(data_backup_path) else 0
     
     metadata = {
         "backup_name": backup_name,
@@ -422,14 +473,34 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
     """Restore Odoo data volume from backup"""
     client = docker.from_env()
     backup_file = backup_info['data_backup_path']
+    backup_filename = os.path.basename(backup_file)
     
-    if not os.path.exists(backup_file):
-        logger.warning("Data backup file not found, skipping data restore", file=backup_file)
+    # Check if backup file exists in the Docker volume
+    try:
+        check_result = client.containers.run(
+            image="alpine:latest",
+            command=f"test -f /backup/{backup_filename}",
+            volumes={'odoo-backups': {'bind': '/backup', 'mode': 'ro'}},
+            remove=True,
+            detach=False
+        )
+        logger.info("Data backup file found", file=backup_filename)
+    except Exception:
+        logger.warning("Data backup file not found in volume, skipping data restore", file=backup_filename)
         return
     
     volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
     
     try:
+        # Remove existing container that might be using the volume
+        container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
+        try:
+            existing_container = client.containers.get(container_name)
+            existing_container.remove(force=True)
+            logger.info("Existing container removed for volume cleanup", container=container_name)
+        except docker.errors.NotFound:
+            pass
+        
         # Remove existing volume if it exists
         try:
             existing_volume = client.volumes.get(volume_name)
@@ -445,7 +516,7 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
         # Extract backup to new volume
         client.containers.run(
             image="alpine:latest",
-            command=f"tar -xzf /backup/{os.path.basename(backup_file)} -C /data",
+            command=f"tar -xzf /backup/{backup_filename} -C /data",
             volumes={
                 volume_name: {'bind': '/data', 'mode': 'rw'},
                 'odoo-backups': {'bind': '/backup', 'mode': 'ro'}
@@ -454,7 +525,7 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
             detach=False
         )
         
-        logger.info("Data volume restored from backup", volume=volume_name)
+        logger.info("Data volume restored from backup", volume=volume_name, backup_file=backup_filename)
         
     except Exception as e:
         logger.error("Failed to restore data volume", error=str(e))
@@ -719,14 +790,110 @@ async def _restore_database_permissions(database_name: str, instance: Dict[str, 
         # Grant all privileges on all sequences in public schema
         await conn.execute(f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "{db_user}"')
         
-        # Grant usage on public schema
-        await conn.execute(f'GRANT USAGE ON SCHEMA public TO "{db_user}"')
+        # Fix public schema ownership (critical for restored databases)
+        await conn.execute(f'ALTER SCHEMA public OWNER TO "{db_user}"')
+        
+        # Grant CREATE, USAGE on public schema (essential for Odoo)
+        await conn.execute(f'GRANT CREATE, USAGE ON SCHEMA public TO "{db_user}"')
+        
+        # Make user owner of the database for maximum privileges
+        await conn.execute(f'ALTER DATABASE "{database_name}" OWNER TO "{db_user}"')
         
         # Set default privileges for future tables
         await conn.execute(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "{db_user}"')
         await conn.execute(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "{db_user}"')
         
         logger.info("Database permissions restored", database=database_name, user=db_user)
+    finally:
+        await conn.close()
+
+
+async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any]):
+    """Reset Odoo database state to prevent startup conflicts after restore"""
+    
+    conn = await asyncpg.connect(
+        host=os.getenv('POSTGRES_HOST', 'postgres'),
+        port=5432,
+        database=database_name,
+        user=os.getenv('POSTGRES_USER', 'odoo_user'),
+        password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
+    )
+    
+    try:
+        # Clear module update flags that can cause startup hangs
+        await conn.execute("""
+            UPDATE ir_module_module 
+            SET state = 'installed' 
+            WHERE state IN ('to upgrade', 'to install', 'to remove')
+        """)
+        
+        # Clear any pending module operations
+        await conn.execute("""
+            DELETE FROM ir_module_module_dependency 
+            WHERE module_id IN (
+                SELECT id FROM ir_module_module WHERE state = 'uninstalled'
+            )
+        """)
+        
+        # Reset registry rebuild flags
+        await conn.execute("""
+            UPDATE ir_config_parameter 
+            SET value = 'false' 
+            WHERE key IN ('base.module_upgrade', 'web.base.url.freeze')
+        """)
+        
+        # Clear any stuck cron jobs related to module updates (if structure matches)
+        try:
+            # Try modern Odoo structure first
+            await conn.execute("""
+                UPDATE ir_cron 
+                SET active = false 
+                WHERE ir_actions_server_id IN (
+                    SELECT id FROM ir_act_server 
+                    WHERE model_id IN (
+                        SELECT id FROM ir_model WHERE model = 'ir.module.module'
+                    )
+                )
+            """)
+        except Exception:
+            # Fallback: just disable all cron jobs temporarily to prevent conflicts
+            try:
+                await conn.execute("UPDATE ir_cron SET active = false WHERE cron_name LIKE '%module%'")
+            except Exception:
+                logger.debug("Cron cleanup failed, skipping")
+        
+        # Reset session information that might conflict (if table exists)
+        try:
+            await conn.execute("DELETE FROM ir_sessions WHERE session_id IS NOT NULL")
+        except Exception:
+            # Table might not exist in all Odoo versions
+            logger.debug("ir_sessions table not found, skipping session cleanup")
+        
+        # Clear any attachment locks (if table exists)
+        try:
+            await conn.execute("""
+                UPDATE ir_attachment 
+                SET write_uid = NULL, write_date = NOW() 
+                WHERE res_model = 'ir.module.module'
+            """)
+        except Exception:
+            logger.debug("ir_attachment table access failed, skipping attachment cleanup")
+        
+        # Clear any pending database updates (if parameters exist)
+        try:
+            await conn.execute("""
+                DELETE FROM ir_config_parameter 
+                WHERE key LIKE 'database.%' 
+                AND key IN ('database.is_neutralized', 'database.uuid')
+            """)
+        except Exception:
+            logger.debug("Database parameter cleanup failed, skipping")
+        
+        logger.info("Odoo database state reset completed", database=database_name)
+        
+    except Exception as e:
+        logger.error("Failed to reset Odoo database state", database=database_name, error=str(e))
+        raise
     finally:
         await conn.close()
 
@@ -882,3 +1049,109 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
         logger.info("Instance network info updated", instance_id=instance_id)
     finally:
         await conn.close()
+
+
+async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[str, Any]:
+    """Start Docker container with Bitnami optimization for restore operations"""
+    client = docker.from_env()
+    
+    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
+    
+    try:
+        # Try to get existing container
+        container = client.containers.get(container_name)
+        
+        # Stop the container if it's running
+        if container.status == 'running':
+            logger.info("Stopping container for restore optimization", container_name=container_name)
+            container.stop(timeout=30)
+        
+        # Remove the existing container to recreate with optimized environment
+        container.remove()
+        logger.info("Container removed for restore optimization", container_name=container_name)
+        
+    except docker.errors.NotFound:
+        logger.info("No existing container found, will create new one", container_name=container_name)
+    
+    # Create optimized container configuration for restore
+    db_user = f"odoo_{instance['database_name']}"
+    db_password = f"odoo_pass_{instance['id'].hex[:8]}"
+    
+    # Environment optimized for restored instance
+    environment = {
+        'ODOO_DATABASE_HOST': os.getenv('POSTGRES_HOST', 'postgres'),
+        'ODOO_DATABASE_PORT_NUMBER': '5432',
+        'ODOO_DATABASE_NAME': instance['database_name'],
+        'ODOO_DATABASE_USER': db_user,
+        'ODOO_DATABASE_PASSWORD': db_password,
+        'ODOO_EMAIL': instance['admin_email'],
+        'ODOO_PASSWORD': f"admin_{instance['id'].hex[:8]}",
+        'ODOO_LOAD_DEMO_DATA': 'no',  # Skip demo data for restored instances
+        # Bitnami-specific variables to optimize startup for restored databases
+        'ODOO_SKIP_BOOTSTRAP': 'yes',  # Skip database initialization
+        'ODOO_SKIP_MODULES_UPDATE': 'yes',  # Skip module updates on startup
+        'BITNAMI_DEBUG': 'true',  # Enable debug logging for troubleshooting
+    }
+    
+    # Add custom environment variables from instance if any
+    if instance.get('environment_vars'):
+        environment.update(instance['environment_vars'])
+    
+    # Resource limits
+    mem_limit = instance['memory_limit']
+    cpu_limit = instance['cpu_limit']
+    
+    try:
+        # Create and start optimized container for restore
+        container = client.containers.run(
+            'bitnami/odoo:17',  # Use same version as original
+            name=container_name,
+            environment=environment,
+            mem_limit=mem_limit,
+            cpu_count=int(cpu_limit),
+            detach=True,
+            restart_policy={"Name": "unless-stopped"},
+            labels={
+                'saasodoo.instance.id': str(instance['id']),
+                'saasodoo.instance.name': instance['name'],
+                'saasodoo.tenant.id': str(instance['tenant_id']),
+                'saasodoo.restore.optimized': 'true',
+                # Traefik labels for automatic routing
+                'traefik.enable': 'true',
+                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.odoo.saasodoo.local`)',
+                f'traefik.http.routers.{container_name}.service': container_name,
+                f'traefik.http.services.{container_name}.loadbalancer.server.port': '8069',
+            },
+            volumes={
+                f'odoo_data_{instance["database_name"]}_{instance["id"].hex[:8]}': {
+                    'bind': '/bitnami/odoo',
+                    'mode': 'rw'
+                }
+            }
+        )
+        
+        # Connect to network after creation
+        try:
+            network = client.networks.get('saasodoo-network')
+            network.connect(container)
+            logger.info("Restored container connected to network", container_name=container_name, network='saasodoo-network')
+        except docker.errors.NotFound:
+            logger.warning("Network saasodoo-network not found, skipping network connection")
+        
+        logger.info("Optimized container created for restore", container_id=container.id, name=container_name)
+        
+        # Get container network info
+        container.reload()
+        internal_ip = _get_container_ip(container)
+        
+        return {
+            'container_id': container.id,
+            'container_name': container_name,
+            'internal_ip': internal_ip,
+            'internal_url': f'http://{internal_ip}:8069',
+            'external_url': f'http://{instance["database_name"]}.odoo.saasodoo.local'
+        }
+        
+    except Exception as e:
+        logger.error("Failed to start optimized container for restore", container_name=container_name, error=str(e))
+        raise

@@ -503,6 +503,54 @@ MINIO_SECURE: false  # true for HTTPS in production
 
 ---
 
+## Issue #010 - maintenance.py Refactoring Needed
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: instance-service  
+**Date**: 2025-06-06  
+**Reporter**: Code Review  
+
+### Description
+The maintenance.py file has grown large (~1200+ lines) and contains multiple responsibilities that should be separated for better maintainability.
+
+### Current Issues
+- Single file handling backup, restore, and update operations
+- Mixed concerns: database operations, Docker operations, file operations
+- Repeated code patterns across backup/restore workflows
+- Difficult to test individual components
+
+### Recommended Refactoring
+- Split into separate modules: backup_service.py, restore_service.py, update_service.py
+- Extract common utilities: docker_utils.py, database_utils.py
+- Create dedicated classes for each operation type
+- Improve error handling and logging consistency
+
+---
+
+## Issue #011 - Upgrade Functionality Not Tested
+**Status**: 📋 Open  
+**Priority**: High  
+**Component**: instance-service  
+**Date**: 2025-06-06  
+**Reporter**: Quality Assurance  
+
+### Description
+The Odoo version upgrade functionality exists in maintenance.py but has not been tested end-to-end.
+
+### Current State
+- Update workflow implementation exists
+- Version validation logic present
+- No testing of actual Odoo version upgrades
+- Unknown compatibility with backup/restore after upgrades
+
+### Testing Required
+- Test upgrade from Odoo 16.0 to 17.0
+- Verify data integrity after upgrades
+- Test backup/restore compatibility across versions
+- Validate rollback procedures
+
+---
+
 Last Updated: 2025-06-06 
 
 # Instance Service Issue Log

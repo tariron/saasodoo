@@ -1,6 +1,6 @@
 {
     "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
-    "name": "Test Instance 001",
+    "name": "Test Instance Volume Fix",
     "description": "Test instance for development",
     "odoo_version": "17.0",
     "instance_type": "development",
@@ -8,7 +8,7 @@
     "memory_limit": "1G",
     "storage_limit": "10G",
     "admin_email": "admin@testinstance.com",
-    "database_name": "test_instance_001",
+    "database_name": "test_instance_volume_fix",
     "demo_data": true,
     "custom_addons": ["sale_management", "website"],
     "disabled_modules": [],
