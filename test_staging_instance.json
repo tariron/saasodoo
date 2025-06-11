@@ -1,0 +1,14 @@
+{
+  "tenant_id": "fa898093-1dcb-4c1d-9837-41559edeab2c",
+  "name": "Staging Instance",
+  "description": "Staging environment for testing",
+  "odoo_version": "17.0",
+  "instance_type": "staging",
+  "cpu_limit": 1.5,
+  "memory_limit": "2G",
+  "storage_limit": "20G",
+  "admin_email": "admin@staging.saasodoo.test",
+  "database_name": "staging_instance",
+  "demo_data": false,
+  "custom_addons": ["sale_management", "purchase", "inventory"]
+}

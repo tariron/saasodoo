@@ -804,4 +804,44 @@ urllib3>=2.0.2
 - `Dockerfile`: 1.0KB (41 lines)
 - `celery_config.py`: 1.2KB (39 lines)
 
-**Total codebase analysis**: ~67KB across 7 core files for instance service functionality. 
+**Total codebase analysis**: ~67KB across 7 core files for instance service functionality.
+
+---
+
+## Issue #012 - KillBill/Kaui Database User Configuration
+
+**Status**: ✅ Resolved  
+**Priority**: High  
+**Component**: billing-infrastructure  
+**Date**: 2025-06-11  
+**Reporter**: Database Permission Issues  
+
+### Description
+KillBill and Kaui services couldn't connect to databases due to custom user configuration conflicting with the killbill/mariadb image's automatic setup.
+
+### Root Cause
+- Used custom `killbill` user instead of `root` user that killbill/mariadb image expects
+- killbill/mariadb:0.24 automatically creates both `killbill` and `kaui` databases with schemas
+- Custom user creation variables (`MYSQL_USER`, `MYSQL_ADDITIONAL_DATABASES`) don't work with this image
+- Manual permission grants were required for the custom user
+
+### Solution Applied
+Switched to reference configuration using `root` user:
+- **Database**: Use only `MYSQL_ROOT_PASSWORD: killbill`
+- **KillBill**: `KILLBILL_DAO_USER: root` with `KILLBILL_DAO_PASSWORD: killbill`
+- **Kaui**: `KAUI_CONFIG_DAO_USER: root` with `KAUI_CONFIG_DAO_PASSWORD: killbill`
+
+### Technical Details
+killbill/mariadb image automatically:
+- Creates `killbill` database with full schema (100+ tables)
+- Creates `kaui` database with admin schema (4 tables)
+- Only creates `root` user with default password
+- Doesn't support custom user creation via environment variables
+
+### Files Modified
+- `infrastructure/compose/docker-compose.dev.yml` - Updated to use root credentials
+
+### Verification
+Both services now connect successfully with root user, eliminating permission issues.
+
+--- 

@@ -23,13 +23,13 @@ dont use jq
 #- `make security-scan` - Run bandit security analysis
 
 ### Database Operations
-- `make db-test` - Test database connectivity using shared/configs/postgres/test_connectivity.py
-- `make db-reset` - Reset development database (destroys all data)
-- `make pgadmin-open` - Open pgAdmin web interface
+#- `make db-test` - Test database connectivity using shared/configs/postgres/test_connectivity.py
+#- `make db-reset` - Reset development database (destroys all data)
+#- `make pgadmin-open` - Open pgAdmin web interface
 
 ### Building & Deployment
-- `make build` - Build all Docker images
-- `make build-service SERVICE=user-service` - Build specific service image
+#- `make build` - Build all Docker images
+#- `make build-service SERVICE=user-service` - Build specific service image
 
 ## Architecture Overview
 
@@ -37,9 +37,9 @@ dont use jq
 This is a multi-tenant SaaS platform for provisioning Odoo instances. The system consists of:
 
 **Core Services (FastAPI)**:
-- `user-service` (port 8001) - Authentication & user management with Supabase integration
-- `tenant-service` (port 8002) - Tenant management and Docker orchestration  
-- `instance-service` (port 8003) - Odoo instance lifecycle management
+#- `user-service` (port 8001) - Authentication & user management with Supabase integration
+#- `tenant-service` (port 8002) - Tenant management and Docker orchestration  
+#- `instance-service` (port 8003) - Odoo instance lifecycle management
 
 **Infrastructure Services**:
 - PostgreSQL with separate databases per service (auth, tenant, instance)

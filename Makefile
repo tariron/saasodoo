@@ -21,6 +21,8 @@ dev-up: ## Start development environment
 	@echo "   Admin: http://admin.localhost"
 	@echo "   API Docs: http://api.localhost/docs"
 	@echo "   pgAdmin: http://pgadmin.saasodoo.local"
+	@echo "   KillBill API: http://localhost:8081"
+	@echo "   KillBill Admin (Kaui): http://localhost:9090"
 
 dev-down: ## Stop development environment
 	@echo "🛑 Stopping development environment..."
@@ -125,6 +127,58 @@ pgadmin-reset: ## Reset pgAdmin configuration and data
 
 pgadmin-logs: ## View pgAdmin logs
 	docker-compose -f infrastructure/compose/docker-compose.dev.yml logs -f pgadmin
+
+# =============================================================================
+# KILLBILL COMMANDS
+# =============================================================================
+
+killbill-up: ## Start KillBill services only
+	@echo "💰 Starting KillBill services..."
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml up -d killbill-db killbill kaui
+	@echo "✅ KillBill services started!"
+	@echo "   KillBill API: http://localhost:8081"
+	@echo "   Kaui Admin: http://localhost:9090"
+	@echo "   Credentials: admin/password"
+
+killbill-down: ## Stop KillBill services
+	@echo "💰 Stopping KillBill services..."
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml down killbill kaui killbill-db
+	@echo "✅ KillBill services stopped!"
+
+killbill-logs: ## View KillBill logs
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml logs -f killbill kaui killbill-db
+
+killbill-restart: ## Restart KillBill services
+	@echo "💰 Restarting KillBill services..."
+	$(MAKE) killbill-down
+	$(MAKE) killbill-up
+
+killbill-test: ## Test KillBill API connectivity
+	@echo "🧪 Testing KillBill API..."
+	@echo "Health Check:"
+	curl -s http://localhost:8081/1.0/healthcheck || echo "❌ KillBill API not responding"
+	@echo ""
+	@echo "Version Info:"
+	curl -s -u admin:password -H "X-Killbill-ApiKey: lazar" -H "X-Killbill-ApiSecret: bob" http://localhost:8081/1.0/kb/test || echo "❌ KillBill authentication failed"
+
+killbill-open: ## Open KillBill interfaces in browser
+	@echo "🌐 Opening KillBill interfaces..."
+	@if [ "$(OS)" = "Windows_NT" ]; then \
+		start http://localhost:8081/1.0/healthcheck && \
+		start http://localhost:9090; \
+	else \
+		(open http://localhost:8081/1.0/healthcheck || xdg-open http://localhost:8081/1.0/healthcheck) && \
+		(open http://localhost:9090 || xdg-open http://localhost:9090); \
+	fi
+	@echo "📝 KillBill API: http://localhost:8081"
+	@echo "📝 Kaui Admin: http://localhost:9090 (admin/password)"
+
+killbill-reset: ## Reset KillBill database and restart
+	@echo "💰 Resetting KillBill database..."
+	docker-compose -f infrastructure/compose/docker-compose.dev.yml down killbill kaui killbill-db
+	docker volume rm saasodoo_killbill-db-data || true
+	$(MAKE) killbill-up
+	@echo "✅ KillBill database reset completed!"
 
 # =============================================================================
 # PRODUCTION COMMANDS

@@ -223,6 +223,112 @@ services:
       - "traefik.http.routers.minio-api.service=minio-api"
       - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
 
+  # ===== BILLING INFRASTRUCTURE =====
+  
+  # KillBill MariaDB Database (with pre-built schemas)
+  killbill-db:
+    image: killbill/mariadb:0.24
+    container_name: saasodoo-killbill-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: killbill
+    volumes:
+      - killbill-db-data:/var/lib/mysql
+      #- ../../shared/configs/killbill:/docker-entrypoint-initdb.d:ro
+    networks:
+      - saasodoo-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=false"
+
+  # KillBill Billing Engine
+  killbill:
+    image: killbill/killbill:latest
+    container_name: saasodoo-killbill
+    restart: unless-stopped
+    environment:
+      # Database Configuration
+      KILLBILL_DAO_URL: jdbc:mysql://killbill-db:3306/killbill
+      KILLBILL_DAO_USER: root
+      KILLBILL_DAO_PASSWORD: killbill
+      
+      # API Credentials  
+      KILLBILL_SERVER_MULTITENANT: true
+      KILLBILL_CONFIG_OSGI_BUNDLE_CACHE_NAME: felix-cache
+      
+      # Default tenant credentials (bob/lazar are the default API keys)
+      KILLBILL_USERNAME: admin
+      KILLBILL_PASSWORD: password
+      KILLBILL_API_SECRET: bob
+      KILLBILL_API_KEY: lazar
+      
+      # JVM Memory settings
+      KILLBILL_JVM_PERM_SIZE: 512m
+      KILLBILL_JVM_MAX_PERM_SIZE: 1G
+    networks:
+      - saasodoo-network
+    depends_on:
+      killbill-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/1.0/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.killbill.rule=Host(`billing.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.killbill.service=killbill"
+      - "traefik.http.services.killbill.loadbalancer.server.port=8080"
+    ports:
+      - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
+
+  # Kaui Admin UI for KillBill
+  kaui:
+    image: killbill/kaui:latest
+    container_name: saasodoo-kaui
+    restart: unless-stopped
+    environment:
+      # Database Configuration for Kaui
+      KAUI_KILLBILL_URL: http://killbill:8080
+      KAUI_KILLBILL_API_KEY: lazar
+      KAUI_KILLBILL_API_SECRET: bob
+      
+      # Kaui Database (shared with KillBill)
+      KAUI_CONFIG_DAO_URL: jdbc:mysql://killbill-db:3306/kaui
+      KAUI_CONFIG_DAO_USER: root
+      KAUI_CONFIG_DAO_PASSWORD: killbill
+      
+      # Default admin credentials
+      KAUI_ROOT_USERNAME: admin
+      KAUI_ROOT_PASSWORD: password
+      
+      # Enable automatic database migration
+      KAUI_CONFIG_CURRENCY: USD
+    networks:
+      - saasodoo-network
+    depends_on:
+      killbill:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kaui.rule=Host(`billing-admin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.kaui.service=kaui"
+      - "traefik.http.services.kaui.loadbalancer.server.port=8080"
+    ports:
+      - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
+
   # ===== MICROSERVICES =====
   
   # User Service - Customer Authentication & Management
@@ -474,4 +580,6 @@ volumes:
   odoo-instances:
     driver: local
   odoo-backups:
+    driver: local
+  killbill-db-data:
     driver: local 
