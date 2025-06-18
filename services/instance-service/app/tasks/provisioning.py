@@ -366,6 +366,15 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
         except docker.errors.NotFound:
             pass  # Container doesn't exist
         
+        # Remove Docker volume if created
+        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
+        try:
+            volume = client.volumes.get(volume_name)
+            volume.remove()
+            logger.info("Volume cleaned up", volume_name=volume_name)
+        except docker.errors.NotFound:
+            pass  # Volume doesn't exist
+        
         # Remove database if created
         admin_conn = await asyncpg.connect(
             host=os.getenv('POSTGRES_HOST', 'postgres'),

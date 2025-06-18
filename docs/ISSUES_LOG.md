@@ -844,4 +844,125 @@ killbill/mariadb image automatically:
 ### Verification
 Both services now connect successfully with root user, eliminating permission issues.
 
+---
+
+## Issue #013 - Instance Status Sync Issue
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: instance-service  
+**Date**: 2025-06-18  
+**Reporter**: Testing
+
+### Description
+Database instance status becomes out of sync with actual Docker container state.
+
+### Problem
+- Manual Docker operations (stop, start, kill) don't update database status
+- Container crashes/system restarts leave database showing incorrect status  
+- Database shows "running" while container is actually stopped
+
+### Impact
+- Misleading status information
+- API health checks unreliable
+- Potential backup/restore operations on incorrect state
+
+### Root Cause
+- No background health monitoring service
+- Database only updated via API endpoints
+- Missing periodic sync between database and Docker state
+
+### Fix Needed
+- Implement background health monitoring task
+- Add periodic status synchronization service  
+- Real-time container state change detection
+
 --- 
+ Complete TODO Comments List
+
+  User Service (2 TODOs)
+
+  File: services/user-service/app/services/user_service.py
+  - Line 398: # TODO: Replace with billing-service API call when implemented - Replace hardcoded billing
+  info with actual billing service integration
+  - Line 422: # TODO: Replace with tenant-service API call when implemented - Replace hardcoded tenant
+  count with actual tenant service API call
+
+  Tenant Service (2 TODOs)
+
+  File: services/tenant-service/app/services/tenant_service.py
+  - Line 28: # TODO: Validate customer exists and is active via user-service API - Add customer
+  validation by calling user-service
+  - Line 33: # TODO: Check customer's subscription plan allows tenant creation - Add subscription plan
+  validation for tenant limits
+
+  Instance Service (23 TODOs)
+
+  Route Layer - services/instance-service/app/routes/instances.py
+
+  - Line 439: # TODO: Check actual container status and health - Replace placeholder with real container
+  health checks
+  - Line 471: # TODO: Implement log retrieval from container - Add Docker container log retrieval
+  functionality
+  - Line 577: # TODO: Implement actual container starting logic - Replace placeholder with real Docker
+  start operations
+  - Line 608: # TODO: Implement actual container stopping logic - Replace placeholder with real Docker
+  stop operations
+  - Line 633: # TODO: Implement actual container restarting logic - Replace placeholder with real Docker
+  restart operations
+  - Line 658: # TODO: Implement actual update logic - Implement Odoo version update functionality
+  - Line 681: # TODO: Implement actual backup logic - Replace placeholder with real backup operations
+  - Line 705: # TODO: Implement actual restore logic - Replace placeholder with real restore operations
+
+  Service Layer - services/instance-service/app/services/instance_service.py
+
+  - Line 47: # TODO: Trigger async provisioning - Add background task triggering for instance
+  provisioning
+  - Line 134: # TODO: Implement actual Docker container starting - Add real Docker container start
+  implementation
+  - Line 140: # TODO: Update instance URLs and connection info - Update database with container network
+  information
+  - Line 172: # TODO: Implement actual Docker container stopping - Add real Docker container stop
+  implementation
+  - Line 202: # TODO: Delete Docker container and volumes - Add Docker cleanup functionality
+  - Line 205: # TODO: Delete Odoo database - Add PostgreSQL database deletion
+  - Line 231: # TODO: Check actual container health - Replace mock health data with real container status
+  - Line 241: "uptime_seconds": None, # TODO: Calculate from started_at - Calculate actual container
+  uptime
+  - Line 242: "container_status": "unknown", # TODO: Get from Docker - Get real Docker container status
+  - Line 243: "odoo_status": "unknown", # TODO: Check Odoo health endpoint - Add Odoo application health
+  check
+  - Line 244: "database_status": "unknown", # TODO: Check database connectivity - Add PostgreSQL
+  connectivity check
+  - Line 273: # TODO: Apply resource changes to running container - Implement live container resource
+  updates
+  - Line 305: # TODO: Implement actual backup logic - Add real backup creation functionality
+  - Line 316: "backup_id": "backup_placeholder_id" # TODO: Return actual backup ID - Return real backup
+  identifiers
+  - Line 324: # Private helper methods (TODO: Implement these with actual Docker operations) - General
+  note about implementing Docker operations
+  - Line 328: # TODO: Implement actual instance provisioning - Add real provisioning logic
+  - Line 333: # TODO: Implement Docker container starting - Add Docker start implementation
+  - Line 338: # TODO: Implement Docker container stopping - Add Docker stop implementation
+  - Line 343: # TODO: Implement Docker resource cleanup - Add cleanup operations
+  - Line 348: # TODO: Implement database deletion - Add database cleanup
+
+  Summary by Priority
+
+  High Priority (Core Functionality):
+  - All Docker operations (start, stop, restart containers)
+  - Real provisioning implementation
+  - Backup/restore functionality
+  - Health checks and monitoring
+
+  Medium Priority (Service Integration):
+  - User service validation in tenant service
+  - Billing service integration in user service
+  - Tenant service integration in user service
+
+  Low Priority (Enhancement):
+  - Container resource updates
+  - Detailed health metrics
+  - Log retrieval functionality
+
+  Total: 27 TODO comments requiring implementation to complete the SaaS platform.

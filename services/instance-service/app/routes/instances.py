@@ -290,17 +290,31 @@ async def delete_instance(
     instance_id: UUID,
     db: InstanceDatabase = Depends(get_database)
 ):
-    """Delete instance (soft delete)"""
+    """Delete instance (hard delete with cleanup)"""
     try:
-        # TODO: Stop instance containers before deletion
-        # await stop_instance_containers(instance_id)
+        # Get instance details before deletion
+        instance = await db.get_instance(instance_id)
+        if not instance:
+            raise HTTPException(status_code=404, detail="Instance not found")
         
+        # Import cleanup function from provisioning
+        from app.tasks.provisioning import _cleanup_failed_provisioning
+        
+        # Perform hard cleanup of all resources
+        instance_dict = {
+            'id': instance.id,
+            'database_name': instance.database_name,
+            'name': instance.name
+        }
+        await _cleanup_failed_provisioning(str(instance_id), instance_dict)
+        
+        # Remove from database
         success = await db.delete_instance(instance_id)
         if not success:
             raise HTTPException(status_code=404, detail="Instance not found")
         
-        logger.info("Instance deleted successfully", instance_id=str(instance_id))
-        return {"message": "Instance deleted successfully"}
+        logger.info("Instance and resources deleted successfully", instance_id=str(instance_id))
+        return {"message": "Instance and all resources deleted successfully"}
         
     except Exception as e:
         logger.error("Failed to delete instance", instance_id=str(instance_id), error=str(e))

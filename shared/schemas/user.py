@@ -78,8 +78,27 @@ class UserSchema(BaseModel):
 
 class UserCreateSchema(BaseModel):
     """Schema for creating a new user"""
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "user@example.com",
+                "password": "StrongPass123@",
+                "first_name": "John",
+                "last_name": "Doe",
+                "accept_terms": True,
+                "phone": "+1234567890",
+                "company": "Acme Corp",
+                "country": "US"
+            }
+        }
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(
+        ..., 
+        min_length=8, 
+        max_length=128,
+        description="Password must be 8+ characters with uppercase, lowercase, digit, and special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
+    )
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
     phone: Optional[str] = Field(None, pattern=r'^\+?[1-9]\d{1,14}$')
@@ -196,7 +215,12 @@ class UserPasswordResetSchema(BaseModel):
 class UserPasswordChangeSchema(BaseModel):
     """Schema for password change"""
     current_password: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(
+        ..., 
+        min_length=8, 
+        max_length=128,
+        description="Password must be 8+ characters with uppercase, lowercase, digit, and special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
+    )
     confirm_password: str = Field(..., min_length=8, max_length=128)
 
     @validator('new_password')
