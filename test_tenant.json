@@ -1,8 +1,0 @@
-{
-  "customer_id": "be0b55e5-c5a7-428d-840b-a4f38a8ec88d",
-  "name": "Second Test Company",
-  "subdomain": "secondtest456",
-  "plan": "starter",
-  "max_instances": 1,
-  "max_users": 5
-} 

@@ -1,8 +1,0 @@
-{
-  "email": "testuser@example.com",
-  "password": "SecurePassword123!",
-  "first_name": "Test",
-  "last_name": "User",
-  "company_name": "Test SaaS Company",
-  "accept_terms": true
-}
