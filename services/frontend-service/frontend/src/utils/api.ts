@@ -197,15 +197,19 @@ api.interceptors.response.use(
           originalRequest.headers.Authorization = `Bearer ${tokens.access_token}`;
           return api(originalRequest);
         } catch (refreshError) {
-          // Refresh failed, redirect to login
+          // Refresh failed, redirect to login only if not already there
           TokenManager.clearTokens();
-          window.location.href = '/login';
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
           return Promise.reject(refreshError);
         }
       } else {
-        // No refresh token, redirect to login
+        // No refresh token, redirect to login only if not already there
         TokenManager.clearTokens();
-        window.location.href = '/login';
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
     }
 

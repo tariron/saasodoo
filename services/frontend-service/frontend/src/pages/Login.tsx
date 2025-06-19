@@ -58,6 +58,10 @@ const Login: React.FC = () => {
   };
 
   const handleInputChange = (field: keyof LoginRequest, value: string | boolean) => {
+    // Clear error when user starts typing
+    if (error) {
+      setError('');
+    }
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
