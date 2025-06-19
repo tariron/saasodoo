@@ -82,6 +82,10 @@ export interface Tenant {
   created_at: string;
 }
 
+export interface TenantWithInstances extends Tenant {
+  instances: Instance[];
+}
+
 export interface AppConfig {
   BASE_DOMAIN: string;
   ENVIRONMENT: string;

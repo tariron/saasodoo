@@ -2,6 +2,9 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Instances from './pages/Instances';
+import CreateInstance from './pages/CreateInstance';
+import CreateTenant from './pages/CreateTenant';
 import AuthGuard from './components/AuthGuard';
 import { TokenManager } from './utils/api';
 
@@ -26,6 +29,33 @@ function App() {
             element={
               <AuthGuard>
                 <Dashboard />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/tenants/create" 
+            element={
+              <AuthGuard>
+                <CreateTenant />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/instances" 
+            element={
+              <AuthGuard>
+                <Instances />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/instances/create" 
+            element={
+              <AuthGuard>
+                <CreateInstance />
               </AuthGuard>
             } 
           />
