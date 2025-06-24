@@ -22,6 +22,7 @@ class InstanceStatus(str, Enum):
     MAINTENANCE = "maintenance"
     ERROR = "error"
     TERMINATED = "terminated"
+    SUSPENDED = "suspended"
 
 
 class OdooVersion(str, Enum):
@@ -276,6 +277,8 @@ class InstanceAction(str, Enum):
     UPDATE = "update"
     BACKUP = "backup"
     RESTORE = "restore"
+    SUSPEND = "suspend"
+    UNSUSPEND = "unsuspend"
 
 
 class InstanceActionRequest(BaseModel):

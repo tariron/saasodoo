@@ -15,6 +15,7 @@ from app.models.instance import (
 )
 from app.utils.validators import validate_instance_resources, validate_database_name, validate_addon_names
 from app.utils.database import InstanceDatabase
+from app.utils.billing_client import billing_client
 from app.tasks.provisioning import provision_instance_task
 from app.tasks.lifecycle import restart_instance_task, start_instance_task, stop_instance_task
 from app.tasks.maintenance import backup_instance_task, restore_instance_task, update_instance_task
@@ -58,8 +59,52 @@ async def create_instance(
         if addon_errors:
             raise HTTPException(status_code=400, detail={"errors": addon_errors})
         
+        # Billing validation and subscription creation
+        billing_info = None
+        try:
+            # Check if customer has billing account
+            customer_id = str(instance_data.tenant_id)  # Using tenant_id as customer_id
+            billing_info = await billing_client.get_customer_billing_info(customer_id)
+            
+            if not billing_info:
+                raise HTTPException(
+                    status_code=402,  # Payment Required
+                    detail="No billing account found. Please complete your billing setup first."
+                )
+            
+            # Check trial status - for simplicity, allowing unlimited instances during implementation
+            # In production, this would check trial limits and payment methods
+            logger.info("Billing validation passed", customer_id=customer_id)
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Billing validation failed", customer_id=str(instance_data.tenant_id), error=str(e))
+            raise HTTPException(
+                status_code=500,
+                detail="Billing validation failed. Please try again."
+            )
+        
         # Create instance in database (status: CREATING)
         instance = await db.create_instance(instance_data)
+        
+        # Create billing subscription for this instance
+        try:
+            subscription_result = await billing_client.create_instance_subscription(
+                customer_id=customer_id,
+                instance_id=str(instance.id),
+                instance_type=instance_data.instance_type
+            )
+            
+            if subscription_result and subscription_result.get("success"):
+                logger.info("Billing subscription created", instance_id=str(instance.id))
+            else:
+                logger.warning("Failed to create billing subscription", instance_id=str(instance.id))
+                # Continue with instance creation - billing can be set up later
+                
+        except Exception as e:
+            logger.error("Billing subscription creation failed", instance_id=str(instance.id), error=str(e))
+            # Continue with instance creation - billing can be set up later
         
         # Queue background provisioning job
         job = provision_instance_task.delay(str(instance.id))
@@ -408,6 +453,12 @@ async def perform_instance_action(
                 "timestamp": datetime.utcnow().isoformat(),
                 "job_id": job.id
             }
+        elif action == InstanceAction.SUSPEND:
+            # Suspend instance (immediate status change)
+            result = await _suspend_instance(instance_id, db)
+        elif action == InstanceAction.UNSUSPEND:
+            # Unsuspend instance (immediate status change)
+            result = await _unsuspend_instance(instance_id, db)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
         
@@ -555,15 +606,16 @@ def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction
     """Get valid actions for current instance status"""
     action_map = {
         InstanceStatus.CREATING: [],
-        InstanceStatus.STARTING: [InstanceAction.STOP],
-        InstanceStatus.RUNNING: [InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.UPDATE, InstanceAction.BACKUP],
+        InstanceStatus.STARTING: [InstanceAction.STOP, InstanceAction.SUSPEND],
+        InstanceStatus.RUNNING: [InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.UPDATE, InstanceAction.BACKUP, InstanceAction.SUSPEND],
         InstanceStatus.STOPPING: [],
-        InstanceStatus.STOPPED: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE],
+        InstanceStatus.STOPPED: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE, InstanceAction.SUSPEND],
         InstanceStatus.RESTARTING: [],
         InstanceStatus.UPDATING: [],
         InstanceStatus.MAINTENANCE: [],  # No actions allowed during maintenance operations
-        InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE],
-        InstanceStatus.TERMINATED: []
+        InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE, InstanceAction.SUSPEND],
+        InstanceStatus.TERMINATED: [],
+        InstanceStatus.SUSPENDED: [InstanceAction.UNSUSPEND]
     }
     return action_map.get(status, [])
 
@@ -719,5 +771,105 @@ async def _restore_instance(instance_id: UUID, db: InstanceDatabase, parameters:
         return {
             "status": "error",
             "message": f"Restore failed: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
+    """Suspend instance due to billing issues - ACTUALLY stops the container"""
+    from datetime import datetime
+    import docker
+    
+    try:
+        # Get current instance to check if it needs to be stopped first
+        instance = await db.get_instance(instance_id)
+        if not instance:
+            raise Exception("Instance not found")
+        
+        # If instance is running, stop the actual Docker container first
+        if instance.status == InstanceStatus.RUNNING:
+            logger.info("Stopping running instance container before suspension", instance_id=str(instance_id))
+            
+            # Use the same Docker stopping logic as the lifecycle module
+            await _stop_container_for_suspension(instance)
+            logger.info("Container stopped for suspension", instance_id=str(instance_id))
+        
+        # Update status to suspended
+        await db.update_instance_status(instance_id, InstanceStatus.SUSPENDED, "Instance suspended due to billing issues")
+        
+        logger.info("Instance suspended successfully with container stopped", instance_id=str(instance_id))
+        return {
+            "status": "success",
+            "message": "Instance suspended successfully",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to suspend instance", instance_id=str(instance_id), error=str(e))
+        await db.update_instance_status(instance_id, InstanceStatus.ERROR, f"Suspension failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to suspend instance: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+async def _stop_container_for_suspension(instance):
+    """Stop Docker container for suspension - copied from lifecycle.py logic"""
+    import docker
+    import asyncio
+    
+    client = docker.from_env()
+    container_name = f"odoo_{instance.database_name}_{str(instance.id).replace('-', '')[:8]}"
+    
+    try:
+        container = client.containers.get(container_name)
+        
+        if container.status not in ['running']:
+            logger.info("Container already stopped", container_name=container_name, status=container.status)
+            return
+        
+        logger.info("Stopping container for suspension", container_name=container_name)
+        container.stop(timeout=30)  # 30 second graceful shutdown
+        
+        # Wait for container to stop
+        for _ in range(35):  # 35 second timeout (30 + 5 buffer)
+            container.reload()
+            if container.status in ['exited', 'stopped']:
+                break
+            await asyncio.sleep(1)
+        else:
+            logger.warning("Container did not stop gracefully, forcing stop", container_name=container_name)
+            container.kill()
+        
+        logger.info("Container stopped for suspension", container_name=container_name)
+        
+    except docker.errors.NotFound:
+        logger.warning("Container not found during suspension stop", container_name=container_name)
+    except Exception as e:
+        logger.error("Failed to stop container for suspension", container_name=container_name, error=str(e))
+        raise
+
+
+async def _unsuspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
+    """Unsuspend instance after billing issues resolved"""
+    from datetime import datetime
+    
+    try:
+        # Update status to stopped (ready to be started again)
+        await db.update_instance_status(instance_id, InstanceStatus.STOPPED, "Instance unsuspended - ready to start")
+        
+        logger.info("Instance unsuspended successfully", instance_id=str(instance_id))
+        return {
+            "status": "success",
+            "message": "Instance unsuspended successfully - you can now start it",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to unsuspend instance", instance_id=str(instance_id), error=str(e))
+        return {
+            "status": "error",
+            "message": f"Failed to unsuspend instance: {str(e)}",
             "timestamp": datetime.utcnow().isoformat()
         } 

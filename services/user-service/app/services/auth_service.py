@@ -18,6 +18,7 @@ from shared.schemas.user import UserCreateSchema
 
 from app.utils.database import CustomerDatabase
 from app.utils.supabase_client import supabase_client
+from app.utils.billing_client import billing_client
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,26 @@ class AuthService:
             # Get created customer
             customer = await CustomerDatabase.get_customer_by_id(customer_id)
             
+            # Create KillBill account for the new customer (no subscription yet)
+            billing_result = None
+            try:
+                full_name = f"{customer['first_name']} {customer['last_name']}"
+                billing_result = await billing_client.create_customer_account(
+                    customer_id=customer['id'],
+                    email=customer['email'],
+                    name=full_name,
+                    company=None  # Can be added later via profile update
+                )
+                
+                if billing_result and billing_result.get('success'):
+                    logger.info(f"KillBill account created for customer {customer['id']}: {billing_result.get('killbill_account_id')}")
+                else:
+                    logger.warning(f"Failed to create KillBill account for customer {customer['id']}")
+                    
+            except Exception as e:
+                logger.error(f"KillBill account creation failed for customer {customer['id']}: {e}")
+                # Continue with registration - billing account creation failure shouldn't block user registration
+            
             return {
                 'success': True,
                 'customer': {
@@ -100,7 +121,8 @@ class AuthService:
                     'last_name': customer['last_name'],
                     'is_verified': customer['is_verified']
                 },
-                'supabase_user': supabase_result
+                'supabase_user': supabase_result,
+                'billing_account': billing_result
             }
             
         except Exception as e:

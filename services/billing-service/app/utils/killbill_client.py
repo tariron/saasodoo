@@ -124,3 +124,12 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get account for customer {customer_id}: {e}")
             return None
+    
+    async def get_account_by_id(self, account_id: str) -> Optional[Dict[str, Any]]:
+        """Get account by KillBill account ID"""
+        try:
+            response = await self._make_request("GET", f"/1.0/kb/accounts/{account_id}")
+            return response if response else None
+        except Exception as e:
+            logger.error(f"Failed to get account by ID {account_id}: {e}")
+            return None
