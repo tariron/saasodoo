@@ -553,6 +553,61 @@ services:
     labels:
       - "traefik.enable=false"
 
+  # Billing Service - KillBill Integration & Billing Management
+  billing-service:
+    build:
+      context: ../../services/billing-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-billing-service
+    restart: unless-stopped
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: billing
+      DB_SERVICE_USER: ${POSTGRES_BILLING_SERVICE_USER:-billing_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_BILLING_SERVICE_PASSWORD:-billing_service123}
+      
+      # KillBill Configuration
+      KILLBILL_URL: ${KILLBILL_URL:-http://killbill:8080}
+      KILLBILL_API_KEY: ${KILLBILL_API_KEY:-test-key}
+      KILLBILL_API_SECRET: ${KILLBILL_API_SECRET:-test-secret}
+      KILLBILL_USERNAME: ${KILLBILL_USERNAME:-admin}
+      KILLBILL_PASSWORD: ${KILLBILL_PASSWORD:-password}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+      - redis
+      - killbill
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.billing-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/billing`)"
+      - "traefik.http.routers.billing-service.service=billing-service"
+      - "traefik.http.services.billing-service.loadbalancer.server.port=8004"
+      # Strip /billing prefix for clean API
+      - "traefik.http.middlewares.billing-strip.stripprefix.prefixes=/billing"
+      - "traefik.http.routers.billing-service.middlewares=billing-strip"
+    ports:
+      - "8004:8004"  # Expose billing-service port to host
+
   # Frontend Service - React SPA with Flask backend
   frontend-service:
     build: 

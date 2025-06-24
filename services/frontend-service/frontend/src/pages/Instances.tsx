@@ -15,66 +15,19 @@ const Instances: React.FC = () => {
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [restoreInstance, setRestoreInstance] = useState<Instance | null>(null);
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        setLoading(true);
-        
-        // Fetch user profile
-        const profileResponse = await authAPI.getProfile();
-        setProfile(profileResponse.data);
-
-        // Fetch tenants and their instances
-        const tenantsResponse = await tenantAPI.list(profileResponse.data.id);
-        const tenants = tenantsResponse.data.tenants || [];
-
-        // Fetch instances for each tenant
-        const tenantsWithInstancesData: TenantWithInstances[] = [];
-        for (const tenant of tenants) {
-          try {
-            const instancesResponse = await instanceAPI.list(tenant.id);
-            tenantsWithInstancesData.push({
-              ...tenant,
-              instances: instancesResponse.data.instances || []
-            });
-          } catch (instanceErr) {
-            console.warn(`Failed to fetch instances for tenant ${tenant.id}:`, instanceErr);
-            tenantsWithInstancesData.push({
-              ...tenant,
-              instances: []
-            });
-          }
-        }
-        setTenantsWithInstances(tenantsWithInstancesData);
-
-        // Set initial tenant filter from URL params
-        const tenantParam = searchParams.get('tenant');
-        if (tenantParam && tenants.some(t => t.id === tenantParam)) {
-          setSelectedTenant(tenantParam);
-        }
-      } catch (err: any) {
-        setError('Failed to load instances data');
-        console.error('Instances page error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInitialData();
-  }, [searchParams]);
-
-  const handleInstanceAction = async (instanceId: string, action: string, parameters?: any) => {
+  const fetchInitialData = async () => {
     try {
-      setActionLoading(instanceId);
-      setError('');
+      setLoading(true);
       
-      await instanceAPI.action(instanceId, action, parameters);
-      
-      // Refresh instances after action
+      // Fetch user profile
       const profileResponse = await authAPI.getProfile();
+      setProfile(profileResponse.data);
+
+      // Fetch tenants and their instances
       const tenantsResponse = await tenantAPI.list(profileResponse.data.id);
       const tenants = tenantsResponse.data.tenants || [];
 
+      // Fetch instances for each tenant
       const tenantsWithInstancesData: TenantWithInstances[] = [];
       for (const tenant of tenants) {
         try {
@@ -84,6 +37,7 @@ const Instances: React.FC = () => {
             instances: instancesResponse.data.instances || []
           });
         } catch (instanceErr) {
+          console.warn(`Failed to fetch instances for tenant ${tenant.id}:`, instanceErr);
           tenantsWithInstancesData.push({
             ...tenant,
             instances: []
@@ -91,7 +45,44 @@ const Instances: React.FC = () => {
         }
       }
       setTenantsWithInstances(tenantsWithInstancesData);
+
+      // Set initial tenant filter from URL params
+      const tenantParam = searchParams.get('tenant');
+      if (tenantParam && tenants.some(t => t.id === tenantParam)) {
+        setSelectedTenant(tenantParam);
+      }
     } catch (err: any) {
+      setError('Failed to load instances data');
+      console.error('Instances page error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchInitialData();
+  }, [searchParams]);
+
+  const handleInstanceAction = async (instanceId: string, action: string, parameters?: any) => {
+    try {
+      setActionLoading(instanceId);
+      setError('');
+      
+      console.log(`🔵 Starting ${action} action for instance:`, instanceId);
+      await instanceAPI.action(instanceId, action, parameters);
+      console.log(`✅ ${action} action queued successfully`);
+      
+      // Wait for backend to process the action (since actions are asynchronous)
+      console.log('⏳ Waiting 3 seconds for backend processing...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Refresh instances after delay to get updated status
+      console.log('🔄 Refreshing instance data...');
+      await fetchInitialData();
+      console.log('✅ Instance data refreshed');
+      
+    } catch (err: any) {
+      console.error(`❌ ${action} action failed:`, err);
       const errorMessage = err.response?.data?.detail || `Failed to ${action} instance`;
       setError(errorMessage);
     } finally {
