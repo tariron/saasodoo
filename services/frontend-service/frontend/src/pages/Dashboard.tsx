@@ -289,7 +289,7 @@ const Dashboard: React.FC = () => {
                             {tenant.name}
                           </h4>
                           <p className="text-sm text-gray-600">
-                            {tenant.description || 'No description'}
+                            Workspace • {tenant.status}
                           </p>
                         </div>
                         <div className="text-right">

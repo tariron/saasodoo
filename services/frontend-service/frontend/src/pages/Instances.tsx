@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { instanceAPI, tenantAPI, authAPI, Instance, UserProfile, TenantWithInstances } from '../utils/api';
 import Navigation from '../components/Navigation';
+import RestoreModal from '../components/RestoreModal';
 
 const Instances: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -11,6 +12,8 @@ const Instances: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [searchParams] = useSearchParams();
+  const [restoreModalOpen, setRestoreModalOpen] = useState(false);
+  const [restoreInstance, setRestoreInstance] = useState<Instance | null>(null);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -96,6 +99,20 @@ const Instances: React.FC = () => {
     }
   };
 
+  const handleRestoreInstance = async (instanceId: string, backupId: string) => {
+    await handleInstanceAction(instanceId, 'restore', { backup_id: backupId });
+  };
+
+  const openRestoreModal = (instance: Instance) => {
+    setRestoreInstance(instance);
+    setRestoreModalOpen(true);
+  };
+
+  const closeRestoreModal = () => {
+    setRestoreModalOpen(false);
+    setRestoreInstance(null);
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'running': return 'text-green-700 bg-green-100';
@@ -113,7 +130,8 @@ const Instances: React.FC = () => {
     const buttons = [];
     const isLoading = actionLoading === instance.id;
 
-    if (instance.status === 'stopped') {
+    // Start button: available for stopped or error instances
+    if (['stopped', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="start"
@@ -126,7 +144,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    if (instance.status === 'running') {
+    // Stop button: available for running or error instances
+    if (['running', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="stop"
@@ -139,6 +158,7 @@ const Instances: React.FC = () => {
       );
     }
 
+    // Backup button: available for running or stopped instances (not error to avoid corrupted backups)
     if (['running', 'stopped'].includes(instance.status)) {
       buttons.push(
         <button
@@ -152,7 +172,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    if (instance.status === 'running') {
+    // Restart button: available for running or error instances
+    if (['running', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="restart"
@@ -161,6 +182,20 @@ const Instances: React.FC = () => {
           className="text-xs bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700 disabled:opacity-50"
         >
           {isLoading ? '...' : 'Restart'}
+        </button>
+      );
+    }
+
+    // Restore button: available for stopped or error instances
+    if (['stopped', 'error'].includes(instance.status)) {
+      buttons.push(
+        <button
+          key="restore"
+          onClick={() => openRestoreModal(instance)}
+          disabled={isLoading}
+          className="text-xs bg-purple-600 text-white px-3 py-1 rounded hover:bg-purple-700 disabled:opacity-50"
+        >
+          {isLoading ? '...' : 'Restore'}
         </button>
       );
     }
@@ -281,7 +316,7 @@ const Instances: React.FC = () => {
                           {tenant.name}
                         </h3>
                         <p className="text-sm text-gray-600">
-                          {tenant.description || 'No description'} • {tenant.instances.length} {tenant.instances.length === 1 ? 'instance' : 'instances'}
+                          Workspace • {tenant.instances.length} {tenant.instances.length === 1 ? 'instance' : 'instances'}
                         </p>
                       </div>
                       <Link
@@ -361,6 +396,16 @@ const Instances: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* Restore Modal */}
+      {restoreInstance && (
+        <RestoreModal
+          instance={restoreInstance}
+          isOpen={restoreModalOpen}
+          onClose={closeRestoreModal}
+          onRestore={handleRestoreInstance}
+        />
+      )}
     </>
   );
 };

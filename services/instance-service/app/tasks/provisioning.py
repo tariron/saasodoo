@@ -210,7 +210,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         'ODOO_DATABASE_USER': db_info['db_user'],
         'ODOO_DATABASE_PASSWORD': db_info['db_password'],
         'ODOO_EMAIL': instance['admin_email'],
-        'ODOO_PASSWORD': f"admin_{instance['id'].hex[:8]}",  # Generate admin password
+        'ODOO_PASSWORD': instance['admin_password'],  # Use provided password or generate
         'ODOO_LOAD_DEMO_DATA': 'yes' if instance['demo_data'] else 'no',
     }
     
@@ -248,7 +248,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
                 'saasodoo.tenant.id': str(instance['tenant_id']),
                 # Traefik labels for automatic routing
                 'traefik.enable': 'true',
-                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.odoo.saasodoo.local`)',
+                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
                 f'traefik.http.routers.{container_name}.service': container_name,
                 f'traefik.http.services.{container_name}.loadbalancer.server.port': '8069',
             }
@@ -285,7 +285,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             'container_name': container_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.odoo.saasodoo.local',
+            'external_url': f'http://{instance.get("subdomain") or instance["database_name"]}.saasodoo.local',
             'admin_password': environment['ODOO_PASSWORD']
         }
         

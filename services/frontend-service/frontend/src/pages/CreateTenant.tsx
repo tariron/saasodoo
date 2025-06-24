@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tenantAPI, authAPI, UserProfile } from '../utils/api';
 import Navigation from '../components/Navigation';
+import { useConfig } from '../hooks/useConfig';
 
 interface CreateTenantRequest {
   name: string;
   description: string;
-  subdomain: string;
   customer_id: string;
 }
 
@@ -15,13 +15,13 @@ const CreateTenant: React.FC = () => {
   const [formData, setFormData] = useState<CreateTenantRequest>({
     name: '',
     description: '',
-    subdomain: '',
     customer_id: '',
   });
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const { config } = useConfig();
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -66,21 +66,8 @@ const CreateTenant: React.FC = () => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const generateSubdomain = (name: string) => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '')
-      .substring(0, 20);
-  };
-
   const handleNameChange = (name: string) => {
     handleInputChange('name', name);
-    
-    // Auto-generate subdomain if not manually set
-    if (name && (!formData.subdomain || formData.subdomain === generateSubdomain(formData.name))) {
-      const subdomain = generateSubdomain(name);
-      handleInputChange('subdomain', subdomain);
-    }
   };
 
   if (initialLoading) {
@@ -163,30 +150,6 @@ const CreateTenant: React.FC = () => {
                     </p>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Subdomain *
-                    </label>
-                    <div className="flex">
-                      <input
-                        type="text"
-                        required
-                        value={formData.subdomain}
-                        onChange={(e) => handleInputChange('subdomain', e.target.value)}
-                        className="input-field rounded-r-none"
-                        placeholder="mycompany"
-                        pattern="[a-z0-9]+"
-                        title="Only lowercase letters and numbers allowed"
-                        maxLength={20}
-                      />
-                      <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
-                        .workspace.local
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Used for organizing your workspace. Only lowercase letters and numbers.
-                    </p>
-                  </div>
                 </div>
               </div>
 

@@ -877,6 +877,42 @@ Database instance status becomes out of sync with actual Docker container state.
 - Add periodic status synchronization service  
 - Real-time container state change detection
 
+---
+
+## Issue #014 - Health Check Timeout Causes False Error Status
+
+**Status**: 📋 Open  
+**Priority**: High  
+**Component**: instance-service  
+**Date**: 2025-06-20  
+**Reporter**: Dashboard Testing
+
+### Description
+Instance provisioning marks instances as "error" when Odoo takes longer than 120 seconds to start, even when instance eventually becomes healthy.
+
+### Problem
+- Health check timeout set to 120 seconds is too short for Odoo startup (especially with demo data)
+- Once marked as "error", status never updates automatically
+- Dashboard shows working instances as failed
+
+### Example
+Demo instance `33d590fb-a81f-46fe-b79a-56956c43573a`:
+- Status: "error" 
+- Error message: "Odoo did not start within 120 seconds"
+- Container: Actually running and accessible
+- Database record: Never updated from initial timeout
+
+### Root Cause
+1. **Short timeout**: 120 seconds insufficient for Odoo startup
+2. **No retry mechanism**: No automatic status refresh after timeout
+3. **No periodic health checks**: Status only set during initial provisioning
+
+### Solutions Needed
+1. **Increase timeout** to 300-600 seconds for initial health check
+2. **Add periodic health monitoring** to update status of existing instances  
+3. **Add status refresh API** for manual correction
+4. **Implement retry logic** for failed health checks
+
 --- 
  Complete TODO Comments List
 

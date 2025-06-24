@@ -75,10 +75,10 @@ class InstanceDatabase:
                 instance_id = await conn.fetchval("""
                     INSERT INTO instances (
                         tenant_id, name, odoo_version, instance_type, description,
-                        cpu_limit, memory_limit, storage_limit, admin_email, database_name,
-                        demo_data, custom_addons, disabled_modules, environment_vars,
-                        metadata, status, created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                        cpu_limit, memory_limit, storage_limit, admin_email, admin_password,
+                        database_name, subdomain, demo_data, custom_addons, disabled_modules, 
+                        environment_vars, metadata, status, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
                     RETURNING id
                 """,
                     instance_data.tenant_id,
@@ -90,7 +90,9 @@ class InstanceDatabase:
                     instance_data.memory_limit,
                     instance_data.storage_limit,
                     instance_data.admin_email,
+                    instance_data.admin_password,
                     instance_data.database_name,
+                    instance_data.subdomain,
                     instance_data.demo_data,
                     json.dumps(instance_data.custom_addons),
                     json.dumps(instance_data.disabled_modules),

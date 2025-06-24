@@ -82,7 +82,6 @@ CREATE TABLE IF NOT EXISTS tenants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_id UUID NOT NULL,
     name VARCHAR(100) NOT NULL,
-    subdomain VARCHAR(50) UNIQUE NOT NULL,
     plan VARCHAR(20) DEFAULT 'starter',
     status VARCHAR(20) DEFAULT 'provisioning',
     max_instances INTEGER DEFAULT 1,
@@ -95,7 +94,6 @@ CREATE TABLE IF NOT EXISTS tenants (
 
 -- Create indexes for tenant database
 CREATE INDEX IF NOT EXISTS idx_tenants_customer_id ON tenants(customer_id);
-CREATE INDEX IF NOT EXISTS idx_tenants_subdomain ON tenants(subdomain);
 CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
 CREATE INDEX IF NOT EXISTS idx_tenants_plan ON tenants(plan);
 
@@ -119,7 +117,9 @@ CREATE TABLE IF NOT EXISTS instances (
     
     -- Odoo configuration
     admin_email VARCHAR(255) NOT NULL,
+    admin_password VARCHAR(255) NOT NULL, -- User-provided admin password
     database_name VARCHAR(50) NOT NULL,
+    subdomain VARCHAR(50), -- Custom subdomain or defaults to database_name
     demo_data BOOLEAN DEFAULT false,
     
     -- Container information

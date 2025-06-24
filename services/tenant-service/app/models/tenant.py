@@ -31,21 +31,11 @@ class TenantPlan(str, Enum):
 class TenantBase(BaseModel):
     """Base tenant model with common fields"""
     name: str = Field(..., min_length=1, max_length=100, description="Tenant display name")
-    subdomain: str = Field(..., min_length=3, max_length=50, description="Unique subdomain")
     plan: TenantPlan = Field(default=TenantPlan.STARTER, description="Subscription plan")
     max_instances: int = Field(default=1, ge=0, le=10, description="Maximum allowed instances")
     max_users: int = Field(default=5, ge=1, le=1000, description="Maximum users per instance")
     custom_domain: Optional[str] = Field(None, description="Custom domain if any")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional metadata")
-
-    @validator('subdomain')
-    def validate_subdomain(cls, v):
-        """Validate subdomain format"""
-        if not v.isalnum() and '-' not in v:
-            raise ValueError('Subdomain must contain only alphanumeric characters and hyphens')
-        if v.startswith('-') or v.endswith('-'):
-            raise ValueError('Subdomain cannot start or end with hyphen')
-        return v.lower()
 
     @validator('custom_domain')
     def validate_custom_domain(cls, v):
@@ -107,7 +97,6 @@ class TenantResponse(BaseModel):
     id: str = Field(..., description="Tenant ID")
     customer_id: str = Field(..., description="Customer ID")
     name: str = Field(..., description="Tenant name")
-    subdomain: str = Field(..., description="Tenant subdomain")
     plan: TenantPlan = Field(..., description="Subscription plan")
     status: TenantStatus = Field(..., description="Current status")
     max_instances: int = Field(..., description="Maximum allowed instances")

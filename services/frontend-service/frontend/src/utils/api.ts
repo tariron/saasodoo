@@ -60,24 +60,24 @@ export interface Instance {
 export interface CreateInstanceRequest {
   tenant_id: string;
   name: string;
-  description: string;
+  description?: string | null;
   odoo_version: string;
   instance_type: 'development' | 'staging' | 'production';
   cpu_limit: number;
   memory_limit: string;
   storage_limit: string;
   admin_email: string;
-  demo_data: boolean;
+  admin_password: string;
   database_name: string;
+  subdomain?: string | null;
+  demo_data: boolean;
   custom_addons: string[];
-  accept_terms: boolean;
 }
 
 export interface Tenant {
   id: string;
   customer_id: string;
   name: string;
-  description: string;
   status: string;
   created_at: string;
 }
@@ -245,8 +245,11 @@ export const tenantAPI = {
   list: (customerId: string): Promise<AxiosResponse<{tenants: Tenant[], total: number}>> => 
     api.get(`/tenant/api/v1/tenants/?customer_id=${customerId}`),
   
-  create: (data: {name: string; description: string; subdomain: string; customer_id: string}): Promise<AxiosResponse<Tenant>> => 
-    api.post('/tenant/api/v1/tenants/', data),
+  create: (data: {name: string; description: string; customer_id: string}): Promise<AxiosResponse<Tenant>> => {
+    // Backend doesn't expect description field, so we exclude it
+    const { description, ...backendData } = data;
+    return api.post('/tenant/api/v1/tenants/', backendData);
+  },
   
   get: (id: string): Promise<AxiosResponse<Tenant>> => 
     api.get(`/tenant/api/v1/tenants/${id}`),

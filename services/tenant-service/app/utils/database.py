@@ -68,25 +68,16 @@ class TenantDatabase:
         """Create a new tenant"""
         async with self.pool.acquire() as conn:
             try:
-                # Check if subdomain already exists
-                existing = await conn.fetchrow(
-                    "SELECT id FROM tenants WHERE subdomain = $1",
-                    tenant_data.subdomain
-                )
-                if existing:
-                    raise ValueError(f"Subdomain '{tenant_data.subdomain}' already exists")
-                
-                # Insert new tenant
+                # Insert new tenant (no subdomain check needed anymore)
                 tenant_id = await conn.fetchval("""
                     INSERT INTO tenants (
-                        customer_id, name, subdomain, plan, max_instances, max_users,
+                        customer_id, name, plan, max_instances, max_users,
                         custom_domain, metadata, status, created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     RETURNING id
                 """, 
                     tenant_data.customer_id,
                     tenant_data.name,
-                    tenant_data.subdomain,
                     tenant_data.plan.value,
                     tenant_data.max_instances,
                     tenant_data.max_users,
@@ -97,7 +88,7 @@ class TenantDatabase:
                     datetime.utcnow()
                 )
                 
-                logger.info("Tenant created", tenant_id=str(tenant_id), subdomain=tenant_data.subdomain)
+                logger.info("Tenant created", tenant_id=str(tenant_id), name=tenant_data.name)
                 
                 # Return the created tenant
                 return await self.get_tenant(tenant_id)
@@ -126,25 +117,6 @@ class TenantDatabase:
                 logger.error("Failed to get tenant", tenant_id=str(tenant_id), error=str(e))
                 raise
     
-    async def get_tenant_by_subdomain(self, subdomain: str) -> Optional[Tenant]:
-        """Get tenant by subdomain"""
-        async with self.pool.acquire() as conn:
-            try:
-                row = await conn.fetchrow(
-                    "SELECT * FROM tenants WHERE subdomain = $1",
-                    subdomain
-                )
-                if row:
-                    row_dict = dict(row)
-                    # Parse JSON metadata back to dict
-                    if row_dict.get('metadata'):
-                        row_dict['metadata'] = json.loads(row_dict['metadata'])
-                    return Tenant(**row_dict)
-                return None
-                
-            except Exception as e:
-                logger.error("Failed to get tenant by subdomain", subdomain=subdomain, error=str(e))
-                raise
     
     async def get_tenants_by_customer(self, customer_id: UUID, page: int = 1, page_size: int = 10) -> Dict[str, Any]:
         """Get tenants for a customer with pagination"""

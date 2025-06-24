@@ -32,17 +32,12 @@ async def create_tenant(
 ):
     """Create a new tenant"""
     try:
-        logger.info("Creating tenant", subdomain=tenant_data.subdomain, customer_id=str(tenant_data.customer_id))
+        logger.info("Creating tenant", name=tenant_data.name, customer_id=str(tenant_data.customer_id))
         
         # Validate tenant limits based on plan
         limit_errors = validate_tenant_limits(tenant_data.plan, tenant_data.max_instances, tenant_data.max_users)
         if limit_errors:
             raise HTTPException(status_code=400, detail={"errors": limit_errors})
-        
-        # Validate subdomain format
-        subdomain_errors = validate_subdomain(tenant_data.subdomain)
-        if subdomain_errors:
-            raise HTTPException(status_code=400, detail={"errors": subdomain_errors})
         
         # Create tenant
         tenant = await db.create_tenant(tenant_data)
@@ -52,7 +47,6 @@ async def create_tenant(
             "id": str(tenant.id),
             "customer_id": str(tenant.customer_id),
             "name": tenant.name,
-            "subdomain": tenant.subdomain,
             "plan": tenant.plan,
             "status": tenant.status,
             "max_instances": tenant.max_instances,
@@ -91,7 +85,6 @@ async def get_tenant(
         "id": str(tenant.id),
         "customer_id": str(tenant.customer_id),
         "name": tenant.name,
-        "subdomain": tenant.subdomain,
         "plan": tenant.plan.value,
         "status": tenant.status.value,
         "max_instances": tenant.max_instances,
@@ -121,7 +114,6 @@ async def list_tenants(
                 "id": str(tenant_data['id']),
                 "customer_id": str(tenant_data['customer_id']),
                 "name": tenant_data['name'],
-                "subdomain": tenant_data['subdomain'],
                 "plan": tenant_data['plan'],
                 "status": tenant_data['status'],
                 "max_instances": tenant_data['max_instances'],
@@ -186,7 +178,6 @@ async def update_tenant(
             "id": str(updated_tenant.id),
             "customer_id": str(updated_tenant.customer_id),
             "name": updated_tenant.name,
-            "subdomain": updated_tenant.subdomain,
             "plan": updated_tenant.plan,
             "status": updated_tenant.status,
             "max_instances": updated_tenant.max_instances,
@@ -233,41 +224,6 @@ async def delete_tenant(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/subdomain/{subdomain}", response_model=TenantResponse)
-async def get_tenant_by_subdomain(
-    subdomain: str,
-    db: TenantDatabase = Depends(get_database)
-):
-    """Get tenant by subdomain"""
-    try:
-        tenant = await db.get_tenant_by_subdomain(subdomain)
-        if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
-        
-        # Instance count is now managed by instance-service
-        response_data = {
-            "id": str(tenant.id),
-            "customer_id": str(tenant.customer_id),
-            "name": tenant.name,
-            "subdomain": tenant.subdomain,
-            "plan": tenant.plan,
-            "status": tenant.status,
-            "max_instances": tenant.max_instances,
-            "max_users": tenant.max_users,
-            "custom_domain": tenant.custom_domain,
-            "instance_count": 0,  # Instance count handled by instance-service
-            "created_at": tenant.created_at.isoformat(),
-            "updated_at": tenant.updated_at.isoformat(),
-            "metadata": tenant.metadata or {}
-        }
-        
-        return TenantResponse(**response_data)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get tenant by subdomain", subdomain=subdomain, error=str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/{tenant_id}/activate")

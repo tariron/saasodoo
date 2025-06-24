@@ -80,6 +80,8 @@ async def create_instance(
             "external_url": instance.external_url,
             "internal_url": instance.internal_url,
             "admin_email": instance.admin_email,
+            "admin_password": instance.admin_password,
+            "subdomain": instance.subdomain,
             "error_message": instance.error_message,
             "last_health_check": instance.last_health_check.isoformat() if instance.last_health_check else None,
             "created_at": instance.created_at.isoformat(),

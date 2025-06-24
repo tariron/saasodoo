@@ -16,10 +16,11 @@ const CreateInstance: React.FC = () => {
     memory_limit: '2G',
     storage_limit: '10G',
     admin_email: '',
-    demo_data: true,
+    admin_password: '',
     database_name: '',
+    subdomain: '',
+    demo_data: true,
     custom_addons: [],
-    accept_terms: false,
   });
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -63,7 +64,13 @@ const CreateInstance: React.FC = () => {
     setError('');
 
     try {
-      await instanceAPI.create(formData);
+      // Prepare form data, removing empty optional fields
+      const submitData = {
+        ...formData,
+        subdomain: formData.subdomain?.trim() || null,
+        description: formData.description || null,
+      };
+      await instanceAPI.create(submitData);
       
       // Redirect back to instances page or dashboard
       const tenantParam = searchParams.get('tenant');
@@ -88,8 +95,15 @@ const CreateInstance: React.FC = () => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const generateDatabaseName = (instanceName: string) => {
-    return instanceName
+  const generateInstanceName = (subdomain: string) => {
+    return subdomain
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  const generateDatabaseName = (subdomain: string) => {
+    return subdomain
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '_')
       .replace(/_+/g, '_')
@@ -97,12 +111,15 @@ const CreateInstance: React.FC = () => {
       .substring(0, 30);
   };
 
-  const handleNameChange = (name: string) => {
-    handleInputChange('name', name);
+  const handleSubdomainChange = (subdomain: string) => {
+    handleInputChange('subdomain', subdomain);
     
-    // Auto-generate database name if not manually set
-    if (name && (!formData.database_name || formData.database_name === generateDatabaseName(formData.name))) {
-      const dbName = generateDatabaseName(name);
+    // Auto-generate instance name and database name from subdomain
+    if (subdomain) {
+      const instanceName = generateInstanceName(subdomain);
+      const dbName = generateDatabaseName(subdomain);
+      
+      handleInputChange('name', instanceName);
       handleInputChange('database_name', dbName);
     }
   };
@@ -213,7 +230,32 @@ const CreateInstance: React.FC = () => {
               <div className={tenants.length > 1 ? "border-t border-gray-200 pt-6" : ""}>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Instance Information</h3>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Subdomain *
+                    </label>
+                    <div className="flex">
+                      <input
+                        type="text"
+                        required
+                        value={formData.subdomain || ''}
+                        onChange={(e) => handleSubdomainChange(e.target.value)}
+                        className="input-field rounded-r-none"
+                        placeholder="crm"
+                        pattern="[a-z0-9-]+"
+                        title="Only lowercase letters, numbers, and hyphens allowed"
+                        maxLength={30}
+                      />
+                      <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
+                        .saasodoo.local
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      This will be your Odoo URL: {formData.subdomain || 'subdomain'}.saasodoo.local
+                    </p>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Instance Name *
@@ -222,28 +264,12 @@ const CreateInstance: React.FC = () => {
                       type="text"
                       required
                       value={formData.name}
-                      onChange={(e) => handleNameChange(e.target.value)}
+                      onChange={(e) => handleInputChange('name', e.target.value)}
                       className="input-field"
-                      placeholder="My Production Instance"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Database Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.database_name}
-                      onChange={(e) => handleInputChange('database_name', e.target.value)}
-                      className="input-field"
-                      placeholder="my_production_db"
-                      pattern="[a-z0-9_]+"
-                      title="Only lowercase letters, numbers, and underscores allowed"
+                      placeholder="Auto-generated from subdomain"
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                      Only lowercase letters, numbers, and underscores
+                      Display name for this instance in your dashboard
                     </p>
                   </div>
                 </div>
@@ -253,7 +279,7 @@ const CreateInstance: React.FC = () => {
                     Description
                   </label>
                   <textarea
-                    value={formData.description}
+                    value={formData.description || ''}
                     onChange={(e) => handleInputChange('description', e.target.value)}
                     rows={3}
                     className="input-field"
@@ -298,18 +324,59 @@ const CreateInstance: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Admin Email *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={formData.admin_email}
+                      onChange={(e) => handleInputChange('admin_email', e.target.value)}
+                      className="input-field"
+                      placeholder="admin@company.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Admin Password *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={formData.admin_password || ''}
+                      onChange={(e) => handleInputChange('admin_password', e.target.value)}
+                      className="input-field"
+                      placeholder="Enter secure password for Odoo admin"
+                      minLength={8}
+                      pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"
+                      title="Password must contain at least 8 characters with uppercase, lowercase, and number"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Must be at least 8 characters with uppercase, lowercase, and number
+                    </p>
+                  </div>
+                </div>
+
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Admin Email *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={formData.admin_email}
-                    onChange={(e) => handleInputChange('admin_email', e.target.value)}
-                    className="input-field"
-                    placeholder="admin@company.com"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Database Name
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.database_name}
+                      className="input-field bg-gray-50"
+                      placeholder="Auto-generated from subdomain"
+                      readOnly
+                      disabled
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Automatically generated from subdomain (read-only)
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -386,23 +453,6 @@ const CreateInstance: React.FC = () => {
                     </label>
                   </div>
 
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="accept_terms"
-                      required
-                      checked={formData.accept_terms}
-                      onChange={(e) => handleInputChange('accept_terms', e.target.checked)}
-                      className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="accept_terms" className="ml-2 text-sm text-gray-900">
-                      I accept the{' '}
-                      <a href="#" className="text-primary-600 hover:text-primary-500">
-                        terms and conditions
-                      </a>{' '}
-                      *
-                    </label>
-                  </div>
                 </div>
               </div>
 

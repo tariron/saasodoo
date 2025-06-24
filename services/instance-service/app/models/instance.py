@@ -54,7 +54,9 @@ class InstanceBase(BaseModel):
     
     # Odoo configuration
     admin_email: str = Field(..., description="Odoo admin email")
+    admin_password: str = Field(..., min_length=8, description="Odoo admin password")
     database_name: str = Field(..., min_length=1, max_length=50, description="Odoo database name")
+    subdomain: Optional[str] = Field(None, min_length=3, max_length=50, description="Custom subdomain (defaults to database_name if not provided)")
     demo_data: bool = Field(default=False, description="Install demo data")
     
     # Addons and modules
@@ -95,6 +97,29 @@ class InstanceBase(BaseModel):
         if not v.replace('_', '').replace('-', '').isalnum():
             raise ValueError('Database name must contain only alphanumeric characters, underscores, and hyphens')
         return v.lower()
+
+    @validator('subdomain')
+    def validate_subdomain(cls, v):
+        """Validate subdomain format"""
+        if v is not None:
+            if not v.replace('-', '').isalnum():
+                raise ValueError('Subdomain must contain only alphanumeric characters and hyphens')
+            if v.startswith('-') or v.endswith('-'):
+                raise ValueError('Subdomain cannot start or end with a hyphen')
+        return v.lower() if v else None
+
+    @validator('admin_password')
+    def validate_admin_password(cls, v):
+        """Validate admin password strength according to Odoo requirements"""
+        if len(v) < 8:
+            raise ValueError('Admin password must be at least 8 characters long')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Admin password must contain at least one uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Admin password must contain at least one lowercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Admin password must contain at least one digit')
+        return v
 
 
 # Create instance schema (for API requests)
@@ -204,6 +229,8 @@ class InstanceResponse(BaseModel):
     external_url: Optional[str] = Field(None, description="External access URL")
     internal_url: Optional[str] = Field(None, description="Internal access URL")
     admin_email: str = Field(..., description="Admin email")
+    admin_password: Optional[str] = Field(None, description="Admin password")
+    subdomain: Optional[str] = Field(None, description="Custom subdomain")
     
     # Status information
     error_message: Optional[str] = Field(None, description="Error message if any")

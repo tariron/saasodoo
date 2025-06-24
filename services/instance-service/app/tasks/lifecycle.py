@@ -199,7 +199,7 @@ async def _restart_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
             'container_name': container_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.odoo.saasodoo.local'
+            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
         }
         
     except docker.errors.NotFound:
@@ -243,7 +243,7 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
             'container_name': container_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.odoo.saasodoo.local'
+            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
         }
         
     except docker.errors.NotFound:

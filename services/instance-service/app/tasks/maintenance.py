@@ -968,7 +968,7 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
             'container_name': container_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.odoo.saasodoo.local'
+            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
         }
         
     except docker.errors.NotFound:
@@ -1118,7 +1118,7 @@ async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[
                 'saasodoo.restore.optimized': 'true',
                 # Traefik labels for automatic routing
                 'traefik.enable': 'true',
-                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.odoo.saasodoo.local`)',
+                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
                 f'traefik.http.routers.{container_name}.service': container_name,
                 f'traefik.http.services.{container_name}.loadbalancer.server.port': '8069',
             },
@@ -1149,7 +1149,7 @@ async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[
             'container_name': container_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.odoo.saasodoo.local'
+            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
         }
         
     except Exception as e:

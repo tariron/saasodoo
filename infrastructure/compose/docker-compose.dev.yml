@@ -272,8 +272,8 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      killbill-db:
-        condition: service_healthy
+      - killbill-db
+        #condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/1.0/healthcheck"]
       interval: 30s
@@ -313,8 +313,8 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      killbill:
-        condition: service_healthy
+      - killbill
+        #condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
