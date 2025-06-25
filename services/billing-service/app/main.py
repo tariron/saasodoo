@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 
-from .routes import accounts, subscriptions, webhooks
+from .routes import accounts, subscriptions, webhooks, payments, invoices
 from .utils.database import init_db, close_db
 from .utils.killbill_client import KillBillClient
 
@@ -60,6 +60,8 @@ app.add_middleware(
 # Include routers
 app.include_router(accounts.router, prefix="/api/billing/accounts", tags=["accounts"])
 app.include_router(subscriptions.router, prefix="/api/billing/subscriptions", tags=["subscriptions"])
+app.include_router(payments.router, prefix="/api/billing/payments", tags=["payments"])
+app.include_router(invoices.router, prefix="/api/billing", tags=["invoices"])
 app.include_router(webhooks.router, prefix="/api/billing/webhooks", tags=["webhooks"])
 
 @app.get("/")

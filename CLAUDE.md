@@ -2,7 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 #Notes
-dont use jq
+- dont use jq
+- after making changes to code always use docker compose -f infrastructure/compose/docker-compose.dev.yml up --build -d "service" to restart the service
 
 
 ## Development Commands

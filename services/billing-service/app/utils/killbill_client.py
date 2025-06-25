@@ -133,3 +133,88 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get account by ID {account_id}: {e}")
             return None
+    
+    async def create_subscription(
+        self, 
+        account_id: str, 
+        plan_name: str,
+        billing_period: str = "MONTHLY",
+        product_category: str = "BASE"
+    ) -> Dict[str, Any]:
+        """Create a subscription for an account"""
+        subscription_data = {
+            "accountId": account_id,
+            "planName": plan_name,
+            "productName": plan_name.split("-")[0],  # Extract product from plan name
+            "productCategory": product_category,
+            "billingPeriod": billing_period,
+            "priceList": "DEFAULT"
+        }
+        
+        try:
+            response = await self._make_request("POST", "/1.0/kb/subscriptions", data=subscription_data)
+            logger.info(f"Created subscription for account {account_id} with plan {plan_name}")
+            return response
+        except Exception as e:
+            logger.error(f"Failed to create subscription for account {account_id}: {e}")
+            raise
+    
+    async def start_trial(
+        self, 
+        account_id: str, 
+        plan_name: str,
+        trial_days: int = 14
+    ) -> Dict[str, Any]:
+        """Start a trial subscription for an account"""
+        # For trial, we create a subscription with the trial phase
+        subscription_data = {
+            "accountId": account_id,
+            "planName": plan_name,
+            "productName": plan_name.split("-")[0],
+            "productCategory": "BASE",
+            "billingPeriod": "MONTHLY",
+            "priceList": "DEFAULT"
+        }
+        
+        try:
+            response = await self._make_request("POST", "/1.0/kb/subscriptions", data=subscription_data)
+            logger.info(f"Started trial subscription for account {account_id} with {trial_days} days trial")
+            return response
+        except Exception as e:
+            logger.error(f"Failed to start trial for account {account_id}: {e}")
+            raise
+    
+    async def get_account_subscriptions(self, account_id: str) -> List[Dict[str, Any]]:
+        """Get all subscriptions for an account"""
+        try:
+            response = await self._make_request("GET", f"/1.0/kb/accounts/{account_id}/subscriptions")
+            return response if isinstance(response, list) else []
+        except Exception as e:
+            logger.error(f"Failed to get subscriptions for account {account_id}: {e}")
+            raise
+    
+    async def cancel_subscription(self, subscription_id: str, reason: str = "User cancellation") -> Dict[str, Any]:
+        """Cancel a subscription"""
+        try:
+            # KillBill expects a DELETE request with query parameters
+            params = {
+                "requestedDate": datetime.utcnow().isoformat(),
+                "callCompletion": "true",
+                "callTimeoutSec": "10"
+            }
+            
+            response = await self._make_request("DELETE", f"/1.0/kb/subscriptions/{subscription_id}", params=params)
+            logger.info(f"Cancelled subscription {subscription_id}: {reason}")
+            return response or {"status": "cancelled"}
+        except Exception as e:
+            logger.error(f"Failed to cancel subscription {subscription_id}: {e}")
+            raise
+    
+    async def get_subscription_by_id(self, subscription_id: str) -> Optional[Dict[str, Any]]:
+        """Get subscription details by ID"""
+        try:
+            response = await self._make_request("GET", f"/1.0/kb/subscriptions/{subscription_id}")
+            return response if response else None
+        except Exception as e:
+            logger.error(f"Failed to get subscription {subscription_id}: {e}")
+            return None

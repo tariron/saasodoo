@@ -269,6 +269,15 @@ services:
       # JVM Memory settings
       KILLBILL_JVM_PERM_SIZE: 512m
       KILLBILL_JVM_MAX_PERM_SIZE: 1G
+      
+      # Webhook Configuration
+      KILLBILL_NOTIFICATION_URL: http://billing-service:8004/api/billing/webhooks/killbill
+      KILLBILL_NOTIFICATION_NB_THREADS: 3
+      KILLBILL_NOTIFICATION_QUEUE_CAPACITY: 100
+      
+      # HTTP Client Configuration - Disable HTTP/2
+      KILLBILL_SERVER_HTTP_CLIENT_ENABLE_HTTP2: false
+      KILLBILL_HTTP_CLIENT_DISABLE_HTTP2: true
     networks:
       - saasodoo-network
     depends_on:

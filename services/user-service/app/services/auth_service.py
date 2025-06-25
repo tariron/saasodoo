@@ -19,6 +19,7 @@ from shared.schemas.user import UserCreateSchema
 from app.utils.database import CustomerDatabase
 from app.utils.supabase_client import supabase_client
 from app.utils.billing_client import billing_client
+from app.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class AuthService:
             
             # Create KillBill account for the new customer (no subscription yet)
             billing_result = None
+            billing_account_id = None
             try:
                 full_name = f"{customer['first_name']} {customer['last_name']}"
                 billing_result = await billing_client.create_customer_account(
@@ -104,13 +106,22 @@ class AuthService:
                 )
                 
                 if billing_result and billing_result.get('success'):
-                    logger.info(f"KillBill account created for customer {customer['id']}: {billing_result.get('killbill_account_id')}")
+                    billing_account_id = billing_result.get('killbill_account_id')
+                    if billing_account_id:
+                        logger.info(f"KillBill account created for customer {customer['id']}: {billing_account_id}")
+                    else:
+                        logger.error(f"KillBill account creation returned success but no account ID for customer {customer['id']}")
+                        raise Exception("Billing account creation returned success but no account ID")
                 else:
-                    logger.warning(f"Failed to create KillBill account for customer {customer['id']}")
+                    error_msg = billing_result.get('message', 'Unknown error') if billing_result else 'No response from billing service'
+                    logger.error(f"Failed to create KillBill account for customer {customer['id']}: {error_msg}")
+                    raise Exception(f"Billing account creation failed: {error_msg}")
                     
             except Exception as e:
                 logger.error(f"KillBill account creation failed for customer {customer['id']}: {e}")
-                # Continue with registration - billing account creation failure shouldn't block user registration
+                # Billing account creation is required - fail registration if it fails
+                await UserService.delete_customer_account(customer['id'])
+                raise Exception(f"Customer registration failed: Unable to create billing account - {str(e)}")
             
             return {
                 'success': True,
@@ -122,7 +133,8 @@ class AuthService:
                     'is_verified': customer['is_verified']
                 },
                 'supabase_user': supabase_result,
-                'billing_account': billing_result
+                'billing_account': billing_result,
+                'billing_account_id': billing_account_id
             }
             
         except Exception as e:

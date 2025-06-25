@@ -7,8 +7,17 @@ import httpx
 import logging
 from typing import Optional, Dict, Any
 import os
+import json
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
+
+class UUIDJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles UUID objects"""
+    def default(self, obj):
+        if isinstance(obj, UUID):
+            return str(obj)
+        return super().default(obj)
 
 class BillingServiceClient:
     """HTTP client for billing service operations"""
@@ -20,6 +29,12 @@ class BillingServiceClient:
     async def _make_request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict[str, Any]]:
         """Make HTTP request to billing service"""
         url = f"{self.base_url}{endpoint}"
+        
+        # Handle JSON data with UUID objects
+        if 'json' in kwargs:
+            kwargs['content'] = json.dumps(kwargs.pop('json'), cls=UUIDJSONEncoder)
+            kwargs['headers'] = kwargs.get('headers', {})
+            kwargs['headers']['Content-Type'] = 'application/json'
         
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:

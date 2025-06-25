@@ -44,22 +44,27 @@ async def create_subscription(
         
         account_id = account.get("accountId")
         
-        # For now, return a simplified success response
-        # In a full implementation, this would create actual KillBill subscriptions
         logger.info(f"Creating subscription for customer {subscription_data.customer_id}, plan {subscription_data.plan_name}")
         
-        # Simulate subscription creation with trial period
-        subscription_id = f"sub_{subscription_data.customer_id}_{subscription_data.instance_id or 'default'}"
+        # Create actual KillBill subscription
+        killbill_subscription = await killbill.create_subscription(
+            account_id=account_id,
+            plan_name=subscription_data.plan_name,
+            billing_period=subscription_data.billing_period
+        )
         
+        # Format response with both KillBill data and our metadata
         subscription_info = {
-            "subscription_id": subscription_id,
+            "subscription_id": killbill_subscription.get("subscriptionId"),
+            "killbill_subscription_id": killbill_subscription.get("subscriptionId"),
             "customer_id": subscription_data.customer_id,
             "instance_id": subscription_data.instance_id,
             "plan_name": subscription_data.plan_name,
             "billing_period": subscription_data.billing_period,
             "trial_days": 14,
-            "status": "trial",
-            "account_id": account_id
+            "status": "trial",  # KillBill will have its own status
+            "account_id": account_id,
+            "killbill_data": killbill_subscription
         }
         
         return {
@@ -88,9 +93,11 @@ async def start_trial(
         
         account_id = account.get("accountId")
         
-        # Start trial
+        # Start trial with a basic plan (default to basic-monthly for trials)
+        plan_name = "basic-monthly"  # Default trial plan
         trial_subscription = await killbill.start_trial(
             account_id=account_id,
+            plan_name=plan_name,
             trial_days=trial_data.trial_days
         )
         
@@ -98,6 +105,7 @@ async def start_trial(
             "success": True,
             "trial_subscription": trial_subscription,
             "trial_days": trial_data.trial_days,
+            "plan_name": plan_name,
             "message": f"Trial started for {trial_data.trial_days} days"
         }
         
@@ -121,17 +129,19 @@ async def get_customer_subscriptions(
         
         account_id = account.get("accountId")
         
-        # Get subscriptions
+        # Get subscriptions from KillBill
         subscriptions = await killbill.get_account_subscriptions(account_id)
         
         return {
             "success": True,
             "customer_id": customer_id,
-            "subscriptions": subscriptions
+            "account_id": account_id,
+            "subscriptions": subscriptions,
+            "subscription_count": len(subscriptions)
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get subscriptions for customer {customer_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve subscriptions")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve subscriptions: {str(e)}")
