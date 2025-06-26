@@ -39,13 +39,6 @@ BEGIN
 END
 $$;
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'tenant_service') THEN
-        CREATE ROLE tenant_service WITH LOGIN PASSWORD '${POSTGRES_TENANT_SERVICE_PASSWORD}';
-    END IF;
-END
-$$;
 
 DO $$
 BEGIN
@@ -59,7 +52,6 @@ $$;
 GRANT CONNECT ON DATABASE saas_odoo TO readonly_user;
 GRANT CONNECT ON DATABASE auth TO readonly_user;
 GRANT CONNECT ON DATABASE billing TO readonly_user;
-GRANT CONNECT ON DATABASE tenant TO readonly_user;
 GRANT CONNECT ON DATABASE instance TO readonly_user;
 GRANT CONNECT ON DATABASE communication TO readonly_user;
 GRANT CONNECT ON DATABASE analytics TO readonly_user;
@@ -72,7 +64,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_use
 -- Grant permissions to service users
 GRANT ALL PRIVILEGES ON DATABASE auth TO auth_service;
 GRANT ALL PRIVILEGES ON DATABASE billing TO billing_service;
-GRANT ALL PRIVILEGES ON DATABASE tenant TO tenant_service;
 GRANT ALL PRIVILEGES ON DATABASE instance TO instance_service;
 
 -- Grant table-level permissions for each service user on their database
@@ -86,10 +77,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO billing_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO billing_service;
 
--- Tenant service permissions on tenant database
-\c tenant;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tenant_service;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tenant_service;
 
 -- Instance service permissions on instance database
 \c instance;
@@ -103,7 +90,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 GRANT CONNECT ON DATABASE saas_odoo TO backup_user;
 GRANT CONNECT ON DATABASE auth TO backup_user;
 GRANT CONNECT ON DATABASE billing TO backup_user;
-GRANT CONNECT ON DATABASE tenant TO backup_user;
 GRANT CONNECT ON DATABASE instance TO backup_user;
 GRANT CONNECT ON DATABASE communication TO backup_user;
 GRANT CONNECT ON DATABASE analytics TO backup_user; 

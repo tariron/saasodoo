@@ -409,7 +409,7 @@ async def _create_backup_metadata(instance: Dict[str, Any], backup_name: str, db
         "instance_id": str(instance['id']),
         "instance_name": instance['name'],
         "database_name": instance['database_name'],
-        "tenant_id": str(instance['tenant_id']),
+        "customer_id": str(instance['customer_id']),
         "odoo_version": instance.get('odoo_version', '17.0'),
         "instance_type": instance.get('instance_type', 'development'),
         "created_at": datetime.utcnow().isoformat(),
@@ -1114,7 +1114,7 @@ async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[
             labels={
                 'saasodoo.instance.id': str(instance['id']),
                 'saasodoo.instance.name': instance['name'],
-                'saasodoo.tenant.id': str(instance['tenant_id']),
+                'saasodoo.tenant.id': str(instance['customer_id']),
                 'saasodoo.restore.optimized': 'true',
                 # Traefik labels for automatic routing
                 'traefik.enable': 'true',

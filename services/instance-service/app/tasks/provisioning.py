@@ -245,7 +245,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             labels={
                 'saasodoo.instance.id': str(instance['id']),
                 'saasodoo.instance.name': instance['name'],
-                'saasodoo.tenant.id': str(instance['tenant_id']),
+                'saasodoo.customer.id': str(instance['customer_id']),
                 # Traefik labels for automatic routing
                 'traefik.enable': 'true',
                 f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',

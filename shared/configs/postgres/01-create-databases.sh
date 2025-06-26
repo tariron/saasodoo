@@ -34,7 +34,7 @@ else
     echo "POSTGRES_MULTIPLE_DATABASES not set, creating default databases..."
     create_database "auth"
     create_database "billing"
-    create_database "tenant"
+    create_database "instance"
     create_database "communication"
     create_database "analytics"
 fi

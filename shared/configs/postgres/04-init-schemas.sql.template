@@ -74,28 +74,6 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status);
 
--- Initialize tenant database schema
-\c tenant;
-
--- Create tenants table (updated for tenant-service only)
-CREATE TABLE IF NOT EXISTS tenants (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_id UUID NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    plan VARCHAR(20) DEFAULT 'starter',
-    status VARCHAR(20) DEFAULT 'provisioning',
-    max_instances INTEGER DEFAULT 1,
-    max_users INTEGER DEFAULT 5,
-    custom_domain VARCHAR(255),
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create indexes for tenant database
-CREATE INDEX IF NOT EXISTS idx_tenants_customer_id ON tenants(customer_id);
-CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
-CREATE INDEX IF NOT EXISTS idx_tenants_plan ON tenants(plan);
 
 -- Initialize instance database schema
 \c instance;
@@ -103,7 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_tenants_plan ON tenants(plan);
 -- Create instances table (moved from tenant-service to instance-service)
 CREATE TABLE IF NOT EXISTS instances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL, -- Reference to tenant (no foreign key across databases)
+    customer_id UUID NOT NULL, -- Reference to customer (no foreign key across databases)
     name VARCHAR(100) NOT NULL,
     description TEXT,
     odoo_version VARCHAR(10) DEFAULT '17.0',
@@ -156,7 +134,7 @@ CREATE TABLE IF NOT EXISTS instances (
 );
 
 -- Create indexes for instance database
-CREATE INDEX IF NOT EXISTS idx_instances_tenant_id ON instances(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_instances_customer_id ON instances(customer_id);
 CREATE INDEX IF NOT EXISTS idx_instances_status ON instances(status);
 CREATE INDEX IF NOT EXISTS idx_instances_name ON instances(name);
 CREATE INDEX IF NOT EXISTS idx_instances_created_at ON instances(created_at);
@@ -203,7 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_email_queue_scheduled ON email_queue(scheduled_at
 CREATE TABLE IF NOT EXISTS user_activities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL,
-    tenant_id UUID,
+    customer_id UUID,
     activity_type VARCHAR(100) NOT NULL,
     activity_data JSONB,
     ip_address INET,
@@ -222,7 +200,7 @@ CREATE TABLE IF NOT EXISTS system_metrics (
 
 -- Create indexes for analytics database
 CREATE INDEX IF NOT EXISTS idx_user_activities_user_id ON user_activities(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_activities_tenant_id ON user_activities(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_user_activities_customer_id ON user_activities(customer_id);
 CREATE INDEX IF NOT EXISTS idx_user_activities_type ON user_activities(activity_type);
 CREATE INDEX IF NOT EXISTS idx_user_activities_created ON user_activities(created_at);
 CREATE INDEX IF NOT EXISTS idx_system_metrics_name ON system_metrics(metric_name);

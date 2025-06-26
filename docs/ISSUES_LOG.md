@@ -1002,3 +1002,69 @@ Demo instance `33d590fb-a81f-46fe-b79a-56956c43573a`:
   - Log retrieval functionality
 
   Total: 27 TODO comments requiring implementation to complete the SaaS platform.
+
+---
+
+## Issue #015 - Hardcoded Plan Pricing Instead of KillBill Catalog Integration
+
+**Status**: 📋 Open  
+**Priority**: High  
+**Component**: billing-service, instance-service  
+**Date**: 2025-06-26  
+**Reporter**: Architecture Review  
+
+### Description
+The system currently uses hardcoded plan mappings in the application code instead of fetching pricing and plan information from KillBill's native catalog system. This creates a disconnect between the billing system's source of truth and the application's pricing logic.
+
+### Current Issues
+- **Hardcoded pricing**: Plans defined in `instance-service/app/utils/billing_client.py` with fixed prices ($10/$25/$50)
+- **Outdated pricing**: Current hardcoded prices don't match desired pricing ($5/$8/$10)  
+- **Duplicate management**: Plan information exists in both application code and KillBill catalog
+- **Inconsistent data**: Risk of pricing mismatches between KillBill and application
+- **Manual updates**: Price changes require code deployment instead of catalog updates
+
+### Root Cause
+The billing integration was implemented with static plan mappings rather than dynamic catalog fetching from KillBill's catalog API endpoints.
+
+### Current Implementation
+```python
+# services/instance-service/app/utils/billing_client.py
+plan_mapping = {
+    "development": "basic-plan-10",    # $10/month (should be $5)
+    "staging": "standard-plan-25",     # $25/month (should be $8)  
+    "production": "premium-plan-50"    # $50/month (should be $10)
+}
+```
+
+### Desired Architecture
+- **Single source of truth**: All pricing in KillBill catalog
+- **Dynamic plan resolution**: Fetch plans via KillBill catalog API
+- **Automatic pricing**: Price changes via KillBill admin without code changes
+- **Proper trial integration**: KillBill-native trial phases (14 days $0 → recurring price)
+
+### Required Implementation
+1. **Add KillBill catalog API methods**: `get_catalog()`, `get_available_plans()`, `get_plan_details()`
+2. **Create proper KillBill catalog**: Define products and plans with trial + recurring phases
+3. **Replace hardcoded mapping**: Dynamic plan lookup based on instance type
+4. **Update pricing enforcement**: Strict payment validation using catalog-based pricing
+5. **Frontend integration**: Display real-time pricing from KillBill catalog
+
+### Impact
+- **Billing accuracy**: Ensures pricing consistency between catalog and application
+- **Operational efficiency**: Price updates without code deployment
+- **Scalability**: Easy addition of new plans and pricing tiers
+- **Payment enforcement**: Proper validation before instance creation
+
+### Files to Modify
+- `services/billing-service/app/utils/killbill_client.py` - Add catalog methods
+- `services/instance-service/app/utils/billing_client.py` - Remove hardcoded mapping  
+- `services/instance-service/app/routes/instances.py` - Enhanced payment validation
+- Frontend pricing components - Dynamic catalog display
+
+### Business Requirements
+- **Free Trial**: 14-day trial for all plans
+- **Tier 1 (Basic)**: $5/month for development instances
+- **Tier 2 (Standard)**: $8/month for staging instances  
+- **Tier 3 (Premium)**: $10/month for production instances
+
+This issue must be resolved to ensure proper billing integration and accurate pricing enforcement throughout the platform.

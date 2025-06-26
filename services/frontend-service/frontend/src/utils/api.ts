@@ -42,7 +42,7 @@ export interface UserProfile {
 
 export interface Instance {
   id: string;
-  tenant_id: string;
+  customer_id: string;
   name: string;
   description: string;
   status: 'creating' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'terminated';
@@ -58,7 +58,7 @@ export interface Instance {
 }
 
 export interface CreateInstanceRequest {
-  tenant_id: string;
+  customer_id: string;
   name: string;
   description?: string | null;
   odoo_version: string;
@@ -74,17 +74,6 @@ export interface CreateInstanceRequest {
   custom_addons: string[];
 }
 
-export interface Tenant {
-  id: string;
-  customer_id: string;
-  name: string;
-  status: string;
-  created_at: string;
-}
-
-export interface TenantWithInstances extends Tenant {
-  instances: Instance[];
-}
 
 export interface AppConfig {
   BASE_DOMAIN: string;
@@ -241,23 +230,10 @@ export const authAPI = {
     api.post('/user/auth/refresh-token', { refresh_token: refreshToken }),
 };
 
-export const tenantAPI = {
-  list: (customerId: string): Promise<AxiosResponse<{tenants: Tenant[], total: number}>> => 
-    api.get(`/tenant/api/v1/tenants/?customer_id=${customerId}`),
-  
-  create: (data: {name: string; description: string; customer_id: string}): Promise<AxiosResponse<Tenant>> => {
-    // Backend doesn't expect description field, so we exclude it
-    const { description, ...backendData } = data;
-    return api.post('/tenant/api/v1/tenants/', backendData);
-  },
-  
-  get: (id: string): Promise<AxiosResponse<Tenant>> => 
-    api.get(`/tenant/api/v1/tenants/${id}`),
-};
 
 export const instanceAPI = {
-  list: (tenantId: string): Promise<AxiosResponse<{instances: Instance[], total: number}>> => 
-    api.get(`/instance/api/v1/instances/?tenant_id=${tenantId}`),
+  list: (customerId: string): Promise<AxiosResponse<{instances: Instance[], total: number}>> => 
+    api.get(`/instance/api/v1/instances/?customer_id=${customerId}`),
   
   get: (id: string): Promise<AxiosResponse<Instance>> => 
     api.get(`/instance/api/v1/instances/${id}`),

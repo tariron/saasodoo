@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { authAPI, instanceAPI, tenantAPI, UserProfile, Instance, Tenant, TenantWithInstances } from '../utils/api';
+import { authAPI, instanceAPI, UserProfile, Instance } from '../utils/api';
 import Navigation from '../components/Navigation';
 
 const Dashboard: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [tenantsWithInstances, setTenantsWithInstances] = useState<TenantWithInstances[]>([]);
+  const [instances, setInstances] = useState<Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -20,37 +20,15 @@ const Dashboard: React.FC = () => {
         console.log('User profile:', profileResponse.data);
         setProfile(profileResponse.data);
 
-        // Fetch tenants and their instances
+        // Fetch instances for this customer
         try {
-          console.log('Fetching tenants for customer:', profileResponse.data.id);
-          const tenantsResponse = await tenantAPI.list(profileResponse.data.id);
-          console.log('Tenants response:', tenantsResponse.data);
-          const tenants = tenantsResponse.data.tenants || [];
-
-          // Fetch instances for each tenant
-          const tenantsWithInstancesData: TenantWithInstances[] = [];
-          for (const tenant of tenants) {
-            try {
-              console.log('Fetching instances for tenant:', tenant.id);
-              const instancesResponse = await instanceAPI.list(tenant.id);
-              console.log(`Instances for tenant ${tenant.name}:`, instancesResponse.data);
-              tenantsWithInstancesData.push({
-                ...tenant,
-                instances: instancesResponse.data.instances || []
-              });
-            } catch (instanceErr) {
-              console.warn(`Failed to fetch instances for tenant ${tenant.id}:`, instanceErr);
-              // Add tenant with empty instances array if fetch fails
-              tenantsWithInstancesData.push({
-                ...tenant,
-                instances: []
-              });
-            }
-          }
-          setTenantsWithInstances(tenantsWithInstancesData);
-        } catch (tenantErr) {
-          console.warn('Failed to fetch tenants:', tenantErr);
-          setTenantsWithInstances([]);
+          console.log('Fetching instances for customer:', profileResponse.data.id);
+          const instancesResponse = await instanceAPI.list(profileResponse.data.id);
+          console.log('Instances response:', instancesResponse.data);
+          setInstances(instancesResponse.data.instances || []);
+        } catch (instanceErr) {
+          console.warn('Failed to fetch instances:', instanceErr);
+          setInstances([]);
         }
       } catch (err: any) {
         console.error('Dashboard error:', err);
@@ -73,11 +51,9 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Calculate aggregate stats across all tenants
-  const allInstances = tenantsWithInstances.flatMap(t => t.instances);
-  const totalInstances = allInstances.length;
-  const runningInstances = allInstances.filter(i => i.status === 'running').length;
-  const totalTenants = tenantsWithInstances.length;
+  // Calculate stats
+  const totalInstances = instances.length;
+  const runningInstances = instances.filter(i => i.status === 'running').length;
 
   if (loading) {
     return (
@@ -125,27 +101,6 @@ const Dashboard: React.FC = () => {
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
                     <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">{totalTenants}</span>
-                    </div>
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">
-                        Workspaces
-                      </dt>
-                      <dd className="text-lg font-medium text-gray-900">
-                        {totalTenants} {totalTenants === 1 ? 'workspace' : 'workspaces'}
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
                       <span className="text-white font-bold text-sm">{totalInstances}</span>
                     </div>
                   </div>
@@ -162,12 +117,11 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
             </div>
-
             <div className="bg-white overflow-hidden shadow rounded-lg">
               <div className="p-5">
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
                       <span className="text-white font-bold text-sm">{runningInstances}</span>
                     </div>
                   </div>
@@ -178,6 +132,28 @@ const Dashboard: React.FC = () => {
                       </dt>
                       <dd className="text-lg font-medium text-gray-900">
                         {runningInstances} active
+                      </dd>
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white overflow-hidden shadow rounded-lg">
+              <div className="p-5">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                      <span className="text-white font-bold text-sm">{instances.filter(i => i.status === 'stopped').length}</span>
+                    </div>
+                  </div>
+                  <div className="ml-5 w-0 flex-1">
+                    <dl>
+                      <dt className="text-sm font-medium text-gray-500 truncate">
+                        Stopped Instances
+                      </dt>
+                      <dd className="text-lg font-medium text-gray-900">
+                        {instances.filter(i => i.status === 'stopped').length} stopped
                       </dd>
                     </dl>
                   </div>
@@ -229,13 +205,6 @@ const Dashboard: React.FC = () => {
                   <span className="mr-2">🖥️</span>
                   Manage Instances
                 </Link>
-                <Link
-                  to="/tenants/create"
-                  className="btn-secondary inline-flex items-center"
-                >
-                  <span className="mr-2">🏢</span>
-                  Create Workspace
-                </Link>
                 <button className="btn-secondary inline-flex items-center">
                   <span className="mr-2">📊</span>
                   View Analytics
@@ -244,11 +213,11 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Workspaces and their instances */}
+          {/* Recent Instances */}
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-lg leading-6 font-medium text-gray-900">
-                Your Workspaces
+                Your Instances
               </h3>
               <Link
                 to="/instances"
@@ -258,128 +227,79 @@ const Dashboard: React.FC = () => {
               </Link>
             </div>
 
-            {tenantsWithInstances.length === 0 ? (
+            {instances.length === 0 ? (
               <div className="bg-white shadow rounded-lg">
                 <div className="text-center py-12">
-                  <div className="text-gray-400 text-6xl mb-4">🏢</div>
+                  <div className="text-gray-400 text-6xl mb-4">🖥️</div>
                   <h4 className="text-lg font-medium text-gray-900 mb-2">
-                    No workspaces yet
+                    No instances yet
                   </h4>
                   <p className="text-gray-600 mb-6">
-                    Create your first workspace to start managing Odoo instances
+                    Create your first Odoo instance to get started
                   </p>
                   <Link
-                    to="/tenants/create"
+                    to="/instances/create"
                     className="btn-primary inline-flex items-center"
                   >
-                    <span className="mr-2">🏢</span>
-                    Create Your First Workspace
+                    <span className="mr-2">➕</span>
+                    Create Your First Instance
                   </Link>
                 </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                {tenantsWithInstances.map((tenant) => (
-                  <div key={tenant.id} className="bg-white shadow rounded-lg">
-                    <div className="px-4 py-5 sm:p-6">
-                      {/* Tenant header */}
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h4 className="text-lg font-medium text-gray-900">
-                            {tenant.name}
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            Workspace • {tenant.status}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-medium text-gray-900">
-                            {tenant.instances.length} {tenant.instances.length === 1 ? 'instance' : 'instances'}
+              <div className="bg-white shadow rounded-lg">
+                <div className="px-4 py-5 sm:p-6">
+                  <div className="space-y-3">
+                    {instances.slice(0, 5).map((instance) => (
+                      <div
+                        key={instance.id}
+                        className="flex items-center justify-between p-3 border border-gray-200 rounded hover:bg-gray-50"
+                      >
+                        <div className="flex items-center">
+                          <div className="w-8 h-8 bg-primary-100 rounded flex items-center justify-center mr-3">
+                            <span className="text-primary-600 font-medium text-xs">
+                              {instance.name[0].toUpperCase()}
+                            </span>
                           </div>
-                          <div className="text-xs text-gray-500">
-                            {tenant.instances.filter(i => i.status === 'running').length} running
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {instance.name}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {instance.instance_type} • {instance.odoo_version}
+                            </div>
                           </div>
                         </div>
-                      </div>
-
-                      {/* Instances in this tenant */}
-                      {tenant.instances.length === 0 ? (
-                        <div className="text-center py-6 border border-gray-200 rounded-lg bg-gray-50">
-                          <div className="text-gray-400 text-2xl mb-2">🖥️</div>
-                          <p className="text-sm text-gray-600 mb-3">
-                            No instances in this workspace
-                          </p>
-                          <Link
-                            to={`/instances/create?tenant=${tenant.id}`}
-                            className="text-xs bg-primary-600 text-white px-3 py-1 rounded hover:bg-primary-700"
-                          >
-                            Create Instance
-                          </Link>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {tenant.instances.slice(0, 3).map((instance) => (
-                            <div
-                              key={instance.id}
-                              className="flex items-center justify-between p-3 border border-gray-200 rounded hover:bg-gray-50"
-                            >
-                              <div className="flex items-center">
-                                <div className="w-8 h-8 bg-primary-100 rounded flex items-center justify-center mr-3">
-                                  <span className="text-primary-600 font-medium text-xs">
-                                    {instance.name[0].toUpperCase()}
-                                  </span>
-                                </div>
-                                <div>
-                                  <div className="text-sm font-medium text-gray-900">
-                                    {instance.name}
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    {instance.instance_type} • {instance.odoo_version}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(instance.status)}`}>
-                                  {instance.status}
-                                </span>
-                                {instance.external_url && (
-                                  <a
-                                    href={instance.external_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-primary-600 hover:text-primary-500"
-                                  >
-                                    Open
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                          
-                          {tenant.instances.length > 3 && (
-                            <div className="text-center pt-2">
-                              <Link
-                                to="/instances"
-                                className="text-xs text-primary-600 hover:text-primary-500"
-                              >
-                                View {tenant.instances.length - 3} more instances →
-                              </Link>
-                            </div>
-                          )}
-                          
-                          <div className="text-center pt-2 border-t border-gray-100">
-                            <Link
-                              to={`/instances/create?tenant=${tenant.id}`}
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(instance.status)}`}>
+                            {instance.status}
+                          </span>
+                          {instance.external_url && (
+                            <a
+                              href={instance.external_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="text-xs text-primary-600 hover:text-primary-500"
                             >
-                              + Add instance to this workspace
-                            </Link>
-                          </div>
+                              Open
+                            </a>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ))}
+                    
+                    {instances.length > 5 && (
+                      <div className="text-center pt-2 border-t border-gray-100">
+                        <Link
+                          to="/instances"
+                          className="text-xs text-primary-600 hover:text-primary-500"
+                        >
+                          View {instances.length - 5} more instances →
+                        </Link>
+                      </div>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
             )}
           </div>

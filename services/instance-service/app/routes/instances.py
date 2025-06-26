@@ -37,7 +37,7 @@ async def create_instance(
 ):
     """Create a new Odoo instance"""
     try:
-        logger.info("Creating instance", name=instance_data.name, tenant_id=str(instance_data.tenant_id))
+        logger.info("Creating instance", name=instance_data.name, customer_id=str(instance_data.customer_id))
         
         # Validate instance resources
         resource_errors = validate_instance_resources(
@@ -63,7 +63,7 @@ async def create_instance(
         billing_info = None
         try:
             # Check if customer has billing account
-            customer_id = str(instance_data.tenant_id)  # Using tenant_id as customer_id
+            customer_id = str(instance_data.customer_id)
             billing_info = await billing_client.get_customer_billing_info(customer_id)
             
             if not billing_info:
@@ -79,7 +79,7 @@ async def create_instance(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Billing validation failed", customer_id=str(instance_data.tenant_id), error=str(e))
+            logger.error("Billing validation failed", customer_id=str(instance_data.customer_id), error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail="Billing validation failed. Please try again."
@@ -113,7 +113,7 @@ async def create_instance(
         # Convert to response format and return immediately
         response_data = {
             "id": str(instance.id),
-            "tenant_id": str(instance.tenant_id),
+            "customer_id": str(instance.customer_id),
             "name": instance.name,
             "description": instance.description,
             "odoo_version": instance.odoo_version,
@@ -162,7 +162,7 @@ async def get_instance(
         
         response_data = {
             "id": str(instance.id),
-            "tenant_id": str(instance.tenant_id),
+            "customer_id": str(instance.customer_id),
             "name": instance.name,
             "description": instance.description,
             "odoo_version": instance.odoo_version,
@@ -196,7 +196,7 @@ async def get_instance(
 
 @router.get("/", response_model=InstanceListResponse)
 async def list_instances(
-    tenant_id: Optional[UUID] = Query(None, description="Filter by tenant ID"),
+    customer_id: Optional[UUID] = Query(None, description="Filter by customer ID"),
     status: Optional[InstanceStatus] = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
@@ -204,18 +204,18 @@ async def list_instances(
 ):
     """List instances with optional filtering"""
     try:
-        if tenant_id:
-            result = await db.get_instances_by_tenant(tenant_id, page, page_size)
+        if customer_id:
+            result = await db.get_instances_by_customer(customer_id, page, page_size)
         else:
-            # For now, require tenant_id. In future, could support listing all instances for admins
-            raise HTTPException(status_code=400, detail="tenant_id parameter is required")
+            # For now, require customer_id. In future, could support listing all instances for admins
+            raise HTTPException(status_code=400, detail="customer_id parameter is required")
         
         # Convert instances to response format
         instance_responses = []
         for instance_data in result['instances']:
             response_data = {
                 "id": str(instance_data['id']),
-                "tenant_id": str(instance_data['tenant_id']),
+                "customer_id": str(instance_data['customer_id']),
                 "name": instance_data['name'],
                 "description": instance_data['description'],
                 "odoo_version": instance_data['odoo_version'],
@@ -296,7 +296,7 @@ async def update_instance(
         
         response_data = {
             "id": str(updated_instance.id),
-            "tenant_id": str(updated_instance.tenant_id),
+            "customer_id": str(updated_instance.customer_id),
             "name": updated_instance.name,
             "description": updated_instance.description,
             "odoo_version": updated_instance.odoo_version,

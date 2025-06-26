@@ -19,27 +19,13 @@ class InstanceService:
     def __init__(self, db: InstanceDatabase):
         self.db = db
     
-    async def create_instance_for_tenant(self, tenant_id: UUID, instance_data: InstanceCreate) -> Instance:
+    async def create_instance_for_customer(self, customer_id: UUID, instance_data: InstanceCreate) -> Instance:
         """
-        Create a new Odoo instance for a tenant with business logic validation
+        Create a new Odoo instance for a customer with business logic validation
         """
         try:
-            # Get tenant info for validation (basic info only)
-            tenant_info = await self.db.get_tenant_info(tenant_id)
-            if not tenant_info:
-                raise ValueError("Tenant not found")
-            
-            if tenant_info['status'] != "active":
-                raise ValueError(f"Cannot create instance for tenant with status: {tenant_info['status']}")
-            
-            # Check instance limits
-            current_count = await self.db.get_tenant_instance_count(tenant_id)
-            
-            if current_count >= tenant_info['max_instances']:
-                raise ValueError(f"Tenant has reached maximum instance limit: {tenant_info['max_instances']}")
-            
-            # Set tenant_id in instance data
-            instance_data.tenant_id = tenant_id
+            # Set customer_id in instance data
+            instance_data.customer_id = customer_id
             
             # Create instance in database
             instance = await self.db.create_instance(instance_data)
@@ -47,58 +33,48 @@ class InstanceService:
             # TODO: Trigger async provisioning
             # await self._provision_instance_async(instance.id)
             
-            logger.info("Instance created for tenant", 
+            logger.info("Instance created for customer", 
                        instance_id=str(instance.id), 
-                       tenant_id=str(tenant_id),
+                       customer_id=str(customer_id),
                        name=instance.name)
             
             return instance
             
         except Exception as e:
-            logger.error("Failed to create instance for tenant", 
-                        tenant_id=str(tenant_id), error=str(e))
+            logger.error("Failed to create instance for customer", 
+                        customer_id=str(customer_id), error=str(e))
             raise
     
     async def get_customer_instance_summary(self, customer_id: UUID) -> Dict[str, Any]:
         """
-        Get instance summary for a customer across all tenants
+        Get instance summary for a customer - direct instances owned by customer
         This is used by user-service for customer profile
         """
         try:
-            total_instances = await self.db.get_instances_by_customer(customer_id)
-            
-            # Get tenant information
-            tenants_data = await self.db.get_tenants_by_customer(customer_id, page=1, page_size=100)
+            # Get customer's instances directly
+            customer_instances = await self.db.get_instances_by_customer(customer_id, page=1, page_size=100)
             
             # Calculate statistics
-            tenant_count = len(tenants_data['tenants'])
-            max_instances_allowed = sum(t['max_instances'] for t in tenants_data['tenants'])
+            instance_count = len(customer_instances['instances'])
             
-            # Get instances by status across all tenants
+            # Get instances by status
             instances_by_status = {
                 'running': 0,
                 'stopped': 0,
                 'creating': 0,
                 'error': 0,
-                'total': total_instances
+                'total': instance_count
             }
             
-            for tenant_data in tenants_data['tenants']:
-                tenant_id = UUID(tenant_data['id'])
-                tenant_instances = await self.db.get_instances_by_tenant(tenant_id, page=1, page_size=100)
-                
-                for instance in tenant_instances['instances']:
-                    status = instance['status']
-                    if status in instances_by_status:
-                        instances_by_status[status] += 1
+            for instance in customer_instances['instances']:
+                status = instance['status']
+                if status in instances_by_status:
+                    instances_by_status[status] += 1
             
             summary = {
                 'customer_id': str(customer_id),
-                'tenant_count': tenant_count,
-                'instance_count': total_instances,
-                'max_instances_allowed': max_instances_allowed,
-                'instances_by_status': instances_by_status,
-                'utilization_percentage': (total_instances / max_instances_allowed * 100) if max_instances_allowed > 0 else 0
+                'instance_count': instance_count,
+                'instances_by_status': instances_by_status
             }
             
             return summary
@@ -108,11 +84,8 @@ class InstanceService:
                         customer_id=str(customer_id), error=str(e))
             return {
                 'customer_id': str(customer_id),
-                'tenant_count': 0,
                 'instance_count': 0,
-                'max_instances_allowed': 0,
-                'instances_by_status': {'total': 0},
-                'utilization_percentage': 0
+                'instances_by_status': {'total': 0}
             }
     
     async def start_instance(self, instance_id: UUID) -> Dict[str, Any]:

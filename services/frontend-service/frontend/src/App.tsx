@@ -4,7 +4,6 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
 import CreateInstance from './pages/CreateInstance';
-import CreateTenant from './pages/CreateTenant';
 import AuthGuard from './components/AuthGuard';
 import { TokenManager } from './utils/api';
 
@@ -33,14 +32,6 @@ function App() {
             } 
           />
           
-          <Route 
-            path="/tenants/create" 
-            element={
-              <AuthGuard>
-                <CreateTenant />
-              </AuthGuard>
-            } 
-          />
           
           <Route 
             path="/instances" 

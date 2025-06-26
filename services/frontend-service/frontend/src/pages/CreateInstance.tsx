@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { instanceAPI, tenantAPI, authAPI, CreateInstanceRequest, Tenant, UserProfile } from '../utils/api';
+import { instanceAPI, authAPI, CreateInstanceRequest, UserProfile } from '../utils/api';
 import Navigation from '../components/Navigation';
 
 const CreateInstance: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [formData, setFormData] = useState<CreateInstanceRequest>({
-    tenant_id: '',
+    customer_id: '',
     name: '',
     description: '',
     odoo_version: '17.0',
@@ -31,21 +30,12 @@ const CreateInstance: React.FC = () => {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [profileResponse, tenantsResponse] = await Promise.all([
-          authAPI.getProfile(),
-          authAPI.getProfile().then(profile => tenantAPI.list(profile.data.id))
-        ]);
+        const profileResponse = await authAPI.getProfile();
 
         setProfile(profileResponse.data);
-        setTenants(tenantsResponse.data.tenants || []);
-
-        // Check for tenant pre-selection from URL
-        const tenantParam = searchParams.get('tenant');
-        const selectedTenant = tenantParam && tenantsResponse.data.tenants?.find(t => t.id === tenantParam);
-
         setFormData(prev => ({
           ...prev,
-          tenant_id: selectedTenant ? selectedTenant.id : (tenantsResponse.data.tenants?.[0]?.id || ''),
+          customer_id: profileResponse.data.id,
           admin_email: profileResponse.data.email
         }));
       } catch (err) {
@@ -56,7 +46,7 @@ const CreateInstance: React.FC = () => {
     };
 
     fetchInitialData();
-  }, [searchParams]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,13 +62,8 @@ const CreateInstance: React.FC = () => {
       };
       await instanceAPI.create(submitData);
       
-      // Redirect back to instances page or dashboard
-      const tenantParam = searchParams.get('tenant');
-      if (tenantParam) {
-        navigate(`/instances?tenant=${tenantParam}`);
-      } else {
-        navigate('/instances');
-      }
+      // Redirect back to instances page
+      navigate('/instances');
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 
                           (err.response?.data?.errors ? 
@@ -124,7 +109,6 @@ const CreateInstance: React.FC = () => {
     }
   };
 
-  const selectedTenantName = tenants.find(t => t.id === formData.tenant_id)?.name;
 
   if (initialLoading) {
     return (
@@ -143,38 +127,6 @@ const CreateInstance: React.FC = () => {
     );
   }
 
-  if (tenants.length === 0) {
-    return (
-      <>
-        <Navigation userProfile={profile || undefined} />
-        <main className="max-w-3xl mx-auto py-6 sm:px-6 lg:px-8">
-          <div className="px-4 py-6 sm:px-0">
-            <div className="text-center py-12 bg-white rounded-lg shadow">
-              <div className="text-gray-400 text-6xl mb-4">🏢</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No workspaces found</h3>
-              <p className="text-gray-600 mb-6">
-                You need to create a workspace before you can create instances
-              </p>
-              <div className="space-x-4">
-                <button
-                  onClick={() => navigate('/dashboard')}
-                  className="btn-secondary"
-                >
-                  Back to Dashboard
-                </button>
-                <button
-                  onClick={() => navigate('/tenants/create')}
-                  className="btn-primary"
-                >
-                  Create Workspace
-                </button>
-              </div>
-            </div>
-          </div>
-        </main>
-      </>
-    );
-  }
 
   return (
     <>
@@ -186,7 +138,7 @@ const CreateInstance: React.FC = () => {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-gray-900">Create New Odoo Instance</h1>
             <p className="mt-1 text-sm text-gray-600">
-              Set up a new Odoo instance {selectedTenantName && `in ${selectedTenantName} workspace`}
+              Set up a new Odoo instance
             </p>
           </div>
 
@@ -199,35 +151,9 @@ const CreateInstance: React.FC = () => {
                 </div>
               )}
 
-              {/* Workspace Selection */}
-              {tenants.length > 1 && (
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Workspace</h3>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Select Workspace *
-                    </label>
-                    <select
-                      required
-                      value={formData.tenant_id}
-                      onChange={(e) => handleInputChange('tenant_id', e.target.value)}
-                      className="input-field"
-                    >
-                      {tenants.map((tenant) => (
-                        <option key={tenant.id} value={tenant.id}>
-                          {tenant.name}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-xs text-gray-500">
-                      The workspace where this instance will be created
-                    </p>
-                  </div>
-                </div>
-              )}
 
               {/* Basic Information */}
-              <div className={tenants.length > 1 ? "border-t border-gray-200 pt-6" : ""}>
+              <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Instance Information</h3>
                 
                 <div className="space-y-4">

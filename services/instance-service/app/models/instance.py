@@ -126,7 +126,7 @@ class InstanceBase(BaseModel):
 # Create instance schema (for API requests)
 class InstanceCreate(InstanceBase):
     """Schema for creating a new instance"""
-    tenant_id: UUID = Field(..., description="Tenant ID that owns this instance")
+    customer_id: UUID = Field(..., description="Customer ID that owns this instance")
 
 
 # Update instance schema (for API requests)
@@ -174,7 +174,7 @@ class InstanceUpdate(BaseModel):
 class Instance(InstanceBase):
     """Full instance model with all database fields"""
     id: UUID = Field(default_factory=uuid4, description="Unique instance ID")
-    tenant_id: UUID = Field(..., description="Tenant ID that owns this instance")
+    customer_id: UUID = Field(..., description="Customer ID that owns this instance")
     status: InstanceStatus = Field(default=InstanceStatus.CREATING, description="Current instance status")
     
     # Container information
@@ -214,7 +214,7 @@ class Instance(InstanceBase):
 class InstanceResponse(BaseModel):
     """Schema for instance API responses"""
     id: str = Field(..., description="Instance ID")
-    tenant_id: str = Field(..., description="Tenant ID")
+    customer_id: str = Field(..., description="Customer ID")
     name: str = Field(..., description="Instance name")
     description: Optional[str] = Field(None, description="Instance description")
     odoo_version: OdooVersion = Field(..., description="Odoo version")

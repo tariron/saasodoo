@@ -63,25 +63,25 @@ class InstanceDatabase:
         """Create a new instance"""
         async with self.pool.acquire() as conn:
             try:
-                # Check if database name is unique for this tenant
+                # Check if database name is unique for this customer
                 existing = await conn.fetchrow(
-                    "SELECT id FROM instances WHERE tenant_id = $1 AND database_name = $2",
-                    instance_data.tenant_id, instance_data.database_name
+                    "SELECT id FROM instances WHERE customer_id = $1 AND database_name = $2",
+                    instance_data.customer_id, instance_data.database_name
                 )
                 if existing:
-                    raise ValueError(f"Database name '{instance_data.database_name}' already exists for this tenant")
+                    raise ValueError(f"Database name '{instance_data.database_name}' already exists for this customer")
                 
                 # Insert new instance
                 instance_id = await conn.fetchval("""
                     INSERT INTO instances (
-                        tenant_id, name, odoo_version, instance_type, description,
+                        customer_id, name, odoo_version, instance_type, description,
                         cpu_limit, memory_limit, storage_limit, admin_email, admin_password,
                         database_name, subdomain, demo_data, custom_addons, disabled_modules, 
                         environment_vars, metadata, status, created_at, updated_at
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
                     RETURNING id
                 """,
-                    instance_data.tenant_id,
+                    instance_data.customer_id,
                     instance_data.name,
                     instance_data.odoo_version.value,
                     instance_data.instance_type.value,
@@ -103,7 +103,7 @@ class InstanceDatabase:
                     datetime.utcnow()
                 )
                 
-                logger.info("Instance created", instance_id=str(instance_id), tenant_id=str(instance_data.tenant_id))
+                logger.info("Instance created", instance_id=str(instance_id), customer_id=str(instance_data.customer_id))
                 
                 return await self.get_instance(instance_id)
                 
@@ -151,25 +151,25 @@ class InstanceDatabase:
                 logger.error("Failed to get instance", instance_id=str(instance_id), error=str(e))
                 raise
     
-    async def get_instances_by_tenant(self, tenant_id: UUID, page: int = 1, page_size: int = 10) -> Dict[str, Any]:
-        """Get instances for a tenant with pagination"""
+    async def get_instances_by_customer(self, customer_id: UUID, page: int = 1, page_size: int = 10) -> Dict[str, Any]:
+        """Get instances for a customer with pagination"""
         async with self.pool.acquire() as conn:
             try:
                 offset = (page - 1) * page_size
                 
                 # Get total count
                 total = await conn.fetchval(
-                    "SELECT COUNT(*) FROM instances WHERE tenant_id = $1",
-                    tenant_id
+                    "SELECT COUNT(*) FROM instances WHERE customer_id = $1",
+                    customer_id
                 )
                 
                 # Get instances
                 rows = await conn.fetch("""
                     SELECT * FROM instances 
-                    WHERE tenant_id = $1
+                    WHERE customer_id = $1
                     ORDER BY created_at DESC
                     LIMIT $2 OFFSET $3
-                """, tenant_id, page_size, offset)
+                """, customer_id, page_size, offset)
                 
                 instances = []
                 for row in rows:
@@ -206,25 +206,9 @@ class InstanceDatabase:
                 }
                 
             except Exception as e:
-                logger.error("Failed to get instances by tenant", tenant_id=str(tenant_id), error=str(e))
-                raise
-    
-    async def get_instances_by_customer(self, customer_id: UUID) -> int:
-        """Get total instance count for a customer across all tenants"""
-        async with self.pool.acquire() as conn:
-            try:
-                count = await conn.fetchval("""
-                    SELECT COUNT(i.id)
-                    FROM instances i
-                    JOIN tenants t ON i.tenant_id = t.id
-                    WHERE t.customer_id = $1 AND i.status != 'terminated'
-                """, customer_id)
-                
-                return count or 0
-                
-            except Exception as e:
                 logger.error("Failed to get instances by customer", customer_id=str(customer_id), error=str(e))
                 raise
+    
     
     async def update_instance(self, instance_id: UUID, update_data: InstanceUpdate) -> Optional[Instance]:
         """Update instance information"""
@@ -314,42 +298,14 @@ class InstanceDatabase:
                 logger.error("Failed to delete instance", instance_id=str(instance_id), error=str(e))
                 raise
     
-    async def get_tenant_info(self, tenant_id: UUID) -> Optional[Dict[str, Any]]:
-        """Get basic tenant information for validation (without importing tenant models)"""
-        async with self.pool.acquire() as conn:
-            try:
-                row = await conn.fetchrow(
-                    "SELECT id, status, max_instances FROM tenants WHERE id = $1",
-                    tenant_id
-                )
-                if row:
-                    return dict(row)
-                return None
-                
-            except Exception as e:
-                logger.error("Failed to get tenant info", tenant_id=str(tenant_id), error=str(e))
-                raise
     
-    async def get_tenant_instance_count(self, tenant_id: UUID) -> int:
-        """Get active instance count for a tenant"""
-        async with self.pool.acquire() as conn:
-            try:
-                count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM instances WHERE tenant_id = $1 AND status != 'terminated'",
-                    tenant_id
-                )
-                return count or 0
-                
-            except Exception as e:
-                logger.error("Failed to get tenant instance count", tenant_id=str(tenant_id), error=str(e))
-                raise
     
     async def get_instances_by_status(self, status: InstanceStatus, limit: int = 50) -> List[Dict[str, Any]]:
         """Get instances by status"""
         async with self.pool.acquire() as conn:
             try:
                 rows = await conn.fetch("""
-                    SELECT id, name, tenant_id, status, error_message, created_at, updated_at
+                    SELECT id, name, customer_id, status, error_message, created_at, updated_at
                     FROM instances 
                     WHERE status = $1
                     ORDER BY updated_at DESC
