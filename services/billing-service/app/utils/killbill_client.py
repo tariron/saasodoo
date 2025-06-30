@@ -63,8 +63,17 @@ class KillBillClient:
                     logger.error(f"KillBill API error: {response.status_code} - {response.text}")
                     response.raise_for_status()
                 
-                if response.status_code in [201, 204] and not response.text:
-                    return {}
+                if response.status_code in [201, 204]:
+                    # For creation requests, check if there's a Location header
+                    if response.status_code == 201 and 'Location' in response.headers:
+                        # Extract ID from Location header
+                        location_parts = response.headers['Location'].split('/')
+                        if location_parts:
+                            created_id = location_parts[-1]
+                            return {"id": created_id, "location": response.headers['Location']}
+                    
+                    if not response.text:
+                        return {}
                 
                 return response.json() if response.text else {}
                 
@@ -144,16 +153,17 @@ class KillBillClient:
         """Create a subscription for an account"""
         subscription_data = {
             "accountId": account_id,
-            "planName": plan_name,
-            "productName": plan_name.split("-")[0],  # Extract product from plan name
-            "productCategory": product_category,
-            "billingPeriod": billing_period,
-            "priceList": "DEFAULT"
+            "planName": plan_name
         }
         
         try:
             response = await self._make_request("POST", "/1.0/kb/subscriptions", data=subscription_data)
             logger.info(f"Created subscription for account {account_id} with plan {plan_name}")
+            
+            # If we got a subscription ID, add it to the response
+            if response.get("id"):
+                response["subscriptionId"] = response["id"]
+            
             return response
         except Exception as e:
             logger.error(f"Failed to create subscription for account {account_id}: {e}")
@@ -169,11 +179,7 @@ class KillBillClient:
         # For trial, we create a subscription with the trial phase
         subscription_data = {
             "accountId": account_id,
-            "planName": plan_name,
-            "productName": plan_name.split("-")[0],
-            "productCategory": "BASE",
-            "billingPeriod": "MONTHLY",
-            "priceList": "DEFAULT"
+            "planName": plan_name
         }
         
         try:
@@ -218,3 +224,37 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get subscription {subscription_id}: {e}")
             return None
+    
+    async def register_webhook(self, webhook_url: str) -> Dict[str, Any]:
+        """Register webhook URL with KillBill using proper notification callback API"""
+        try:
+            headers = self.headers.copy()
+            headers["X-Killbill-ApiKey"] = self.api_key
+            headers["X-Killbill-ApiSecret"] = self.api_secret
+            headers["X-Killbill-CreatedBy"] = "billing-service"
+            
+            # Use the correct KillBill webhook registration endpoint
+            url = f"{self.base_url}/1.0/kb/tenants/registerNotificationCallback"
+            params = {"cb": webhook_url}
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+                
+                logger.info(f"KillBill webhook registration POST {url}: {response.status_code}")
+                
+                if response.status_code >= 400:
+                    logger.error(f"KillBill webhook registration error: {response.status_code} - {response.text}")
+                    response.raise_for_status()
+            
+            logger.info(f"Successfully registered webhook URL: {webhook_url}")
+            return {"status": "registered", "url": webhook_url}
+            
+        except Exception as e:
+            logger.error(f"Failed to register webhook {webhook_url}: {e}")
+            raise

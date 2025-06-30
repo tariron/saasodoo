@@ -327,3 +327,13 @@ odoo-saas-kit/
 **Security**: Proper separation of concerns, environment-based secrets in Compose, Docker secrets in Swarm, and security utilities.
 
 **Simplicity**: Clear, logical structure without over-complication while maintaining all necessary SaaS features and deployment flexibility.
+
+**Curl command** to register webook link
+curl -u admin:password -X POST
+  "http://localhost:8081/1.0/kb/tenants/uploadPerTenantConfig" \
+    -H "Content-Type: text/plain" \
+    -H "X-Killbill-ApiKey: test-key" \
+    -H "X-Killbill-ApiSecret: test-secret" \
+    -H "X-Killbill-CreatedBy: admin" \
+    -d 'org.killbill.billing.server.notifications.url=http://billing-se
+  rvice:8004/api/billing/webhooks/killbill'

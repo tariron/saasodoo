@@ -292,6 +292,52 @@ The issue was a **data type mismatch** in the database layer:
 
 ---
 
+## Issue #008 - Instance Provisioning Logic Gap
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: Architecture - Service Integration  
+**Date**: 2025-06-30  
+**Reporter**: Service Integration Analysis  
+
+### Description
+Current instance provisioning flow does not follow webhook-driven best practices. Instances are provisioned immediately upon request rather than waiting for billing confirmation, creating potential billing-provisioning mismatches.
+
+### Current Flow (Problematic)
+1. Instance request → Creates subscription → Provisions instance immediately
+2. All subscriptions get 14-day trials regardless of customer eligibility
+3. No differentiation between trial and immediate payment instances
+
+### Expected Flow (Best Practice)
+1. **Trial Instances**: Create subscription → Wait for `SUBSCRIPTION_CREATION` webhook → Provision instance
+2. **Immediate Instances**: Create subscription → Wait for `PAYMENT_SUCCESS` webhook → Provision instance
+
+### Integration Gaps
+- **Missing webhook-driven provisioning**: Instance creation happens synchronously
+- **No trial eligibility logic**: All customers get trials regardless of payment history
+- **Missing subscription state management**: No tracking of pending vs active subscriptions
+
+### Root Cause
+Services are tightly coupled with synchronous provisioning instead of event-driven architecture following billing webhooks.
+
+### Impact
+- Risk of provisioning instances without payment confirmation
+- Inconsistent trial application across customer types
+- Potential revenue loss from improper billing flows
+
+### Recommended Solution
+1. Implement webhook handlers for `SUBSCRIPTION_CREATION` and `PAYMENT_SUCCESS`
+2. Add trial eligibility checking logic
+3. Move instance provisioning to async webhook-driven process
+4. Add subscription state tracking (pending, active, payment_required)
+
+### Files Affected
+- `services/billing-service/app/routes/webhooks.py` - Add provisioning webhook handlers
+- `services/instance-service/app/routes/instances.py` - Remove immediate provisioning
+- `services/billing-service/app/utils/instance_client.py` - Add provisioning API calls
+
+---
+
 ## Resolution Categories
 
 - 🚫 **Critical Security**: Issues that compromise system security

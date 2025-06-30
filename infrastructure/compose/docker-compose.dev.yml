@@ -259,11 +259,11 @@ services:
       KILLBILL_SERVER_MULTITENANT: true
       KILLBILL_CONFIG_OSGI_BUNDLE_CACHE_NAME: felix-cache
       
-      # Default tenant credentials (bob/lazar are the default API keys)
-      KILLBILL_USERNAME: admin
-      KILLBILL_PASSWORD: password
-      KILLBILL_API_SECRET: bob
-      KILLBILL_API_KEY: lazar
+      # API credentials from .env file
+      KILLBILL_USERNAME: ${KILLBILL_USERNAME}
+      KILLBILL_PASSWORD: ${KILLBILL_PASSWORD}
+      KILLBILL_API_SECRET: ${KILLBILL_API_SECRET}
+      KILLBILL_API_KEY: ${KILLBILL_API_KEY}
       
       # JVM Memory settings
       KILLBILL_JVM_PERM_SIZE: 512m
@@ -528,10 +528,10 @@ services:
       
       # KillBill Configuration
       KILLBILL_URL: ${KILLBILL_URL:-http://killbill:8080}
-      KILLBILL_API_KEY: ${KILLBILL_API_KEY:-test-key}
-      KILLBILL_API_SECRET: ${KILLBILL_API_SECRET:-test-secret}
-      KILLBILL_USERNAME: ${KILLBILL_USERNAME:-admin}
-      KILLBILL_PASSWORD: ${KILLBILL_PASSWORD:-password}
+      KILLBILL_API_KEY: ${KILLBILL_API_KEY}
+      KILLBILL_API_SECRET: ${KILLBILL_API_SECRET}
+      KILLBILL_USERNAME: ${KILLBILL_USERNAME}
+      KILLBILL_PASSWORD: ${KILLBILL_PASSWORD}
       
       # Redis Configuration
       REDIS_HOST: redis

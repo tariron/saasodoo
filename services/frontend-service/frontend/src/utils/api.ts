@@ -1,4 +1,23 @@
 import axios, { AxiosResponse } from 'axios';
+import {
+  BillingAccount,
+  Subscription,
+  Invoice,
+  Payment,
+  PaymentMethod,
+  Plan,
+  BillingOverview,
+  CreateSubscriptionRequest,
+  CreatePaymentMethodRequest,
+  CreateSubscriptionResponse,
+  CreatePaymentMethodResponse,
+  BillingAccountResponse,
+  SubscriptionsResponse,
+  InvoicesResponse,
+  PaymentsResponse,
+  PaymentMethodsResponse,
+  PlansResponse,
+} from '../types/billing';
 
 // Types
 export interface LoginRequest {
@@ -255,6 +274,63 @@ export const instanceAPI = {
   
   status: (id: string): Promise<AxiosResponse<any>> => 
     api.get(`/instance/api/v1/instances/${id}/status`),
+};
+
+export const billingAPI = {
+  // Account management
+  getAccount: (customerId: string): Promise<AxiosResponse<BillingAccountResponse>> => 
+    api.get(`/billing/api/billing/accounts/${customerId}`),
+  
+  createAccount: (customerId: string, data: { email: string; name: string; company?: string }): Promise<AxiosResponse<BillingAccountResponse>> => 
+    api.post('/billing/api/billing/accounts/', { customer_id: customerId, ...data }),
+  
+  // Subscriptions
+  getSubscriptions: (customerId: string): Promise<AxiosResponse<SubscriptionsResponse>> => 
+    api.get(`/billing/api/billing/subscriptions/${customerId}`),
+  
+  createSubscription: (data: CreateSubscriptionRequest): Promise<AxiosResponse<CreateSubscriptionResponse>> => 
+    api.post('/billing/api/billing/subscriptions/', data),
+  
+  cancelSubscription: (subscriptionId: string, reason?: string): Promise<AxiosResponse<{success: boolean, message: string}>> => 
+    api.delete(`/billing/api/billing/subscriptions/${subscriptionId}`, { data: { reason } }),
+  
+  // Invoices
+  getInvoices: (customerId: string, page: number = 1, limit: number = 10): Promise<AxiosResponse<InvoicesResponse>> => 
+    api.get(`/billing/api/billing/invoices/${customerId}?page=${page}&limit=${limit}`),
+  
+  getInvoice: (invoiceId: string): Promise<AxiosResponse<{success: boolean, invoice: Invoice}>> => 
+    api.get(`/billing/api/billing/invoices/detail/${invoiceId}`),
+  
+  downloadInvoice: (invoiceId: string): Promise<AxiosResponse<Blob>> => 
+    api.get(`/billing/api/billing/invoices/${invoiceId}/pdf`, { responseType: 'blob' }),
+  
+  // Payments
+  getPayments: (customerId: string, page: number = 1, limit: number = 10): Promise<AxiosResponse<PaymentsResponse>> => 
+    api.get(`/billing/api/billing/payments/${customerId}?page=${page}&limit=${limit}`),
+  
+  makePayment: (invoiceId: string, paymentMethodId?: string): Promise<AxiosResponse<{success: boolean, payment: Payment}>> => 
+    api.post('/billing/api/billing/payments/', { invoice_id: invoiceId, payment_method_id: paymentMethodId }),
+  
+  // Payment Methods
+  getPaymentMethods: (customerId: string): Promise<AxiosResponse<PaymentMethodsResponse>> => 
+    api.get(`/billing/api/billing/payment-methods/${customerId}`),
+  
+  addPaymentMethod: (data: CreatePaymentMethodRequest): Promise<AxiosResponse<CreatePaymentMethodResponse>> => 
+    api.post('/billing/api/billing/payment-methods/', data),
+  
+  deletePaymentMethod: (paymentMethodId: string): Promise<AxiosResponse<{success: boolean, message: string}>> => 
+    api.delete(`/billing/api/billing/payment-methods/${paymentMethodId}`),
+  
+  setDefaultPaymentMethod: (paymentMethodId: string): Promise<AxiosResponse<{success: boolean, message: string}>> => 
+    api.put(`/billing/api/billing/payment-methods/${paymentMethodId}/default`, {}),
+  
+  // Plans
+  getPlans: (): Promise<AxiosResponse<PlansResponse>> => 
+    api.get('/billing/api/billing/plans/'),
+  
+  // Billing Overview
+  getBillingOverview: (customerId: string): Promise<AxiosResponse<{success: boolean, data: BillingOverview}>> => 
+    api.get(`/billing/api/billing/overview/${customerId}`),
 };
 
 export { TokenManager };

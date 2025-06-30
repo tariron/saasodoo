@@ -1,9 +1,15 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
 import CreateInstance from './pages/CreateInstance';
+import Profile from './pages/Profile';
+import Billing from './pages/Billing';
+import BillingSubscription from './pages/BillingSubscription';
+import BillingInvoices from './pages/BillingInvoices';
+import BillingPayment from './pages/BillingPayment';
 import AuthGuard from './components/AuthGuard';
 import { TokenManager } from './utils/api';
 
@@ -19,6 +25,15 @@ function App() {
               TokenManager.isAuthenticated() ? 
                 <Navigate to="/dashboard" replace /> : 
                 <Login />
+            } 
+          />
+          
+          <Route 
+            path="/register" 
+            element={
+              TokenManager.isAuthenticated() ? 
+                <Navigate to="/dashboard" replace /> : 
+                <Register />
             } 
           />
           
@@ -47,6 +62,53 @@ function App() {
             element={
               <AuthGuard>
                 <CreateInstance />
+              </AuthGuard>
+            } 
+          />
+          
+          {/* Billing routes */}
+          <Route 
+            path="/billing" 
+            element={
+              <AuthGuard>
+                <Billing />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/billing/subscription" 
+            element={
+              <AuthGuard>
+                <BillingSubscription />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/billing/invoices" 
+            element={
+              <AuthGuard>
+                <BillingInvoices />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/billing/payment" 
+            element={
+              <AuthGuard>
+                <BillingPayment />
+              </AuthGuard>
+            } 
+          />
+          
+          {/* User Management routes */}
+          <Route 
+            path="/profile" 
+            element={
+              <AuthGuard>
+                <Profile />
               </AuthGuard>
             } 
           />

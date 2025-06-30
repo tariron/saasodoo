@@ -1,13 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { authAPI, instanceAPI, UserProfile, Instance } from '../utils/api';
+import { authAPI, instanceAPI, billingAPI, UserProfile, Instance } from '../utils/api';
+import { BillingOverview } from '../types/billing';
 import Navigation from '../components/Navigation';
 
 const Dashboard: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [billingData, setBillingData] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [billingLoading, setBillingLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const fetchBillingData = async (customerId: string) => {
+    try {
+      setBillingLoading(true);
+      const billingResponse = await billingAPI.getBillingOverview(customerId);
+      setBillingData(billingResponse.data.data);
+    } catch (billingErr) {
+      console.warn('Failed to fetch billing data:', billingErr);
+      setBillingData(null);
+    } finally {
+      setBillingLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -30,6 +46,9 @@ const Dashboard: React.FC = () => {
           console.warn('Failed to fetch instances:', instanceErr);
           setInstances([]);
         }
+
+        // Fetch billing data
+        await fetchBillingData(profileResponse.data.id);
       } catch (err: any) {
         console.error('Dashboard error:', err);
         setError(`Failed to load dashboard data: ${err.response?.data?.detail || err.message}`);
@@ -51,9 +70,45 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const formatCurrency = (amount: number, currency: string = 'USD') => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency,
+    }).format(amount);
+  };
+
+  const getSubscriptionInfo = () => {
+    if (billingData?.active_subscriptions?.length > 0) {
+      const activeSubscription = billingData.active_subscriptions[0];
+      return {
+        plan: activeSubscription.plan_name,
+        status: activeSubscription.state,
+        isActive: activeSubscription.state === 'ACTIVE'
+      };
+    }
+    return {
+      plan: 'No Plan',
+      status: 'inactive',
+      isActive: false
+    };
+  };
+
+  const getTrialInfo = () => {
+    if (billingData?.trial_info?.is_trial) {
+      return {
+        isInTrial: true,
+        daysRemaining: billingData.trial_info.days_remaining || 0,
+        trialEndDate: billingData.trial_info.trial_end_date
+      };
+    }
+    return { isInTrial: false, daysRemaining: 0, trialEndDate: null };
+  };
+
   // Calculate stats
   const totalInstances = instances.length;
   const runningInstances = instances.filter(i => i.status === 'running').length;
+  const subscriptionInfo = getSubscriptionInfo();
+  const trialInfo = getTrialInfo();
 
   if (loading) {
     return (
@@ -165,17 +220,27 @@ const Dashboard: React.FC = () => {
               <div className="p-5">
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs">✓</span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      billingLoading ? 'bg-gray-300' : 
+                      subscriptionInfo.isActive ? 'bg-green-500' : 
+                      trialInfo.isInTrial ? 'bg-yellow-500' : 'bg-gray-500'
+                    }`}>
+                      <span className="text-white text-xs">
+                        {billingLoading ? '...' : 
+                         subscriptionInfo.isActive ? '✓' : 
+                         trialInfo.isInTrial ? '⏰' : '○'}
+                      </span>
                     </div>
                   </div>
                   <div className="ml-5 w-0 flex-1">
                     <dl>
                       <dt className="text-sm font-medium text-gray-500 truncate">
-                        Subscription
+                        {trialInfo.isInTrial ? 'Trial' : 'Subscription'}
                       </dt>
                       <dd className="text-lg font-medium text-gray-900">
-                        {profile?.subscription_plan || 'Basic'}
+                        {billingLoading ? 'Loading...' : 
+                         trialInfo.isInTrial ? `${trialInfo.daysRemaining} days left` :
+                         subscriptionInfo.plan}
                       </dd>
                     </dl>
                   </div>
@@ -183,6 +248,72 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Trial notification */}
+          {trialInfo.isInTrial && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-8">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <span className="text-2xl">⏰</span>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-lg font-medium text-yellow-800">
+                    Trial Period Active
+                  </h3>
+                  <p className="text-yellow-700">
+                    You have {trialInfo.daysRemaining} days remaining in your trial period.
+                  </p>
+                  <div className="mt-2">
+                    <Link
+                      to="/billing/subscription"
+                      className="text-sm font-medium text-yellow-600 hover:text-yellow-500"
+                    >
+                      Choose a subscription plan →
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Billing overview */}
+          {billingData && !billingLoading && (
+            <div className="bg-white shadow rounded-lg mb-8">
+              <div className="px-4 py-5 sm:p-6">
+                <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
+                  Account Overview
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {formatCurrency(billingData.account_balance)}
+                    </div>
+                    <div className="text-sm text-gray-600">Account Balance</div>
+                  </div>
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600">
+                      {billingData.active_subscriptions.length}
+                    </div>
+                    <div className="text-sm text-gray-600">Active Subscriptions</div>
+                  </div>
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {billingData.next_billing_amount ? formatCurrency(billingData.next_billing_amount) : 'N/A'}
+                    </div>
+                    <div className="text-sm text-gray-600">Next Billing</div>
+                  </div>
+                </div>
+                <div className="mt-4 text-center">
+                  <Link
+                    to="/billing"
+                    className="text-sm font-medium text-blue-600 hover:text-blue-500"
+                  >
+                    View full billing dashboard →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Quick actions */}
           <div className="bg-white shadow rounded-lg mb-8">
@@ -205,6 +336,22 @@ const Dashboard: React.FC = () => {
                   <span className="mr-2">🖥️</span>
                   Manage Instances
                 </Link>
+                <Link
+                  to="/billing"
+                  className="btn-secondary inline-flex items-center"
+                >
+                  <span className="mr-2">💳</span>
+                  View Billing
+                </Link>
+                {trialInfo.isInTrial && (
+                  <Link
+                    to="/billing/subscription"
+                    className="btn-primary inline-flex items-center bg-yellow-600 hover:bg-yellow-700"
+                  >
+                    <span className="mr-2">⭐</span>
+                    Upgrade Plan
+                  </Link>
+                )}
                 <button className="btn-secondary inline-flex items-center">
                   <span className="mr-2">📊</span>
                   View Analytics

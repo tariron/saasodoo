@@ -33,6 +33,15 @@ async def lifespan(app: FastAPI):
         password=os.getenv("KILLBILL_PASSWORD", "password")
     )
     
+    # Register webhook with KillBill
+    try:
+        webhook_url = os.getenv("KILLBILL_NOTIFICATION_URL", "http://billing-service:8004/api/billing/webhooks/killbill")
+        await app.state.killbill.register_webhook(webhook_url)
+        logger.info(f"Successfully registered webhook: {webhook_url}")
+    except Exception as e:
+        logger.warning(f"Failed to register webhook during startup: {e}")
+        logger.info("Webhook registration can be done manually if needed")
+    
     logger.info("Billing Service started successfully")
     yield
     
