@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -46,7 +46,6 @@ function App() {
               </AuthGuard>
             } 
           />
-          
           
           <Route 
             path="/instances" 
@@ -127,9 +126,9 @@ function App() {
                 <div className="text-center">
                   <h1 className="text-4xl font-bold text-gray-900">404</h1>
                   <p className="mt-2 text-gray-600">Page not found</p>
-                  <a href="/dashboard" className="mt-4 inline-block btn-primary">
+                  <Link to="/dashboard" className="mt-4 inline-block btn-primary">
                     Go to Dashboard
-                  </a>
+                  </Link>
                 </div>
               </div>
             } 

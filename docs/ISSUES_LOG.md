@@ -294,47 +294,85 @@ The issue was a **data type mismatch** in the database layer:
 
 ## Issue #008 - Instance Provisioning Logic Gap
 
-**Status**: 📋 Open  
+**Status**: ✅ Resolved  
 **Priority**: Medium  
 **Component**: Architecture - Service Integration  
 **Date**: 2025-06-30  
 **Reporter**: Service Integration Analysis  
+**Resolved**: 2025-06-30
 
 ### Description
 Current instance provisioning flow does not follow webhook-driven best practices. Instances are provisioned immediately upon request rather than waiting for billing confirmation, creating potential billing-provisioning mismatches.
 
-### Current Flow (Problematic)
+### Original Problematic Flow
 1. Instance request → Creates subscription → Provisions instance immediately
 2. All subscriptions get 14-day trials regardless of customer eligibility
 3. No differentiation between trial and immediate payment instances
 
-### Expected Flow (Best Practice)
-1. **Trial Instances**: Create subscription → Wait for `SUBSCRIPTION_CREATION` webhook → Provision instance
-2. **Immediate Instances**: Create subscription → Wait for `PAYMENT_SUCCESS` webhook → Provision instance
+### Implemented Solution (Webhook-Driven Architecture)
 
-### Integration Gaps
-- **Missing webhook-driven provisioning**: Instance creation happens synchronously
-- **No trial eligibility logic**: All customers get trials regardless of payment history
-- **Missing subscription state management**: No tracking of pending vs active subscriptions
+**New Flow for Trial Instances:**
+1. User requests instance → Create pending instance + subscription in database
+2. KillBill webhook: `SUBSCRIPTION_CREATION` → Trigger instance provisioning
+3. Instance becomes active with trial billing status
 
-### Root Cause
-Services are tightly coupled with synchronous provisioning instead of event-driven architecture following billing webhooks.
+**New Flow for Paid Instances:**
+1. User requests instance → Create pending instance + subscription in database  
+2. KillBill webhook: `PAYMENT_SUCCESS` → Trigger instance provisioning
+3. Instance becomes active with paid billing status
+
+### Implementation Details
+
+**Database Schema Updates:**
+- Added `subscription_id`, `billing_status`, `provisioning_status` to `instances` table
+- Added `instance_id`, `trial_eligible`, `killbill_subscription_id` to `subscriptions` table
+- Proper indexing for performance and association queries
+
+**Instance Service Changes:**
+- Removed immediate provisioning from instance creation route
+- Added billing validation and trial eligibility checking
+- Instances created with pending status until webhook confirmation
+- Added `/api/v1/instances/{id}/provision` endpoint for webhook triggers
+
+**Billing Webhook Enhancements:**
+- `handle_subscription_created()`: Provisions trial instances (zero-dollar invoices)
+- `handle_payment_success()`: Provisions paid instances after payment confirmation
+- Proper customer-instance association via external keys
+
+**Instance-Billing Integration:**
+- Added `provision_instance()` method to billing service instance client
+- Proper subscription-instance associations stored in both services
+- Support for trial eligibility checking per customer
+
+### Key Features Implemented
+- **No instance provisioning without billing confirmation**
+- **Trial instances only for eligible customers**
+- **Paid instances only after payment success**
+- **Proper database associations between billing and instances**
+- **Webhook-driven event architecture**
+
+### Files Modified
+- `shared/configs/postgres/04-init-schemas.sql.template` - Database schema updates
+- `services/instance-service/app/models/instance.py` - Added billing/provisioning status enums
+- `services/instance-service/app/routes/instances.py` - Removed immediate provisioning, added webhook endpoint
+- `services/instance-service/app/utils/database.py` - Database methods for new fields
+- `services/billing-service/app/routes/webhooks.py` - Enhanced webhook handlers
+- `services/billing-service/app/utils/instance_client.py` - Added provisioning methods
+- `services/instance-service/app/utils/billing_client.py` - Added trial eligibility support
 
 ### Impact
-- Risk of provisioning instances without payment confirmation
-- Inconsistent trial application across customer types
-- Potential revenue loss from improper billing flows
+- **Billing Security**: No instances provisioned without proper payment confirmation
+- **Trial Management**: Proper trial eligibility tracking per customer
+- **Revenue Protection**: Prevents revenue loss from improper billing flows
+- **Scalability**: Event-driven architecture supports high volume
+- **Compliance**: Audit trail of billing → provisioning flow
 
-### Recommended Solution
-1. Implement webhook handlers for `SUBSCRIPTION_CREATION` and `PAYMENT_SUCCESS`
-2. Add trial eligibility checking logic
-3. Move instance provisioning to async webhook-driven process
-4. Add subscription state tracking (pending, active, payment_required)
-
-### Files Affected
-- `services/billing-service/app/routes/webhooks.py` - Add provisioning webhook handlers
-- `services/instance-service/app/routes/instances.py` - Remove immediate provisioning
-- `services/billing-service/app/utils/instance_client.py` - Add provisioning API calls
+### Test Requirements
+- Verify trial instances provision on subscription creation webhook
+- Verify paid instances provision on payment success webhook  
+- Verify no provisioning without webhook confirmation
+- Verify proper instance-subscription associations
+- Verify billing status tracking throughout lifecycle
 
 ---
 
@@ -1114,3 +1152,49 @@ plan_mapping = {
 - **Tier 3 (Premium)**: $10/month for production instances
 
 This issue must be resolved to ensure proper billing integration and accurate pricing enforcement throughout the platform.
+
+## Issue #011 - Password Validation Mismatch Between Frontend and Backend
+
+**Status**: ✅ Resolved - No Issue Found  
+**Priority**: Medium  
+**Component**: frontend-service, user-service  
+**Date**: 2025-01-15  
+**Reporter**: User Testing  
+**Investigated**: 2025-06-30  
+
+### Description
+Frontend password validation accepts passwords that backend rejects, creating user confusion during registration. Frontend allows passwords meeting 3/5 criteria while backend requires all 4 criteria.
+
+### Investigation Results (2025-06-30)
+**Issue description appears to be outdated.** Code analysis reveals:
+
+- **Frontend**: Uses `isPasswordValid()` function requiring ALL 5 criteria (length + uppercase + lowercase + digit + special)
+- **Backend**: Requires identical criteria with same validation rules
+- **Submit button**: Properly disabled with `!isPasswordValid()` - requires all criteria, not 3/5
+- **Validation logic**: Both frontend and backend use identical special character set and requirements
+
+### Current Implementation
+```javascript
+// Frontend validation (Register.tsx:46-50)
+const isPasswordValid = () => {
+  const result = checkPasswordStrength(formData.password);
+  const { checks } = result;
+  return checks.length && checks.lowercase && checks.uppercase && checks.digit && checks.special;
+};
+```
+
+```python
+# Backend validation (shared/schemas/user.py:118-132)
+if not all([has_upper, has_lower, has_digit, has_special]):
+    raise ValueError('Password must contain uppercase, lowercase, digit, and special character')
+```
+
+### Root Cause
+Original issue description was incorrect or the problem has been resolved in previous development cycles.
+
+### Resolution
+**No action required** - validation is properly aligned between frontend and backend. Both require all criteria for password acceptance.
+
+### Files Investigated
+- `services/frontend-service/frontend/src/pages/Register.tsx` - Password validation logic confirmed correct
+- `shared/schemas/user.py` - Backend password validation requirements confirmed identical

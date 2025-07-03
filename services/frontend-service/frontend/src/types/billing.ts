@@ -26,6 +26,10 @@ export interface Subscription {
   billing_end_date?: string;
   trial_start_date?: string;
   trial_end_date?: string;
+  metadata?: {
+    instance_id?: string;
+    [key: string]: any;
+  };
   created_at: string;
   updated_at: string;
 }

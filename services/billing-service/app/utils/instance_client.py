@@ -42,17 +42,38 @@ class InstanceServiceClient:
             logger.error(f"Unexpected error calling instance service: {e}")
             raise
     
-    async def get_instances_by_customer(self, customer_id: str) -> List[Dict[str, Any]]:
-        """Get all instances for a customer via tenant mapping"""
+    async def get_instances_by_customer_and_status(self, customer_id: str, provisioning_status: str) -> List[Dict[str, Any]]:
+        """Get instances for a customer by provisioning status"""
         try:
-            # Step 1: Get tenant_id for this customer from user service
-            tenant_id = await self._get_tenant_id_for_customer(customer_id)
-            if not tenant_id:
-                logger.warning(f"No tenant found for customer {customer_id}")
-                return []
+            # Call instance service API with customer_id parameter directly
+            endpoint = f"/api/v1/instances/?customer_id={customer_id}"
+            result = await self._make_request("GET", endpoint)
             
-            # Step 2: Get instances for this tenant
-            endpoint = f"/api/v1/instances/?tenant_id={tenant_id}"
+            if result and result.get('instances'):
+                # Filter by provisioning status if specified
+                if provisioning_status:
+                    filtered_instances = [
+                        instance for instance in result['instances'] 
+                        if instance.get('provisioning_status') == provisioning_status
+                    ]
+                    logger.info(f"Found {len(filtered_instances)} {provisioning_status} instances for customer {customer_id}")
+                    return filtered_instances
+                else:
+                    logger.info(f"Found {len(result['instances'])} instances for customer {customer_id}")
+                    return result['instances']
+            
+            logger.info(f"No {provisioning_status} instances found for customer {customer_id}")
+            return []
+            
+        except Exception as e:
+            logger.error(f"Failed to get {provisioning_status} instances for customer {customer_id}: {e}")
+            return []
+    
+    async def get_instances_by_customer(self, customer_id: str) -> List[Dict[str, Any]]:
+        """Get all instances for a customer"""
+        try:
+            # Call instance service API with customer_id parameter directly
+            endpoint = f"/api/v1/instances/?customer_id={customer_id}"
             result = await self._make_request("GET", endpoint)
             
             if result and result.get('instances'):
@@ -128,6 +149,67 @@ class InstanceServiceClient:
             return result
         except Exception as e:
             logger.error(f"Failed to get instance {instance_id} status: {e}")
+            return None
+    
+    async def provision_instance(
+        self, 
+        instance_id: str, 
+        subscription_id: str = None, 
+        billing_status: str = "paid",
+        provisioning_trigger: str = "webhook"
+    ) -> Dict[str, Any]:
+        """Trigger instance provisioning from billing webhook"""
+        endpoint = f"/api/v1/instances/{instance_id}/provision"
+        payload = {
+            "subscription_id": subscription_id,
+            "billing_status": billing_status,
+            "provisioning_trigger": provisioning_trigger,
+            "triggered_by": "billing_webhook"
+        }
+        
+        logger.info(f"Triggering provisioning for instance {instance_id} with {billing_status} status")
+        result = await self._make_request("POST", endpoint, json=payload)
+        
+        if result and result.get("status") == "success":
+            logger.info(f"Successfully triggered provisioning for instance {instance_id}")
+        else:
+            logger.error(f"Failed to trigger provisioning for instance {instance_id}: {result}")
+        
+        return result or {}
+    
+    async def create_instance_with_subscription(self, instance_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create instance with subscription linkage"""
+        endpoint = "/api/v1/instances/"
+        
+        # Create instance payload with required fields
+        payload = {
+            "name": instance_data.get("name", "Odoo Instance"),
+            "description": instance_data.get("description", "Instance created via billing webhook"),
+            "odoo_version": "17.0",
+            "instance_type": "production",
+            "admin_email": "admin@example.com",
+            "admin_password": "AdminPass123",
+            "database_name": f"db_{instance_data['customer_id'].replace('-', '_')[:10]}",
+            "customer_id": instance_data["customer_id"],
+            "subscription_id": instance_data["subscription_id"],
+            "billing_status": instance_data.get("billing_status", "paid"),
+            "provisioning_status": instance_data.get("provisioning_status", "pending")
+        }
+        
+        logger.info(f"Creating instance for customer {instance_data['customer_id']} with subscription {instance_data['subscription_id']}")
+        
+        try:
+            result = await self._make_request("POST", endpoint, json=payload)
+            
+            if result and result.get("id"):
+                logger.info(f"Successfully created instance {result['id']} with subscription {instance_data['subscription_id']}")
+            else:
+                logger.error(f"Failed to create instance - no ID returned: {result}")
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to create instance with subscription: {e}")
             return None
 
 # Global instance of the client

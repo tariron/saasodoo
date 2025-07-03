@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { authAPI } from '../utils/api';
 
 const Register: React.FC = () => {
   const navigate = useNavigate();
@@ -19,52 +20,60 @@ const Register: React.FC = () => {
 
   const checkPasswordStrength = (password: string) => {
     let strength = 0;
-    if (password.length >= 8) strength++;
-    if (/[a-z]/.test(password)) strength++;
-    if (/[A-Z]/.test(password)) strength++;
-    if (/[0-9]/.test(password)) strength++;
-    if (/[^A-Za-z0-9]/.test(password)) strength++;
-    return strength;
+    const checks = {
+      length: password.length >= 8,
+      lowercase: /[a-z]/.test(password),
+      uppercase: /[A-Z]/.test(password),
+      digit: /[0-9]/.test(password),
+      special: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)
+    };
+    
+    if (checks.length) strength++;
+    if (checks.lowercase) strength++;
+    if (checks.uppercase) strength++;
+    if (checks.digit) strength++;
+    if (checks.special) strength++;
+    
+    return { strength, checks };
   };
 
   const handlePasswordChange = (password: string) => {
     setFormData({...formData, password});
-    setPasswordStrength(checkPasswordStrength(password));
+    const result = checkPasswordStrength(password);
+    setPasswordStrength(result.strength);
+  };
+
+  const isPasswordValid = () => {
+    const result = checkPasswordStrength(formData.password);
+    const { checks } = result;
+    return checks.length && checks.lowercase && checks.uppercase && checks.digit && checks.special;
   };
 
   const getPasswordStrengthText = () => {
-    switch (passwordStrength) {
-      case 0:
-      case 1:
-        return 'Very Weak';
-      case 2:
-        return 'Weak';
-      case 3:
-        return 'Fair';
-      case 4:
-        return 'Good';
-      case 5:
-        return 'Strong';
-      default:
-        return '';
+    const result = checkPasswordStrength(formData.password);
+    const { checks } = result;
+    
+    if (isPasswordValid()) {
+      return 'Strong - All requirements met';
     }
+    
+    const missing = [];
+    if (!checks.length) missing.push('8+ characters');
+    if (!checks.uppercase) missing.push('uppercase letter');
+    if (!checks.lowercase) missing.push('lowercase letter');  
+    if (!checks.digit) missing.push('number');
+    if (!checks.special) missing.push('special character');
+    
+    return `Missing: ${missing.join(', ')}`;
   };
 
   const getPasswordStrengthColor = () => {
-    switch (passwordStrength) {
-      case 0:
-      case 1:
-        return 'bg-red-500';
-      case 2:
-        return 'bg-orange-500';
-      case 3:
-        return 'bg-yellow-500';
-      case 4:
-        return 'bg-blue-500';
-      case 5:
-        return 'bg-green-500';
-      default:
-        return 'bg-gray-300';
+    if (isPasswordValid()) {
+      return 'bg-green-500';
+    } else if (passwordStrength >= 3) {
+      return 'bg-yellow-500';
+    } else {
+      return 'bg-red-500';
     }
   };
 
@@ -78,8 +87,8 @@ const Register: React.FC = () => {
       return;
     }
 
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
+    if (!isPasswordValid()) {
+      setError('Password must contain at least 8 characters with uppercase, lowercase, digit, and special character');
       return;
     }
 
@@ -91,32 +100,47 @@ const Register: React.FC = () => {
     setLoading(true);
 
     try {
-      // Note: This endpoint doesn't exist yet in the backend
-      const response = await fetch('/user/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          first_name: formData.first_name,
-          last_name: formData.last_name,
-          email: formData.email,
-          password: formData.password,
-          company: formData.company,
-          phone: formData.phone
-        }),
-      });
+      const registerData = {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        password: formData.password,
+        accept_terms: formData.agree_terms,
+        ...(formData.phone && formData.phone.trim() && { phone: formData.phone.trim() }),
+        ...(formData.company && formData.company.trim() && { company: formData.company.trim() }),
+      };
 
-      if (response.ok) {
-        // Registration successful
-        alert('Registration successful! Please check your email for verification instructions.');
+      const response = await authAPI.register(registerData);
+
+      if (response.data.success) {
+        alert('Registration successful! Please check your email for verification.');
         navigate('/login');
       } else {
-        const errorData = await response.json();
-        setError(errorData.message || 'Registration failed');
+        setError(response.data.message || 'Registration failed');
       }
     } catch (err: any) {
-      setError('Registration is not yet implemented in the backend. Please contact support.');
+      console.error('Registration error:', err);
+      
+      let errorMessage = 'Registration failed. Please try again.';
+      
+      if (err.response?.data?.detail) {
+        if (Array.isArray(err.response.data.detail)) {
+          const validationErrors = err.response.data.detail.map((error: any) => {
+            if (error.loc && error.msg) {
+              const field = error.loc[error.loc.length - 1];
+              return `${field}: ${error.msg}`;
+            }
+            return error.msg || 'Validation error';
+          });
+          errorMessage = validationErrors.join('. ');
+        } else if (typeof err.response.data.detail === 'string') {
+          errorMessage = err.response.data.detail;
+        }
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -217,7 +241,7 @@ const Register: React.FC = () => {
               value={formData.phone}
               onChange={(e) => setFormData({...formData, phone: e.target.value})}
               className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="+1 (555) 123-4567"
+              placeholder="+1234567890"
             />
           </div>
 
@@ -237,15 +261,12 @@ const Register: React.FC = () => {
               placeholder="Enter a strong password"
             />
             
-            {/* Password Strength Indicator */}
             {formData.password && (
               <div className="mt-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Password Strength:</span>
                   <span className={`font-medium ${
-                    passwordStrength <= 2 ? 'text-red-600' : 
-                    passwordStrength <= 3 ? 'text-yellow-600' : 
-                    'text-green-600'
+                    isPasswordValid() ? 'text-green-600' : 'text-red-600'
                   }`}>
                     {getPasswordStrengthText()}
                   </span>
@@ -257,7 +278,7 @@ const Register: React.FC = () => {
                   ></div>
                 </div>
                 <div className="mt-1 text-xs text-gray-500">
-                  Use 8+ characters with a mix of letters, numbers & symbols
+                  Required: 8+ characters, uppercase, lowercase, number & special character
                 </div>
               </div>
             )}
@@ -279,7 +300,6 @@ const Register: React.FC = () => {
               placeholder="Confirm your password"
             />
             
-            {/* Password Match Indicator */}
             {formData.confirm_password && (
               <div className="mt-1 text-xs">
                 {formData.password === formData.confirm_password ? (
@@ -302,20 +322,28 @@ const Register: React.FC = () => {
             />
             <label htmlFor="agree_terms" className="ml-2 block text-sm text-gray-900">
               I agree to the{' '}
-              <a href="#" className="text-blue-600 hover:text-blue-500">
+              <button 
+                type="button"
+                onClick={() => window.open('/terms', '_blank')}
+                className="text-blue-600 hover:text-blue-500 underline"
+              >
                 Terms of Service
-              </a>{' '}
+              </button>{' '}
               and{' '}
-              <a href="#" className="text-blue-600 hover:text-blue-500">
+              <button 
+                type="button"
+                onClick={() => window.open('/privacy', '_blank')}
+                className="text-blue-600 hover:text-blue-500 underline"
+              >
                 Privacy Policy
-              </a>
+              </button>
             </label>
           </div>
 
           <div>
             <button
               type="submit"
-              disabled={loading || passwordStrength < 3 || !formData.agree_terms}
+              disabled={loading || !isPasswordValid() || !formData.agree_terms}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
@@ -339,7 +367,6 @@ const Register: React.FC = () => {
           </div>
         </form>
 
-        {/* Features Section */}
         <div className="mt-8 border-t border-gray-200 pt-8">
           <h3 className="text-lg font-medium text-gray-900 text-center mb-4">
             Why choose our platform?

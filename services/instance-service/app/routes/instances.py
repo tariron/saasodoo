@@ -11,7 +11,7 @@ import structlog
 from app.models.instance import (
     InstanceCreate, InstanceUpdate, InstanceResponse, InstanceListResponse,
     InstanceAction, InstanceActionRequest, InstanceActionResponse,
-    InstanceStatus
+    InstanceStatus, BillingStatus, ProvisioningStatus
 )
 from app.utils.validators import validate_instance_resources, validate_database_name, validate_addon_names
 from app.utils.database import InstanceDatabase
@@ -59,11 +59,13 @@ async def create_instance(
         if addon_errors:
             raise HTTPException(status_code=400, detail={"errors": addon_errors})
         
-        # Billing validation and subscription creation
+        # Billing validation and trial eligibility check
+        customer_id = str(instance_data.customer_id)
         billing_info = None
+        trial_eligible = False
+        
         try:
             # Check if customer has billing account
-            customer_id = str(instance_data.customer_id)
             billing_info = await billing_client.get_customer_billing_info(customer_id)
             
             if not billing_info:
@@ -72,53 +74,93 @@ async def create_instance(
                     detail="No billing account found. Please complete your billing setup first."
                 )
             
-            # Check trial status - for simplicity, allowing unlimited instances during implementation
-            # In production, this would check trial limits and payment methods
-            logger.info("Billing validation passed", customer_id=customer_id)
+            # Check trial eligibility
+            trial_status = await billing_client.check_customer_trial_status(customer_id)
+            trial_eligible = trial_status.get("trial_eligible", False)
+            
+            logger.info("Billing validation passed", 
+                       customer_id=customer_id, 
+                       trial_eligible=trial_eligible)
             
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Billing validation failed", customer_id=str(instance_data.customer_id), error=str(e))
+            logger.error("Billing validation failed", customer_id=customer_id, error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail="Billing validation failed. Please try again."
             )
         
-        # Create instance in database (status: CREATING)
-        instance = await db.create_instance(instance_data)
+        # Determine billing and provisioning status based on trial eligibility
+        if trial_eligible:
+            billing_status = BillingStatus.TRIAL
+            provisioning_status = ProvisioningStatus.PENDING  # Will be provisioned via subscription webhook
+        else:
+            billing_status = BillingStatus.PENDING_PAYMENT
+            provisioning_status = ProvisioningStatus.PENDING  # Will be provisioned via payment webhook
+        
+        # Create instance in database with pending status (NO immediate provisioning)
+        instance = await db.create_instance(
+            instance_data, 
+            billing_status=billing_status,
+            provisioning_status=provisioning_status
+        )
         
         # Create billing subscription for this instance
+        subscription_id = None
         try:
             subscription_result = await billing_client.create_instance_subscription(
                 customer_id=customer_id,
                 instance_id=str(instance.id),
-                instance_type=instance_data.instance_type
+                instance_type=instance_data.instance_type,
+                trial_eligible=trial_eligible
             )
             
             if subscription_result and subscription_result.get("success"):
-                logger.info("Billing subscription created", instance_id=str(instance.id))
-            else:
-                logger.warning("Failed to create billing subscription", instance_id=str(instance.id))
-                # Continue with instance creation - billing can be set up later
+                subscription_id = subscription_result.get("subscription_id")
                 
+                # Update instance with subscription ID
+                if subscription_id:
+                    await db.update_instance_subscription(str(instance.id), subscription_id)
+                    instance.subscription_id = subscription_id
+                
+                logger.info("Billing subscription created", 
+                          instance_id=str(instance.id), 
+                          subscription_id=subscription_id,
+                          trial_eligible=trial_eligible)
+            else:
+                logger.error("Failed to create billing subscription", instance_id=str(instance.id))
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to create billing subscription. Please try again."
+                )
+                
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error("Billing subscription creation failed", instance_id=str(instance.id), error=str(e))
-            # Continue with instance creation - billing can be set up later
+            raise HTTPException(
+                status_code=500,
+                detail="Billing subscription creation failed. Please try again."
+            )
         
-        # Queue background provisioning job
-        job = provision_instance_task.delay(str(instance.id))
-        logger.info("Provisioning job queued", instance_id=str(instance.id), job_id=job.id)
+        # NOTE: NO immediate provisioning here!
+        # Provisioning will be triggered by billing webhooks:
+        # - For trial instances: SUBSCRIPTION_CREATION webhook
+        # - For paid instances: PAYMENT_SUCCESS webhook
         
         # Convert to response format and return immediately
         response_data = {
             "id": str(instance.id),
             "customer_id": str(instance.customer_id),
+            "subscription_id": str(instance.subscription_id) if instance.subscription_id else None,
             "name": instance.name,
             "description": instance.description,
             "odoo_version": instance.odoo_version,
             "instance_type": instance.instance_type,
             "status": instance.status,  # Will be "creating"
+            "billing_status": instance.billing_status,
+            "provisioning_status": instance.provisioning_status,
             "cpu_limit": instance.cpu_limit,
             "memory_limit": instance.memory_limit,
             "storage_limit": instance.storage_limit,
@@ -163,17 +205,22 @@ async def get_instance(
         response_data = {
             "id": str(instance.id),
             "customer_id": str(instance.customer_id),
+            "subscription_id": str(instance.subscription_id) if instance.subscription_id else None,
             "name": instance.name,
             "description": instance.description,
             "odoo_version": instance.odoo_version,
             "instance_type": instance.instance_type,
             "status": instance.status,
+            "billing_status": instance.billing_status,
+            "provisioning_status": instance.provisioning_status,
             "cpu_limit": instance.cpu_limit,
             "memory_limit": instance.memory_limit,
             "storage_limit": instance.storage_limit,
             "external_url": instance.external_url,
             "internal_url": instance.internal_url,
             "admin_email": instance.admin_email,
+            "admin_password": instance.admin_password,
+            "subdomain": instance.subdomain,
             "error_message": instance.error_message,
             "last_health_check": instance.last_health_check.isoformat() if instance.last_health_check else None,
             "created_at": instance.created_at.isoformat(),
@@ -216,17 +263,22 @@ async def list_instances(
             response_data = {
                 "id": str(instance_data['id']),
                 "customer_id": str(instance_data['customer_id']),
+                "subscription_id": str(instance_data['subscription_id']) if instance_data.get('subscription_id') else None,
                 "name": instance_data['name'],
                 "description": instance_data['description'],
                 "odoo_version": instance_data['odoo_version'],
                 "instance_type": instance_data['instance_type'],
                 "status": instance_data['status'],
+                "billing_status": instance_data.get('billing_status', 'pending'),
+                "provisioning_status": instance_data.get('provisioning_status', 'pending'),
                 "cpu_limit": instance_data['cpu_limit'],
                 "memory_limit": instance_data['memory_limit'],
                 "storage_limit": instance_data['storage_limit'],
                 "external_url": instance_data['external_url'],
                 "internal_url": instance_data['internal_url'],
                 "admin_email": instance_data['admin_email'],
+                "admin_password": instance_data.get('admin_password'),
+                "subdomain": instance_data.get('subdomain'),
                 "error_message": instance_data['error_message'],
                 "last_health_check": instance_data['last_health_check'].isoformat() if instance_data['last_health_check'] else None,
                 "created_at": instance_data['created_at'].isoformat(),
@@ -812,6 +864,73 @@ async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             "message": f"Failed to suspend instance: {str(e)}",
             "timestamp": datetime.utcnow().isoformat()
         }
+
+
+@router.post("/{instance_id}/provision")
+async def provision_instance_from_webhook(
+    instance_id: UUID,
+    provision_data: dict,
+    db: InstanceDatabase = Depends(get_database)
+):
+    """Provision instance triggered by billing webhook"""
+    try:
+        logger.info("Webhook provisioning triggered", 
+                   instance_id=str(instance_id),
+                   trigger=provision_data.get("provisioning_trigger"))
+        
+        # Get instance from database
+        instance = await db.get_instance(instance_id)
+        if not instance:
+            raise HTTPException(status_code=404, detail="Instance not found")
+        
+        # Validate that instance is in pending state
+        if instance.provisioning_status != ProvisioningStatus.PENDING:
+            logger.warning("Instance not in pending state", 
+                         instance_id=str(instance_id),
+                         current_status=instance.provisioning_status)
+            return {
+                "status": "skipped",
+                "message": f"Instance not in pending state (current: {instance.provisioning_status})",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # Update billing and provisioning status
+        billing_status = provision_data.get("billing_status", "paid")
+        subscription_id = provision_data.get("subscription_id")
+        
+        # Update instance status to provisioning
+        await db.update_instance_billing_status(
+            str(instance_id), 
+            BillingStatus(billing_status),
+            ProvisioningStatus.PROVISIONING
+        )
+        
+        # Update subscription ID if provided
+        if subscription_id:
+            await db.update_instance_subscription(str(instance_id), subscription_id)
+        
+        # Queue actual provisioning job (the real Docker/Odoo provisioning)
+        job = provision_instance_task.delay(str(instance_id))
+        logger.info("Provisioning job queued from webhook", 
+                   instance_id=str(instance_id), 
+                   job_id=job.id,
+                   billing_status=billing_status)
+        
+        return {
+            "status": "success",
+            "message": "Instance provisioning started",
+            "job_id": job.id,
+            "billing_status": billing_status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to trigger instance provisioning", 
+                   instance_id=str(instance_id), 
+                   error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to trigger provisioning: {str(e)}")
 
 
 async def _stop_container_for_suspension(instance):

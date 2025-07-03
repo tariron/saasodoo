@@ -53,24 +53,31 @@ class BillingServiceClient:
             logger.error(f"Failed to get billing info for customer {customer_id}: {e}")
             return None
     
-    async def create_instance_subscription(self, customer_id: str, instance_id: str, instance_type: str) -> Dict[str, Any]:
+    async def create_instance_subscription(
+        self, 
+        customer_id: str, 
+        instance_id: str, 
+        instance_type: str,
+        trial_eligible: bool = False
+    ) -> Dict[str, Any]:
         """Create a subscription for an instance with 14-day trial"""
         
-        # Map instance type to pricing plan
+        # Map instance type to catalog plan names (single source of truth in KillBill)
         plan_mapping = {
-            "development": "basic-plan-10",    # $10/month
-            "staging": "standard-plan-25",     # $25/month  
-            "production": "premium-plan-50"    # $50/month
+            "development": "basic-monthly",    # Basic plan with trial
+            "staging": "standard-monthly",     # Standard plan with trial
+            "production": "premium-monthly"    # Premium plan with trial
         }
         
-        plan_name = plan_mapping.get(instance_type, "basic-plan-10")
+        plan_name = plan_mapping.get(instance_type, "basic-monthly")
         
         endpoint = "/api/billing/subscriptions/"
         payload = {
             "customer_id": customer_id,
             "instance_id": instance_id,
             "plan_name": plan_name,
-            "billing_period": "MONTHLY"
+            "billing_period": "MONTHLY",
+            "trial_eligible": trial_eligible
         }
         
         logger.info(f"Creating instance subscription for customer {customer_id}, instance {instance_id}, plan {plan_name}")
@@ -89,10 +96,31 @@ class BillingServiceClient:
         
         try:
             result = await self._make_request("GET", endpoint)
-            return result or {"subscriptions": []}
+            subscriptions = result.get("subscriptions", []) if result else []
+            
+            # Business logic for trial eligibility
+            # For dev mode: Allow trials for customers with no existing subscriptions
+            # In production, this would have more sophisticated rules
+            
+            trial_eligible = len(subscriptions) == 0  # First-time customer gets trial
+            
+            # Return trial eligibility decision along with subscription data
+            return {
+                "subscriptions": subscriptions,
+                "trial_eligible": trial_eligible,
+                "reason": "first_time_customer" if trial_eligible else "existing_customer",
+                "subscription_count": len(subscriptions)
+            }
+            
         except Exception as e:
             logger.error(f"Failed to check trial status for customer {customer_id}: {e}")
-            return {"subscriptions": []}
+            # On error, default to allowing trial (dev-friendly)
+            return {
+                "subscriptions": [], 
+                "trial_eligible": True,
+                "reason": "error_default_to_trial",
+                "error": str(e)
+            }
 
 # Global instance of the client
 billing_client = BillingServiceClient()

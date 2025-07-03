@@ -25,6 +25,23 @@ class InstanceStatus(str, Enum):
     SUSPENDED = "suspended"
 
 
+class BillingStatus(str, Enum):
+    """Billing status enumeration"""
+    PENDING_PAYMENT = "pending_payment"
+    TRIAL = "trial"
+    PAID = "paid"
+    SUSPENDED = "suspended"
+    PAYMENT_REQUIRED = "payment_required"
+
+
+class ProvisioningStatus(str, Enum):
+    """Provisioning status enumeration"""
+    PENDING = "pending"
+    PROVISIONING = "provisioning"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class OdooVersion(str, Enum):
     """Supported Odoo versions"""
     V16 = "16.0"
@@ -175,7 +192,12 @@ class Instance(InstanceBase):
     """Full instance model with all database fields"""
     id: UUID = Field(default_factory=uuid4, description="Unique instance ID")
     customer_id: UUID = Field(..., description="Customer ID that owns this instance")
+    subscription_id: Optional[UUID] = Field(None, description="Associated billing subscription ID")
     status: InstanceStatus = Field(default=InstanceStatus.CREATING, description="Current instance status")
+    
+    # Billing and provisioning status
+    billing_status: BillingStatus = Field(default=BillingStatus.PENDING_PAYMENT, description="Billing status")
+    provisioning_status: ProvisioningStatus = Field(default=ProvisioningStatus.PENDING, description="Provisioning status")
     
     # Container information
     container_id: Optional[str] = Field(None, description="Docker container ID")
@@ -215,11 +237,16 @@ class InstanceResponse(BaseModel):
     """Schema for instance API responses"""
     id: str = Field(..., description="Instance ID")
     customer_id: str = Field(..., description="Customer ID")
+    subscription_id: Optional[str] = Field(None, description="Associated billing subscription ID")
     name: str = Field(..., description="Instance name")
     description: Optional[str] = Field(None, description="Instance description")
     odoo_version: OdooVersion = Field(..., description="Odoo version")
     instance_type: InstanceType = Field(..., description="Instance type")
     status: InstanceStatus = Field(..., description="Current status")
+    
+    # Billing and provisioning status
+    billing_status: BillingStatus = Field(..., description="Billing status")
+    provisioning_status: ProvisioningStatus = Field(..., description="Provisioning status")
     
     # Resource allocation
     cpu_limit: float = Field(..., description="CPU limit in cores")

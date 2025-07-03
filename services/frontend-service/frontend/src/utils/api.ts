@@ -26,6 +26,30 @@ export interface LoginRequest {
   remember_me?: boolean;
 }
 
+export interface RegisterRequest {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  accept_terms: boolean;
+  phone?: string;
+  company?: string;
+  country?: string;
+}
+
+export interface RegisterResponse {
+  success: boolean;
+  message: string;
+  customer: {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    requires_verification: boolean;
+  };
+  supabase_user?: any;
+}
+
 export interface LoginResponse {
   success: boolean;
   message: string;
@@ -91,6 +115,33 @@ export interface CreateInstanceRequest {
   subdomain?: string | null;
   demo_data: boolean;
   custom_addons: string[];
+}
+
+export interface CreateInstanceWithSubscriptionRequest {
+  customer_id: string;
+  plan_name?: string;
+  name: string;
+  description?: string | null;
+  admin_email: string;
+  admin_password: string;
+  subdomain?: string | null;
+  database_name: string;
+  odoo_version?: string;
+  instance_type?: string;
+  demo_data?: boolean;
+  cpu_limit?: number;
+  memory_limit?: string;
+  storage_limit?: string;
+  custom_addons?: string[];
+}
+
+export interface CreateInstanceWithSubscriptionResponse {
+  success: boolean;
+  subscription_id: string;
+  subscription: any;
+  invoice?: any;
+  message: string;
+  instance_config: any;
 }
 
 
@@ -247,6 +298,9 @@ export const authAPI = {
   
   refreshToken: (refreshToken: string): Promise<AxiosResponse<{tokens: any}>> => 
     api.post('/user/auth/refresh-token', { refresh_token: refreshToken }),
+  
+  register: (data: RegisterRequest): Promise<AxiosResponse<RegisterResponse>> => 
+    api.post('/user/auth/register', data),
 };
 
 
@@ -331,6 +385,10 @@ export const billingAPI = {
   // Billing Overview
   getBillingOverview: (customerId: string): Promise<AxiosResponse<{success: boolean, data: BillingOverview}>> => 
     api.get(`/billing/api/billing/overview/${customerId}`),
+  
+  // Instance with Subscription Creation
+  createInstanceWithSubscription: (data: CreateInstanceWithSubscriptionRequest): Promise<AxiosResponse<CreateInstanceWithSubscriptionResponse>> =>
+    api.post('/billing/api/billing/instances/', data),
 };
 
 export { TokenManager };

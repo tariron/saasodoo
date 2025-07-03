@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { instanceAPI, authAPI, CreateInstanceRequest, UserProfile } from '../utils/api';
+import { instanceAPI, authAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, UserProfile } from '../utils/api';
 import Navigation from '../components/Navigation';
 
 const CreateInstance: React.FC = () => {
@@ -24,6 +24,7 @@ const CreateInstance: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
+  const [instanceFlow, setInstanceFlow] = useState<'trial' | 'paid'>('trial');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -54,16 +55,41 @@ const CreateInstance: React.FC = () => {
     setError('');
 
     try {
-      // Prepare form data, removing empty optional fields
-      const submitData = {
-        ...formData,
-        subdomain: formData.subdomain?.trim() || null,
-        description: formData.description || null,
-      };
-      await instanceAPI.create(submitData);
-      
-      // Redirect back to instances page
-      navigate('/instances');
+      if (instanceFlow === 'trial') {
+        // Trial flow: Create instance directly (existing flow)
+        const submitData = {
+          ...formData,
+          subdomain: formData.subdomain?.trim() || null,
+          description: formData.description || null,
+        };
+        await instanceAPI.create(submitData);
+        navigate('/instances');
+      } else {
+        // Paid flow: Create subscription with instance configuration
+        const subscriptionData: CreateInstanceWithSubscriptionRequest = {
+          customer_id: formData.customer_id,
+          plan_name: 'basic-immediate',
+          name: formData.name,
+          description: formData.description || null,
+          admin_email: formData.admin_email,
+          admin_password: formData.admin_password,
+          subdomain: formData.subdomain?.trim() || null,
+          database_name: formData.database_name,
+          odoo_version: formData.odoo_version,
+          instance_type: formData.instance_type,
+          demo_data: formData.demo_data,
+          cpu_limit: formData.cpu_limit,
+          memory_limit: formData.memory_limit,
+          storage_limit: formData.storage_limit,
+          custom_addons: formData.custom_addons,
+        };
+        
+        const response = await billingAPI.createInstanceWithSubscription(subscriptionData);
+        
+        // Show success message with payment instructions
+        alert(`Subscription created! Please pay the invoice to activate your instance. Invoice amount: $${response.data.invoice?.amount || '5.00'}`);
+        navigate('/billing');
+      }
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 
                           (err.response?.data?.errors ? 
@@ -151,6 +177,63 @@ const CreateInstance: React.FC = () => {
                 </div>
               )}
 
+              {/* Instance Flow Selection */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Instance Type</h3>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div 
+                    className={`relative rounded-lg border p-4 cursor-pointer hover:bg-gray-50 ${
+                      instanceFlow === 'trial' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+                    }`}
+                    onClick={() => setInstanceFlow('trial')}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="instanceFlow"
+                        value="trial"
+                        checked={instanceFlow === 'trial'}
+                        onChange={() => setInstanceFlow('trial')}
+                        className="h-4 w-4 text-blue-600"
+                      />
+                      <div className="ml-3">
+                        <label className="block text-sm font-medium text-gray-900">
+                          Free Trial (14 days)
+                        </label>
+                        <p className="text-sm text-gray-500">
+                          Start immediately with a 14-day free trial
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div 
+                    className={`relative rounded-lg border p-4 cursor-pointer hover:bg-gray-50 ${
+                      instanceFlow === 'paid' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+                    }`}
+                    onClick={() => setInstanceFlow('paid')}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="instanceFlow"
+                        value="paid"
+                        checked={instanceFlow === 'paid'}
+                        onChange={() => setInstanceFlow('paid')}
+                        className="h-4 w-4 text-blue-600"
+                      />
+                      <div className="ml-3">
+                        <label className="block text-sm font-medium text-gray-900">
+                          Paid Instance ($5/month)
+                        </label>
+                        <p className="text-sm text-gray-500">
+                          Pay now and activate immediately
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* Basic Information */}
               <div>
@@ -403,10 +486,10 @@ const CreateInstance: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Creating Instance...
+                        {instanceFlow === 'trial' ? 'Creating Trial Instance...' : 'Creating Subscription...'}
                       </span>
                     ) : (
-                      'Create Instance'
+                      instanceFlow === 'trial' ? 'Create Trial Instance' : 'Create Paid Subscription'
                     )}
                   </button>
                 </div>

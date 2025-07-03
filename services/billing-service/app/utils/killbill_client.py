@@ -148,9 +148,10 @@ class KillBillClient:
         account_id: str, 
         plan_name: str,
         billing_period: str = "MONTHLY",
-        product_category: str = "BASE"
+        product_category: str = "BASE",
+        instance_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a subscription for an account"""
+        """Create a subscription for an account with optional instance metadata"""
         subscription_data = {
             "accountId": account_id,
             "planName": plan_name
@@ -160,9 +161,18 @@ class KillBillClient:
             response = await self._make_request("POST", "/1.0/kb/subscriptions", data=subscription_data)
             logger.info(f"Created subscription for account {account_id} with plan {plan_name}")
             
-            # If we got a subscription ID, add it to the response
-            if response.get("id"):
-                response["subscriptionId"] = response["id"]
+            subscription_id = response.get("id")
+            if subscription_id:
+                response["subscriptionId"] = subscription_id
+                
+                # Add instance metadata if provided
+                if instance_id:
+                    try:
+                        await self._add_subscription_metadata(subscription_id, {"instance_id": instance_id})
+                        logger.info(f"Added instance metadata {instance_id} to subscription {subscription_id}")
+                    except Exception as meta_error:
+                        logger.warning(f"Failed to add metadata to subscription {subscription_id}: {meta_error}")
+                        # Don't fail the subscription creation for metadata issues
             
             return response
         except Exception as e:
@@ -258,3 +268,74 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to register webhook {webhook_url}: {e}")
             raise
+    
+    async def _add_subscription_metadata(self, subscription_id: str, metadata: Dict[str, str]) -> Dict[str, Any]:
+        """Add custom metadata to a subscription"""
+        try:
+            # KillBill expects an array of custom field objects
+            custom_fields = []
+            for key, value in metadata.items():
+                custom_fields.append({
+                    "name": key,
+                    "value": value
+                })
+            
+            endpoint = f"/1.0/kb/subscriptions/{subscription_id}/customFields"
+            await self._make_request("POST", endpoint, data=custom_fields)
+            logger.info(f"Added {len(custom_fields)} custom fields to subscription {subscription_id}")
+            
+            return {"status": "success", "metadata": metadata}
+            
+        except Exception as e:
+            logger.error(f"Failed to add metadata to subscription {subscription_id}: {e}")
+            raise
+    
+    async def get_subscription_metadata(self, subscription_id: str) -> Dict[str, str]:
+        """Get custom metadata from a subscription"""
+        try:
+            endpoint = f"/1.0/kb/subscriptions/{subscription_id}/customFields"
+            response = await self._make_request("GET", endpoint)
+            
+            metadata = {}
+            if isinstance(response, list):
+                for field in response:
+                    if field.get("name") and field.get("value"):
+                        metadata[field["name"]] = field["value"]
+            
+            return metadata
+            
+        except Exception as e:
+            logger.error(f"Failed to get metadata for subscription {subscription_id}: {e}")
+            return {}
+    
+    async def get_invoice_by_id(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        """Get invoice details by ID including line items"""
+        try:
+            endpoint = f"/1.0/kb/invoices/{invoice_id}?withItems=true"
+            response = await self._make_request("GET", endpoint)
+            return response if response else None
+        except Exception as e:
+            logger.error(f"Failed to get invoice {invoice_id}: {e}")
+            return None
+    
+    async def get_subscription_id_from_invoice(self, invoice_id: str) -> Optional[str]:
+        """Extract subscription ID from invoice items"""
+        try:
+            invoice = await self.get_invoice_by_id(invoice_id)
+            if not invoice or not invoice.get("items"):
+                logger.warning(f"Invoice {invoice_id} has no items")
+                return None
+            
+            # Look for subscription ID in invoice items
+            for item in invoice["items"]:
+                subscription_id = item.get("subscriptionId")
+                if subscription_id:
+                    logger.info(f"Found subscription {subscription_id} in invoice {invoice_id}")
+                    return subscription_id
+            
+            logger.warning(f"No subscription ID found in invoice {invoice_id} items")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to extract subscription ID from invoice {invoice_id}: {e}")
+            return None

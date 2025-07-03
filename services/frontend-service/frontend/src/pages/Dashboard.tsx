@@ -78,16 +78,22 @@ const Dashboard: React.FC = () => {
   };
 
   const getSubscriptionInfo = () => {
-    if (billingData?.active_subscriptions?.length > 0) {
-      const activeSubscription = billingData.active_subscriptions[0];
+    // For per-instance billing, check if any instances have active subscriptions
+    const instancesWithSubscriptions = instances.filter(instance => 
+      billingData?.active_subscriptions?.some(sub => 
+        sub.metadata?.instance_id === instance.id
+      )
+    );
+    
+    if (instancesWithSubscriptions.length > 0) {
       return {
-        plan: activeSubscription.plan_name,
-        status: activeSubscription.state,
-        isActive: activeSubscription.state === 'ACTIVE'
+        plan: `${instancesWithSubscriptions.length} Instance${instancesWithSubscriptions.length > 1 ? 's' : ''}`,
+        status: 'active',
+        isActive: true
       };
     }
     return {
-      plan: 'No Plan',
+      plan: 'No Active Instances',
       status: 'inactive',
       isActive: false
     };
@@ -281,7 +287,7 @@ const Dashboard: React.FC = () => {
             <div className="bg-white shadow rounded-lg mb-8">
               <div className="px-4 py-5 sm:p-6">
                 <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-                  Account Overview
+                  Instance Billing Overview
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="text-center p-4 bg-blue-50 rounded-lg">
@@ -292,15 +298,19 @@ const Dashboard: React.FC = () => {
                   </div>
                   <div className="text-center p-4 bg-green-50 rounded-lg">
                     <div className="text-2xl font-bold text-green-600">
-                      {billingData.active_subscriptions.length}
+                      {billingData.active_subscriptions?.filter(sub => 
+                        instances.some(instance => instance.id === sub.metadata?.instance_id)
+                      ).length || 0}
                     </div>
-                    <div className="text-sm text-gray-600">Active Subscriptions</div>
+                    <div className="text-sm text-gray-600">Billed Instances</div>
                   </div>
                   <div className="text-center p-4 bg-purple-50 rounded-lg">
                     <div className="text-2xl font-bold text-purple-600">
-                      {billingData.next_billing_amount ? formatCurrency(billingData.next_billing_amount) : 'N/A'}
+                      {instances.length - (billingData.active_subscriptions?.filter(sub => 
+                        instances.some(instance => instance.id === sub.metadata?.instance_id)
+                      ).length || 0)}
                     </div>
-                    <div className="text-sm text-gray-600">Next Billing</div>
+                    <div className="text-sm text-gray-600">Trial Instances</div>
                   </div>
                 </div>
                 <div className="mt-4 text-center">
@@ -308,7 +318,7 @@ const Dashboard: React.FC = () => {
                     to="/billing"
                     className="text-sm font-medium text-blue-600 hover:text-blue-500"
                   >
-                    View full billing dashboard →
+                    Manage instance billing →
                   </Link>
                 </div>
               </div>
@@ -421,6 +431,18 @@ const Dashboard: React.FC = () => {
                           <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(instance.status)}`}>
                             {instance.status}
                           </span>
+                          {/* Instance billing status badge */}
+                          {billingData?.active_subscriptions?.some(sub => 
+                            sub.metadata?.instance_id === instance.id
+                          ) ? (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full text-green-600 bg-green-100">
+                              Billed
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full text-yellow-600 bg-yellow-100">
+                              Trial
+                            </span>
+                          )}
                           {instance.external_url && (
                             <a
                               href={instance.external_url}

@@ -6,6 +6,7 @@ Handles KillBill webhook events
 from fastapi import APIRouter, Request, HTTPException, Response
 import logging
 import json
+import os
 from typing import Dict, Any, Optional
 from app.utils.instance_client import instance_client
 from app.utils.killbill_client import KillBillClient
@@ -114,6 +115,8 @@ async def handle_killbill_webhook(request: Request, response: Response):
             await handle_payment_success(payload)
         elif event_type == "PAYMENT_FAILED":
             await handle_payment_failed(payload)
+        elif event_type == "INVOICE_PAYMENT_SUCCESS":
+            await handle_invoice_payment_success(payload)
         elif event_type == "SUBSCRIPTION_CREATION":
             await handle_subscription_created(payload)
         elif event_type == "SUBSCRIPTION_CANCELLATION":
@@ -136,7 +139,7 @@ async def handle_killbill_webhook(request: Request, response: Response):
         raise HTTPException(status_code=500, detail="Failed to process webhook")
 
 async def handle_payment_success(payload: Dict[str, Any]):
-    """Handle successful payment webhook"""
+    """Handle successful payment webhook - trigger instance provisioning for paid instances"""
     payment_id = payload.get('objectId')
     account_id = payload.get('accountId')
     
@@ -149,25 +152,61 @@ async def handle_payment_success(payload: Dict[str, Any]):
             logger.warning(f"Could not find customer for account {account_id}")
             return
         
-        # Get all suspended instances for this customer and unsuspend them
-        logger.info(f"Payment successful for customer {customer_external_key} - unsuspending instances")
+        # Get payment details to find associated subscription
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
         
+        # First, handle provisioning of pending paid instances
+        # NOTE: Payment webhooks don't directly provide subscription_id, they provide payment_id
+        # For now, keeping bulk approach since payment->invoice->subscription mapping is complex
+        # TODO: Could be improved by fetching payment details to get invoice/subscription info
+        pending_instances = await instance_client.get_instances_by_customer_and_status(
+            customer_external_key, "pending"
+        )
+        
+        provisioned_count = 0
+        for instance in pending_instances:
+            instance_id = instance.get('id')
+            billing_status = instance.get('billing_status')
+            
+            # Only provision paid instances here (not trial instances)
+            if billing_status == 'pending_payment':
+                logger.info(f"Provisioning paid instance {instance_id} for customer {customer_external_key}")
+                
+                # Update instance billing status and trigger provisioning
+                await instance_client.provision_instance(
+                    instance_id=instance_id,
+                    subscription_id=None,  # Will be updated when we get subscription details
+                    billing_status="paid",
+                    provisioning_trigger="payment_success"
+                )
+                
+                provisioned_count += 1
+                logger.info(f"Paid instance {instance_id} provisioning triggered")
+        
+        # Second, handle unsuspending existing instances due to payment
         instances = await instance_client.get_instances_by_customer(customer_external_key)
-        suspended_count = 0
+        unsuspended_count = 0
         
         for instance in instances:
-            if instance.get('status') == 'suspended':
+            if instance.get('status') == 'suspended' or instance.get('billing_status') == 'payment_required':
                 try:
                     result = await instance_client.unsuspend_instance(instance['id'], "Payment received")
                     if result.get('status') == 'success':
-                        suspended_count += 1
+                        unsuspended_count += 1
                         logger.info(f"Unsuspended instance {instance['id']} for customer {customer_external_key}")
                     else:
                         logger.error(f"Failed to unsuspend instance {instance['id']}: {result}")
                 except Exception as e:
                     logger.error(f"Error unsuspending instance {instance['id']}: {e}")
         
-        logger.info(f"Unsuspended {suspended_count} instances for customer {customer_external_key}")
+        logger.info(f"Payment success processed for customer {customer_external_key}: "
+                   f"provisioned {provisioned_count} instances, unsuspended {unsuspended_count} instances")
         
     except Exception as e:
         logger.error(f"Error handling payment success: {e}")
@@ -212,13 +251,30 @@ async def handle_payment_failed(payload: Dict[str, Any]):
         logger.error(f"Error handling payment failure: {e}")
 
 async def handle_subscription_created(payload: Dict[str, Any]):
-    """Handle subscription creation webhook"""
+    """Handle subscription creation webhook - create instances for trial subscriptions"""
     subscription_id = payload.get('objectId')
     account_id = payload.get('accountId')
     
     logger.info(f"Subscription created: {subscription_id} for account: {account_id}")
     
     try:
+        # Check if this is an EFFECTIVE subscription creation (avoid duplicates from REQUESTED)
+        metadata = payload.get('metaData')
+        if metadata:
+            import json
+            try:
+                meta_dict = json.loads(metadata)
+                action_type = meta_dict.get('actionType')
+                
+                # Only process EFFECTIVE subscriptions to avoid duplicates
+                if action_type != 'EFFECTIVE':
+                    logger.info(f"Skipping subscription {subscription_id} with action type '{action_type}' (waiting for EFFECTIVE)")
+                    return
+                
+                logger.info(f"Processing EFFECTIVE subscription {subscription_id}")
+            except json.JSONDecodeError:
+                logger.warning(f"Could not parse metadata for subscription {subscription_id}, proceeding anyway")
+        
         # Get customer information from KillBill
         customer_external_key = await _get_customer_external_key_by_account_id(account_id)
         if not customer_external_key:
@@ -227,14 +283,59 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         
         logger.info(f"Subscription {subscription_id} created for customer {customer_external_key}")
         
-        # TODO: Trigger instance provisioning if needed
-        # This could integrate with the instance service to automatically provision
-        # an Odoo instance when a subscription is created
+        # Get subscription details from KillBill
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
         
-        # TODO: Send welcome email to customer
-        # This would integrate with an email service to send onboarding emails
+        subscription_details = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription_details:
+            logger.warning(f"Could not get subscription details for {subscription_id}")
+            return
         
-        logger.info(f"Processed subscription creation for customer {customer_external_key}")
+        plan_name = subscription_details.get('planName', 'unknown')
+        phase_type = subscription_details.get('phaseType', 'UNKNOWN')
+        
+        # Check if this is a trial subscription
+        is_trial = 'trial' in plan_name.lower() or phase_type == 'TRIAL'
+        
+        if not is_trial:
+            logger.info(f"Subscription {subscription_id} is not a trial ({plan_name}, {phase_type}). Skipping instance creation.")
+            return
+        
+        logger.info(f"Processing trial subscription {subscription_id} (plan: {plan_name}, phase: {phase_type})")
+        
+        # Check trial eligibility for customer (simple check: no existing subscriptions)
+        try:
+            customer_subscriptions = await killbill.get_subscriptions_by_account_id(account_id)
+            subscription_count = len(customer_subscriptions) if customer_subscriptions else 0
+            
+            # Trial eligible if this is the customer's first subscription (dev-friendly logic)
+            is_eligible = subscription_count <= 1  # <=1 because current subscription is already created
+            
+            if not is_eligible:
+                logger.warning(f"Customer {customer_external_key} is not eligible for trial (existing subscriptions: {subscription_count})")
+                return
+            
+            logger.info(f"Customer {customer_external_key} is eligible for trial (subscription count: {subscription_count})")
+            
+        except Exception as eligibility_error:
+            logger.error(f"Failed to check trial eligibility for customer {customer_external_key}: {eligibility_error}")
+            # Proceed anyway if eligibility check fails - let the instance service handle it
+        
+        # Create instance for trial subscription using the same pattern as paid subscriptions
+        await _create_instance_for_subscription(
+            customer_id=customer_external_key,
+            subscription_id=subscription_id,
+            plan_name=plan_name,
+            billing_status="trial"
+        )
+        
+        logger.info(f"Processed trial subscription creation for customer {customer_external_key}")
         
     except Exception as e:
         logger.error(f"Error handling subscription creation: {e}")
@@ -307,6 +408,129 @@ async def handle_invoice_created(payload: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error handling invoice creation: {e}")
+
+async def handle_invoice_payment_success(payload: Dict[str, Any]):
+    """Handle invoice payment success webhook - create instance for paid subscription"""
+    invoice_id = payload.get('objectId')
+    account_id = payload.get('accountId')
+    
+    logger.info(f"Invoice payment successful: {invoice_id} for account: {account_id}")
+    
+    try:
+        # Get customer information from KillBill
+        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+        if not customer_external_key:
+            logger.warning(f"Could not find customer for account {account_id}")
+            return
+        
+        logger.info(f"Invoice {invoice_id} paid for customer {customer_external_key}")
+        
+        # Initialize KillBill client
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+        
+        # Get subscription ID from invoice
+        subscription_id = await killbill.get_subscription_id_from_invoice(invoice_id)
+        if not subscription_id:
+            logger.warning(f"No subscription found for invoice {invoice_id}")
+            return
+        
+        logger.info(f"Found subscription {subscription_id} for paid invoice {invoice_id}")
+        
+        # Get subscription details to determine if it's a paid (non-trial) subscription
+        subscription_details = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription_details:
+            logger.warning(f"Could not get subscription details for {subscription_id}")
+            return
+        
+        plan_name = subscription_details.get('planName', '')
+        logger.info(f"Subscription {subscription_id} uses plan: {plan_name}")
+        
+        # Only create instances for non-trial subscriptions
+        if 'trial' in plan_name.lower() or subscription_details.get('phaseType') == 'TRIAL':
+            logger.info(f"Subscription {subscription_id} is trial - not creating instance on payment")
+            return
+        
+        # Create instance for this customer and subscription
+        await _create_instance_for_subscription(customer_external_key, subscription_id, plan_name)
+        
+        logger.info(f"Processed invoice payment success for customer {customer_external_key}")
+        
+    except Exception as e:
+        logger.error(f"Error handling invoice payment success: {e}")
+
+async def _create_instance_for_subscription(customer_id: str, subscription_id: str, plan_name: str, billing_status: str = "paid"):
+    """Create instance for customer when subscription is created or paid"""
+    try:
+        logger.info(f"Creating instance for customer {customer_id}, subscription {subscription_id}")
+        
+        # Get custom instance configuration from subscription metadata
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+        
+        # Extract instance configuration from subscription custom fields
+        subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
+        logger.info(f"Retrieved subscription metadata for {subscription_id}: {subscription_metadata}")
+        
+        # Create instance data with custom parameters if available, fallback to defaults
+        instance_data = {
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "name": subscription_metadata.get("instance_name", f"Odoo Instance - {plan_name}"),
+            "description": subscription_metadata.get("instance_description", f"Instance created for subscription {subscription_id}"),
+            "admin_email": subscription_metadata.get("instance_admin_email", "admin@example.com"),
+            "admin_password": subscription_metadata.get("instance_admin_password", "AdminPass123"),
+            "database_name": subscription_metadata.get("instance_database_name", f"db_{customer_id.replace('-', '_')[:10]}"),
+            "subdomain": subscription_metadata.get("instance_subdomain", None),
+            "odoo_version": subscription_metadata.get("instance_odoo_version", "17.0"),
+            "instance_type": subscription_metadata.get("instance_type", "production"),
+            "demo_data": subscription_metadata.get("instance_demo_data", "false").lower() == "true",
+            "cpu_limit": float(subscription_metadata.get("instance_cpu_limit", "1.0")),
+            "memory_limit": subscription_metadata.get("instance_memory_limit", "1G"),
+            "storage_limit": subscription_metadata.get("instance_storage_limit", "10G"),
+            "custom_addons": subscription_metadata.get("instance_custom_addons", "").split(",") if subscription_metadata.get("instance_custom_addons") else [],
+            "billing_status": billing_status,
+            "provisioning_status": "pending"
+        }
+        
+        # Remove empty subdomain if not provided
+        if not instance_data["subdomain"]:
+            instance_data["subdomain"] = None
+            
+        logger.info(f"Using custom instance configuration: {instance_data}")
+        
+        # Call instance service to create instance
+        created_instance = await instance_client.create_instance_with_subscription(instance_data)
+        
+        if created_instance and created_instance.get('id'):
+            instance_id = created_instance['id']
+            logger.info(f"Created instance {instance_id} for customer {customer_id}")
+            
+            # Trigger instance provisioning
+            provisioning_trigger = "invoice_payment_success" if billing_status == "paid" else "subscription_created"
+            await instance_client.provision_instance(
+                instance_id=instance_id,
+                subscription_id=subscription_id,
+                billing_status=billing_status,
+                provisioning_trigger=provisioning_trigger
+            )
+            
+            logger.info(f"Triggered provisioning for instance {instance_id}")
+        else:
+            logger.error(f"Failed to create instance for customer {customer_id}")
+            
+    except Exception as e:
+        logger.error(f"Error creating instance for subscription {subscription_id}: {e}")
 
 
 async def _get_customer_external_key_by_account_id(account_id: str) -> Optional[str]:

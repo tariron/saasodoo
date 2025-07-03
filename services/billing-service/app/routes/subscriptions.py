@@ -46,11 +46,12 @@ async def create_subscription(
         
         logger.info(f"Creating subscription for customer {subscription_data.customer_id}, plan {subscription_data.plan_name}")
         
-        # Create actual KillBill subscription
+        # Create actual KillBill subscription with instance metadata
         killbill_subscription = await killbill.create_subscription(
             account_id=account_id,
             plan_name=subscription_data.plan_name,
-            billing_period=subscription_data.billing_period
+            billing_period=subscription_data.billing_period,
+            instance_id=subscription_data.instance_id
         )
         
         # Format response with both KillBill data and our metadata

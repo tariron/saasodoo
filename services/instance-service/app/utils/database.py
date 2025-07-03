@@ -11,7 +11,7 @@ import asyncpg
 from asyncpg import Connection
 import structlog
 
-from app.models.instance import Instance, InstanceCreate, InstanceUpdate, InstanceStatus
+from app.models.instance import Instance, InstanceCreate, InstanceUpdate, InstanceStatus, BillingStatus, ProvisioningStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +59,12 @@ class InstanceDatabase:
     
     # ===== INSTANCE OPERATIONS =====
     
-    async def create_instance(self, instance_data: InstanceCreate) -> Instance:
+    async def create_instance(
+        self, 
+        instance_data: InstanceCreate, 
+        billing_status: BillingStatus = BillingStatus.PENDING_PAYMENT,
+        provisioning_status: ProvisioningStatus = ProvisioningStatus.PENDING
+    ) -> Instance:
         """Create a new instance"""
         async with self.pool.acquire() as conn:
             try:
@@ -77,8 +82,9 @@ class InstanceDatabase:
                         customer_id, name, odoo_version, instance_type, description,
                         cpu_limit, memory_limit, storage_limit, admin_email, admin_password,
                         database_name, subdomain, demo_data, custom_addons, disabled_modules, 
-                        environment_vars, metadata, status, created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                        environment_vars, metadata, status, billing_status, provisioning_status,
+                        created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
                     RETURNING id
                 """,
                     instance_data.customer_id,
@@ -99,6 +105,8 @@ class InstanceDatabase:
                     json.dumps(instance_data.environment_vars),
                     json.dumps(instance_data.metadata or {}),
                     InstanceStatus.CREATING.value,
+                    billing_status.value,
+                    provisioning_status.value,
                     datetime.utcnow(),
                     datetime.utcnow()
                 )
@@ -149,6 +157,66 @@ class InstanceDatabase:
                 
             except Exception as e:
                 logger.error("Failed to get instance", instance_id=str(instance_id), error=str(e))
+                raise
+    
+    async def update_instance_subscription(self, instance_id: str, subscription_id: str) -> bool:
+        """Update instance with subscription ID"""
+        async with self.pool.acquire() as conn:
+            try:
+                result = await conn.execute(
+                    "UPDATE instances SET subscription_id = $1, updated_at = $2 WHERE id = $3",
+                    UUID(subscription_id), datetime.utcnow(), UUID(instance_id)
+                )
+                
+                if result == "UPDATE 1":
+                    logger.info("Instance subscription updated", 
+                              instance_id=instance_id, 
+                              subscription_id=subscription_id)
+                    return True
+                return False
+                
+            except Exception as e:
+                logger.error("Failed to update instance subscription", 
+                           instance_id=instance_id, 
+                           subscription_id=subscription_id, 
+                           error=str(e))
+                raise
+    
+    async def update_instance_billing_status(
+        self, 
+        instance_id: str, 
+        billing_status: BillingStatus, 
+        provisioning_status: ProvisioningStatus = None
+    ) -> bool:
+        """Update instance billing and provisioning status"""
+        async with self.pool.acquire() as conn:
+            try:
+                if provisioning_status:
+                    result = await conn.execute("""
+                        UPDATE instances 
+                        SET billing_status = $1, provisioning_status = $2, updated_at = $3 
+                        WHERE id = $4
+                    """, billing_status.value, provisioning_status.value, datetime.utcnow(), UUID(instance_id))
+                else:
+                    result = await conn.execute("""
+                        UPDATE instances 
+                        SET billing_status = $1, updated_at = $2 
+                        WHERE id = $3
+                    """, billing_status.value, datetime.utcnow(), UUID(instance_id))
+                
+                if result == "UPDATE 1":
+                    logger.info("Instance billing status updated", 
+                              instance_id=instance_id, 
+                              billing_status=billing_status.value,
+                              provisioning_status=provisioning_status.value if provisioning_status else None)
+                    return True
+                return False
+                
+            except Exception as e:
+                logger.error("Failed to update instance billing status", 
+                           instance_id=instance_id, 
+                           billing_status=billing_status.value, 
+                           error=str(e))
                 raise
     
     async def get_instances_by_customer(self, customer_id: UUID, page: int = 1, page_size: int = 10) -> Dict[str, Any]:
