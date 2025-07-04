@@ -99,23 +99,15 @@ export interface PaymentMethod {
 export interface Plan {
   name: string;
   product: string;
-  recurring: {
-    billing_period: 'MONTHLY' | 'ANNUAL';
-    recurring_price: {
-      price: number;
-      currency: string;
-    };
-  };
-  trial?: {
-    trial_time_unit: 'DAYS' | 'MONTHS';
-    trial_length: number;
-  };
-  features: string[];
-  limits: {
-    max_instances: number;
-    max_users?: number;
-    max_storage_gb?: number;
-  };
+  type: string;
+  description: string;
+  billing_period: string;
+  trial_length: number;
+  trial_time_unit: string;
+  price: number | null;
+  currency: string;
+  available: boolean;
+  fallback?: boolean;
 }
 
 export interface CreateSubscriptionRequest {

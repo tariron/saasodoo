@@ -200,40 +200,22 @@ const BillingSubscription: React.FC = () => {
                 <div className="text-center mb-6">
                   <h3 className="text-xl font-bold text-gray-900 mb-2">{plan.product}</h3>
                   <div className="text-3xl font-bold text-blue-600 mb-1">
-                    {formatCurrency(plan.recurring.recurring_price.price)}
+                    {plan.price ? formatCurrency(plan.price) : 'Free'}
                   </div>
                   <div className="text-sm text-gray-600">
-                    per {plan.recurring.billing_period.toLowerCase()}
+                    per {plan.billing_period.toLowerCase()}
                   </div>
                   
-                  {plan.trial && (
+                  {plan.trial_length > 0 && (
                     <div className="mt-2 text-sm text-green-600 font-medium">
-                      {plan.trial.trial_length} {plan.trial.trial_time_unit.toLowerCase()} free trial
+                      {plan.trial_length} {plan.trial_time_unit.toLowerCase()} free trial
                     </div>
                   )}
                 </div>
 
-                {/* Features */}
+                {/* Description */}
                 <div className="mb-6">
-                  <h4 className="font-medium text-gray-900 mb-3">Features:</h4>
-                  <ul className="space-y-2">
-                    {plan.features.map((feature, index) => (
-                      <li key={index} className="text-sm text-gray-600 flex items-start">
-                        <span className="text-green-500 mr-2">✓</span>
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Limits */}
-                <div className="mb-6">
-                  <h4 className="font-medium text-gray-900 mb-3">Limits:</h4>
-                  <ul className="space-y-1 text-sm text-gray-600">
-                    <li>Max Instances: {plan.limits.max_instances}</li>
-                    {plan.limits.max_users && <li>Max Users: {plan.limits.max_users}</li>}
-                    {plan.limits.max_storage_gb && <li>Max Storage: {plan.limits.max_storage_gb}GB</li>}
-                  </ul>
+                  <p className="text-sm text-gray-600">{plan.description}</p>
                 </div>
 
                 {/* Action Buttons */}
@@ -259,7 +241,7 @@ const BillingSubscription: React.FC = () => {
                         )}
                       </button>
                       
-                      {plan.recurring.billing_period === 'MONTHLY' && (
+                      {plan.billing_period === 'MONTHLY' && (
                         <button
                           onClick={() => handleSelectPlan(plan.name, 'ANNUAL')}
                           disabled={processingPlan === plan.name}
@@ -305,17 +287,7 @@ const BillingSubscription: React.FC = () => {
                 </td>
                 {plans.map((plan) => (
                   <td key={plan.name} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(plan.recurring.recurring_price.price)}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  Max Instances
-                </td>
-                {plans.map((plan) => (
-                  <td key={plan.name} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {plan.limits.max_instances}
+                    {plan.price ? formatCurrency(plan.price) : 'Free'}
                   </td>
                 ))}
               </tr>
@@ -325,7 +297,7 @@ const BillingSubscription: React.FC = () => {
                 </td>
                 {plans.map((plan) => (
                   <td key={plan.name} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {plan.trial ? `${plan.trial.trial_length} ${plan.trial.trial_time_unit.toLowerCase()}` : 'No'}
+                    {plan.trial_length > 0 ? `${plan.trial_length} ${plan.trial_time_unit.toLowerCase()}` : 'No'}
                   </td>
                 ))}
               </tr>

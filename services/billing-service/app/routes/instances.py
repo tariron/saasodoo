@@ -110,6 +110,31 @@ async def create_instance_with_subscription(
             "custom_addons": ",".join(instance_data.custom_addons) if instance_data.custom_addons else ""
         }
         
+        # Check trial eligibility for trial plans before creating subscription
+        is_trial_plan = 'trial' in instance_data.plan_name.lower() or instance_data.plan_name.endswith('-monthly')
+        if is_trial_plan:
+            logger.info(f"Checking trial eligibility for customer {instance_data.customer_id}")
+            
+            # Get existing subscriptions for trial eligibility check
+            existing_subscriptions = await killbill.get_account_subscriptions(account_id)
+            
+            # Count existing trial subscriptions
+            trial_count = 0
+            for sub in existing_subscriptions:
+                sub_plan = sub.get('planName', '')
+                sub_phase = sub.get('phaseType', '')
+                if 'trial' in sub_plan.lower() or sub_phase == 'TRIAL':
+                    trial_count += 1
+            
+            if trial_count > 0:
+                logger.warning(f"Trial eligibility check failed - customer {instance_data.customer_id} has {trial_count} existing trial subscriptions")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Trial limit exceeded. You already have {trial_count} active trial subscription(s). Only one trial per customer is allowed."
+                )
+            
+            logger.info(f"Trial eligibility check passed - customer {instance_data.customer_id} has no existing trials")
+        
         logger.info(f"Creating KillBill subscription with plan {instance_data.plan_name}")
         
         # Create KillBill subscription (this will generate an invoice for immediate payment)

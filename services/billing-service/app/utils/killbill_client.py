@@ -201,11 +201,27 @@ class KillBillClient:
             raise
     
     async def get_account_subscriptions(self, account_id: str) -> List[Dict[str, Any]]:
-        """Get all subscriptions for an account"""
+        """Get all subscriptions for an account using the bundles endpoint (subscriptions endpoint is broken)"""
         try:
-            response = await self._make_request("GET", f"/1.0/kb/accounts/{account_id}/subscriptions")
-            return response if isinstance(response, list) else []
+            # Use bundles endpoint instead of subscriptions endpoint due to KillBill API bug
+            response = await self._make_request("GET", f"/1.0/kb/accounts/{account_id}/bundles")
+            
+            subscriptions = []
+            if isinstance(response, list):
+                # Extract subscriptions from each bundle
+                for bundle in response:
+                    bundle_subscriptions = bundle.get('subscriptions', [])
+                    if isinstance(bundle_subscriptions, list):
+                        subscriptions.extend(bundle_subscriptions)
+            
+            logger.info(f"Found {len(subscriptions)} subscriptions for account {account_id} via bundles endpoint")
+            return subscriptions
+            
         except Exception as e:
+            # For 404 errors (new accounts with no bundles), return empty list
+            if "404" in str(e):
+                logger.info(f"No bundles found for account {account_id} (404 - new account)")
+                return []
             logger.error(f"Failed to get subscriptions for account {account_id}: {e}")
             raise
     
@@ -275,14 +291,25 @@ class KillBillClient:
             # KillBill expects an array of custom field objects
             custom_fields = []
             for key, value in metadata.items():
-                custom_fields.append({
-                    "name": key,
-                    "value": value
-                })
+                # Ensure value is not None or empty
+                if value is not None and str(value).strip():
+                    custom_fields.append({
+                        "name": key,
+                        "value": str(value).strip()
+                    })
+                else:
+                    logger.warning(f"Skipping custom field '{key}' with empty/null value: '{value}'")
+            
+            if not custom_fields:
+                logger.warning(f"No valid custom fields to add to subscription {subscription_id}")
+                return {"status": "success", "metadata": {}}
+            
+            field_summary = [f"{f['name']}={f['value']}" for f in custom_fields]
+            logger.info(f"Adding {len(custom_fields)} custom fields to subscription {subscription_id}: {field_summary}")
             
             endpoint = f"/1.0/kb/subscriptions/{subscription_id}/customFields"
             await self._make_request("POST", endpoint, data=custom_fields)
-            logger.info(f"Added {len(custom_fields)} custom fields to subscription {subscription_id}")
+            logger.info(f"Successfully added {len(custom_fields)} custom fields to subscription {subscription_id}")
             
             return {"status": "success", "metadata": metadata}
             
@@ -339,3 +366,109 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to extract subscription ID from invoice {invoice_id}: {e}")
             return None
+    
+    async def get_catalog_plans(self) -> List[Dict[str, Any]]:
+        """Get available plans from KillBill catalog"""
+        try:
+            endpoint = "/1.0/kb/catalog"
+            response = await self._make_request("GET", endpoint)
+            
+            plans = []
+            if isinstance(response, list) and len(response) > 0:
+                # KillBill catalog response is an array of catalog versions
+                catalog = response[0]  # Use the first (latest) catalog
+                products = catalog.get("products", [])
+                
+                for product in products:
+                    product_name = product.get("name", "")
+                    product_type = product.get("type", "BASE")
+                    product_plans = product.get("plans", [])
+                    
+                    for plan in product_plans:
+                        plan_name = plan.get("name", "")
+                        billing_period = plan.get("billingPeriod", "MONTHLY")
+                        phases = plan.get("phases", [])
+                        
+                        # Extract trial and pricing information from phases
+                        trial_length = 0
+                        trial_time_unit = "DAYS"
+                        price = 0
+                        currency = "USD"
+                        
+                        for phase in phases:
+                            phase_type = phase.get("type", "")
+                            
+                            if phase_type == "TRIAL":
+                                duration = phase.get("duration", {})
+                                trial_length = duration.get("number", 0)
+                                trial_time_unit = duration.get("unit", "DAYS")
+                                
+                            elif phase_type == "EVERGREEN":
+                                # Get recurring price
+                                prices = phase.get("prices", [])
+                                if prices:
+                                    price = prices[0].get("value", 0)
+                                    currency = prices[0].get("currency", "USD")
+                        
+                        plan_info = {
+                            "name": plan_name,
+                            "product": product_name,
+                            "type": product_type,
+                            "description": f"{product_name} - {plan_name}",
+                            "billing_period": billing_period,
+                            "trial_length": trial_length,
+                            "trial_time_unit": trial_time_unit,
+                            "price": price,
+                            "currency": currency,
+                            "available": True
+                        }
+                        
+                        plans.append(plan_info)
+            
+            logger.info(f"Retrieved {len(plans)} plans from KillBill catalog")
+            return plans
+            
+        except Exception as e:
+            logger.error(f"Failed to get catalog plans: {e}")
+            # Return fallback plans if catalog API fails
+            return [
+                {
+                    "name": "basic-trial",
+                    "product": "Basic",
+                    "type": "BASE",
+                    "description": "Basic plan with 14-day trial",
+                    "billing_period": "MONTHLY",
+                    "trial_length": 14,
+                    "trial_time_unit": "DAYS",
+                    "price": 0,
+                    "currency": "USD",
+                    "available": True,
+                    "fallback": True
+                },
+                {
+                    "name": "basic-immediate",
+                    "product": "Basic",
+                    "type": "BASE", 
+                    "description": "Basic plan - immediate billing",
+                    "billing_period": "MONTHLY",
+                    "trial_length": 0,
+                    "trial_time_unit": "DAYS",
+                    "price": 5.00,
+                    "currency": "USD",
+                    "available": True,
+                    "fallback": True
+                },
+                {
+                    "name": "basic-monthly",
+                    "product": "Basic",
+                    "type": "BASE",
+                    "description": "Basic monthly plan",
+                    "billing_period": "MONTHLY", 
+                    "trial_length": 14,
+                    "trial_time_unit": "DAYS",
+                    "price": 5.00,
+                    "currency": "USD",
+                    "available": True,
+                    "fallback": True
+                }
+            ]

@@ -181,15 +181,29 @@ class InstanceServiceClient:
         """Create instance with subscription linkage"""
         endpoint = "/api/v1/instances/"
         
-        # Create instance payload with required fields
+        # Validate required fields are present
+        required_fields = ["customer_id", "subscription_id", "name", "admin_email", "admin_password", "database_name"]
+        missing_fields = [field for field in required_fields if not instance_data.get(field)]
+        
+        if missing_fields:
+            logger.error(f"Missing required fields for instance creation: {missing_fields}")
+            raise Exception(f"Cannot create instance - missing required fields: {', '.join(missing_fields)}")
+        
+        # Create instance payload with provided fields
         payload = {
-            "name": instance_data.get("name", "Odoo Instance"),
+            "name": instance_data["name"],
             "description": instance_data.get("description", "Instance created via billing webhook"),
-            "odoo_version": "17.0",
-            "instance_type": "production",
-            "admin_email": "admin@example.com",
-            "admin_password": "AdminPass123",
-            "database_name": f"db_{instance_data['customer_id'].replace('-', '_')[:10]}",
+            "odoo_version": instance_data.get("odoo_version", "17.0"),
+            "instance_type": instance_data.get("instance_type", "production"),
+            "admin_email": instance_data["admin_email"],
+            "admin_password": instance_data["admin_password"],
+            "database_name": instance_data["database_name"],
+            "subdomain": instance_data.get("subdomain"),
+            "demo_data": instance_data.get("demo_data", False),
+            "cpu_limit": instance_data.get("cpu_limit", 1.0),
+            "memory_limit": instance_data.get("memory_limit", "1G"),
+            "storage_limit": instance_data.get("storage_limit", "10G"),
+            "custom_addons": instance_data.get("custom_addons", []),
             "customer_id": instance_data["customer_id"],
             "subscription_id": instance_data["subscription_id"],
             "billing_status": instance_data.get("billing_status", "paid"),

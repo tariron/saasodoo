@@ -309,25 +309,11 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         
         logger.info(f"Processing trial subscription {subscription_id} (plan: {plan_name}, phase: {phase_type})")
         
-        # Check trial eligibility for customer (simple check: no existing subscriptions)
-        try:
-            customer_subscriptions = await killbill.get_subscriptions_by_account_id(account_id)
-            subscription_count = len(customer_subscriptions) if customer_subscriptions else 0
-            
-            # Trial eligible if this is the customer's first subscription (dev-friendly logic)
-            is_eligible = subscription_count <= 1  # <=1 because current subscription is already created
-            
-            if not is_eligible:
-                logger.warning(f"Customer {customer_external_key} is not eligible for trial (existing subscriptions: {subscription_count})")
-                return
-            
-            logger.info(f"Customer {customer_external_key} is eligible for trial (subscription count: {subscription_count})")
-            
-        except Exception as eligibility_error:
-            logger.error(f"Failed to check trial eligibility for customer {customer_external_key}: {eligibility_error}")
-            # Proceed anyway if eligibility check fails - let the instance service handle it
+        # Trial eligibility is now checked upfront in the API endpoint before subscription creation
+        # All trial subscriptions reaching this webhook are pre-validated and eligible
+        logger.info(f"Creating instance for pre-validated trial subscription {subscription_id}")
         
-        # Create instance for trial subscription using the same pattern as paid subscriptions
+        # Create instance for trial subscription
         await _create_instance_for_subscription(
             customer_id=customer_external_key,
             subscription_id=subscription_id,
@@ -482,16 +468,24 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
         subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
         logger.info(f"Retrieved subscription metadata for {subscription_id}: {subscription_metadata}")
         
-        # Create instance data with custom parameters if available, fallback to defaults
+        # Validate required metadata exists
+        required_fields = ["instance_name", "instance_admin_email", "instance_admin_password", "instance_database_name"]
+        missing_fields = [field for field in required_fields if not subscription_metadata.get(field)]
+        
+        if missing_fields:
+            logger.error(f"Missing required metadata fields for subscription {subscription_id}: {missing_fields}")
+            raise Exception(f"Cannot create instance - missing required configuration: {', '.join(missing_fields)}")
+        
+        # Create instance data with custom parameters from subscription metadata
         instance_data = {
             "customer_id": customer_id,
             "subscription_id": subscription_id,
-            "name": subscription_metadata.get("instance_name", f"Odoo Instance - {plan_name}"),
+            "name": subscription_metadata["instance_name"],
             "description": subscription_metadata.get("instance_description", f"Instance created for subscription {subscription_id}"),
-            "admin_email": subscription_metadata.get("instance_admin_email", "admin@example.com"),
-            "admin_password": subscription_metadata.get("instance_admin_password", "AdminPass123"),
-            "database_name": subscription_metadata.get("instance_database_name", f"db_{customer_id.replace('-', '_')[:10]}"),
-            "subdomain": subscription_metadata.get("instance_subdomain", None),
+            "admin_email": subscription_metadata["instance_admin_email"],
+            "admin_password": subscription_metadata["instance_admin_password"],
+            "database_name": subscription_metadata["instance_database_name"],
+            "subdomain": subscription_metadata.get("instance_subdomain") or None,
             "odoo_version": subscription_metadata.get("instance_odoo_version", "17.0"),
             "instance_type": subscription_metadata.get("instance_type", "production"),
             "demo_data": subscription_metadata.get("instance_demo_data", "false").lower() == "true",

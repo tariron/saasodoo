@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { instanceAPI, authAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, UserProfile } from '../utils/api';
+import { Plan } from '../types/billing';
 import Navigation from '../components/Navigation';
 
 const CreateInstance: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [formData, setFormData] = useState<CreateInstanceRequest>({
     customer_id: '',
     name: '',
@@ -24,14 +27,17 @@ const CreateInstance: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
-  const [instanceFlow, setInstanceFlow] = useState<'trial' | 'paid'>('trial');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const profileResponse = await authAPI.getProfile();
+        // Fetch user profile and available plans in parallel
+        const [profileResponse, plansResponse] = await Promise.all([
+          authAPI.getProfile(),
+          billingAPI.getPlans()
+        ]);
 
         setProfile(profileResponse.data);
         setFormData(prev => ({
@@ -39,8 +45,20 @@ const CreateInstance: React.FC = () => {
           customer_id: profileResponse.data.id,
           admin_email: profileResponse.data.email
         }));
+
+        if (plansResponse.data.success) {
+          setPlans(plansResponse.data.plans);
+          // Auto-select first trial plan if available
+          const trialPlan = plansResponse.data.plans.find(plan => plan.trial_length > 0);
+          if (trialPlan) {
+            setSelectedPlan(trialPlan);
+          } else if (plansResponse.data.plans.length > 0) {
+            setSelectedPlan(plansResponse.data.plans[0]);
+          }
+        }
       } catch (err) {
-        setError('Failed to load form data');
+        setError('Failed to load form data and plans');
+        console.error('Failed to fetch initial data:', err);
       } finally {
         setInitialLoading(false);
       }
@@ -54,21 +72,18 @@ const CreateInstance: React.FC = () => {
     setLoading(true);
     setError('');
 
+    if (!selectedPlan) {
+      setError('Please select a plan');
+      setLoading(false);
+      return;
+    }
+
     try {
-      if (instanceFlow === 'trial') {
-        // Trial flow: Create instance directly (existing flow)
-        const submitData = {
-          ...formData,
-          subdomain: formData.subdomain?.trim() || null,
-          description: formData.description || null,
-        };
-        await instanceAPI.create(submitData);
-        navigate('/instances');
-      } else {
-        // Paid flow: Create subscription with instance configuration
-        const subscriptionData: CreateInstanceWithSubscriptionRequest = {
+      // All plans now go through billing service for proper subscription management and trial eligibility checking
+      // Create subscription with instance configuration through billing service
+      const subscriptionData: CreateInstanceWithSubscriptionRequest = {
           customer_id: formData.customer_id,
-          plan_name: 'basic-immediate',
+          plan_name: selectedPlan.name,
           name: formData.name,
           description: formData.description || null,
           admin_email: formData.admin_email,
@@ -87,9 +102,12 @@ const CreateInstance: React.FC = () => {
         const response = await billingAPI.createInstanceWithSubscription(subscriptionData);
         
         // Show success message with payment instructions
-        alert(`Subscription created! Please pay the invoice to activate your instance. Invoice amount: $${response.data.invoice?.amount || '5.00'}`);
-        navigate('/billing');
-      }
+        const message = selectedPlan.trial_length > 0 
+          ? `Trial subscription created! Your ${selectedPlan.trial_length}-day trial will start immediately.`
+          : `Subscription created! Please pay the invoice to activate your instance. Invoice amount: $${response.data.invoice?.amount || selectedPlan.price || '5.00'}`;
+        
+        alert(message);
+        navigate(selectedPlan.trial_length > 0 ? '/instances' : '/billing');
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 
                           (err.response?.data?.errors ? 
@@ -177,62 +195,73 @@ const CreateInstance: React.FC = () => {
                 </div>
               )}
 
-              {/* Instance Flow Selection */}
+              {/* Plan Selection */}
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Instance Type</h3>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div 
-                    className={`relative rounded-lg border p-4 cursor-pointer hover:bg-gray-50 ${
-                      instanceFlow === 'trial' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-                    }`}
-                    onClick={() => setInstanceFlow('trial')}
-                  >
-                    <div className="flex items-center">
-                      <input
-                        type="radio"
-                        name="instanceFlow"
-                        value="trial"
-                        checked={instanceFlow === 'trial'}
-                        onChange={() => setInstanceFlow('trial')}
-                        className="h-4 w-4 text-blue-600"
-                      />
-                      <div className="ml-3">
-                        <label className="block text-sm font-medium text-gray-900">
-                          Free Trial (14 days)
-                        </label>
-                        <p className="text-sm text-gray-500">
-                          Start immediately with a 14-day free trial
-                        </p>
-                      </div>
-                    </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Select Plan</h3>
+                {plans.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-gray-500">Loading available plans...</p>
                   </div>
-                  
-                  <div 
-                    className={`relative rounded-lg border p-4 cursor-pointer hover:bg-gray-50 ${
-                      instanceFlow === 'paid' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-                    }`}
-                    onClick={() => setInstanceFlow('paid')}
-                  >
-                    <div className="flex items-center">
-                      <input
-                        type="radio"
-                        name="instanceFlow"
-                        value="paid"
-                        checked={instanceFlow === 'paid'}
-                        onChange={() => setInstanceFlow('paid')}
-                        className="h-4 w-4 text-blue-600"
-                      />
-                      <div className="ml-3">
-                        <label className="block text-sm font-medium text-gray-900">
-                          Paid Instance ($5/month)
-                        </label>
-                        <p className="text-sm text-gray-500">
-                          Pay now and activate immediately
-                        </p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {plans.map((plan) => (
+                      <div 
+                        key={plan.name}
+                        className={`relative rounded-lg border p-4 cursor-pointer hover:bg-gray-50 ${
+                          selectedPlan?.name === plan.name ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+                        }`}
+                        onClick={() => setSelectedPlan(plan)}
+                      >
+                        <div className="flex items-start">
+                          <input
+                            type="radio"
+                            name="planSelection"
+                            value={plan.name}
+                            checked={selectedPlan?.name === plan.name}
+                            onChange={() => setSelectedPlan(plan)}
+                            className="h-4 w-4 text-blue-600 mt-1"
+                          />
+                          <div className="ml-3 flex-1">
+                            <label className="block text-sm font-medium text-gray-900">
+                              {plan.product} 
+                              {plan.trial_length > 0 && (
+                                <span className="ml-1 text-green-600">
+                                  ({plan.trial_length} day trial)
+                                </span>
+                              )}
+                            </label>
+                            <p className="text-sm text-gray-500 mt-1">
+                              {plan.description}
+                            </p>
+                            <div className="mt-2">
+                              {plan.trial_length > 0 && plan.price === 0 ? (
+                                <span className="text-lg font-semibold text-green-600">Free Trial</span>
+                              ) : plan.trial_length > 0 ? (
+                                <div>
+                                  <span className="text-sm text-green-600">
+                                    {plan.trial_length} days free
+                                  </span>
+                                  <span className="block text-lg font-semibold text-gray-900">
+                                    ${plan.price}/{plan.billing_period.toLowerCase()}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-lg font-semibold text-gray-900">
+                                  ${plan.price}/{plan.billing_period.toLowerCase()}
+                                </span>
+                              )}
+                            </div>
+                            {plan.fallback && (
+                              <span className="inline-block mt-1 px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded">
+                                Default
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Basic Information */}
@@ -477,7 +506,7 @@ const CreateInstance: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !selectedPlan}
                     className="btn-primary"
                   >
                     {loading ? (
@@ -486,10 +515,16 @@ const CreateInstance: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        {instanceFlow === 'trial' ? 'Creating Trial Instance...' : 'Creating Subscription...'}
+                        {selectedPlan?.trial_length ? 'Creating Trial...' : 'Creating Subscription...'}
                       </span>
                     ) : (
-                      instanceFlow === 'trial' ? 'Create Trial Instance' : 'Create Paid Subscription'
+                      selectedPlan
+                        ? selectedPlan.trial_length > 0 && selectedPlan.price === 0
+                          ? 'Create Trial Instance'
+                          : selectedPlan.trial_length > 0
+                          ? `Start ${selectedPlan.trial_length}-Day Trial`
+                          : `Create Instance - $${selectedPlan.price}/${selectedPlan.billing_period.toLowerCase()}`
+                        : 'Select a Plan'
                     )}
                   </button>
                 </div>

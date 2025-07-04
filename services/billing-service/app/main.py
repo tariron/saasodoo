@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 
-from .routes import accounts, subscriptions, webhooks, payments, invoices, instances
+from .routes import accounts, subscriptions, webhooks, payments, invoices, instances, plans
 from .utils.database import init_db, close_db
 from .utils.killbill_client import KillBillClient
 
@@ -27,8 +27,8 @@ async def lifespan(app: FastAPI):
     # Initialize KillBill client
     app.state.killbill = KillBillClient(
         base_url=os.getenv("KILLBILL_URL", "http://killbill:8080"),
-        api_key=os.getenv("KILLBILL_API_KEY", "lazar"),
-        api_secret=os.getenv("KILLBILL_API_SECRET", "bob"),
+        api_key=os.getenv("KILLBILL_API_KEY", "fresh-tenant"),
+        api_secret=os.getenv("KILLBILL_API_SECRET", "fresh-secret"),
         username=os.getenv("KILLBILL_USERNAME", "admin"),
         password=os.getenv("KILLBILL_PASSWORD", "password")
     )
@@ -72,6 +72,7 @@ app.include_router(subscriptions.router, prefix="/api/billing/subscriptions", ta
 app.include_router(payments.router, prefix="/api/billing/payments", tags=["payments"])
 app.include_router(invoices.router, prefix="/api/billing", tags=["invoices"])
 app.include_router(instances.router, prefix="/api/billing/instances", tags=["instances"])
+app.include_router(plans.router, prefix="/api/billing/plans", tags=["plans"])
 app.include_router(webhooks.router, prefix="/api/billing/webhooks", tags=["webhooks"])
 
 @app.get("/")

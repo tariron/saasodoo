@@ -89,6 +89,7 @@ export interface Instance {
   name: string;
   description: string;
   status: 'creating' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'terminated';
+  billing_status: 'trial' | 'paid';
   external_url: string | null;
   internal_url: string | null;
   database_name: string;

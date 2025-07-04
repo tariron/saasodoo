@@ -78,16 +78,14 @@ const Dashboard: React.FC = () => {
   };
 
   const getSubscriptionInfo = () => {
-    // For per-instance billing, check if any instances have active subscriptions
-    const instancesWithSubscriptions = instances.filter(instance => 
-      billingData?.active_subscriptions?.some(sub => 
-        sub.metadata?.instance_id === instance.id
-      )
+    // Count instances with paid billing status (active subscriptions)
+    const paidInstances = instances.filter(instance => 
+      instance.billing_status === 'paid'
     );
     
-    if (instancesWithSubscriptions.length > 0) {
+    if (paidInstances.length > 0) {
       return {
-        plan: `${instancesWithSubscriptions.length} Instance${instancesWithSubscriptions.length > 1 ? 's' : ''}`,
+        plan: `${paidInstances.length} Instance${paidInstances.length > 1 ? 's' : ''}`,
         status: 'active',
         isActive: true
       };
@@ -432,11 +430,9 @@ const Dashboard: React.FC = () => {
                             {instance.status}
                           </span>
                           {/* Instance billing status badge */}
-                          {billingData?.active_subscriptions?.some(sub => 
-                            sub.metadata?.instance_id === instance.id
-                          ) ? (
+                          {instance.billing_status === 'paid' ? (
                             <span className="px-2 py-1 text-xs font-medium rounded-full text-green-600 bg-green-100">
-                              Billed
+                              Paid
                             </span>
                           ) : (
                             <span className="px-2 py-1 text-xs font-medium rounded-full text-yellow-600 bg-yellow-100">
