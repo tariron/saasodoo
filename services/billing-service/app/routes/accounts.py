@@ -4,9 +4,12 @@ Handles KillBill account management
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 from pydantic import BaseModel
+from datetime import datetime
+import httpx
+import os
 
 from ..utils.killbill_client import KillBillClient
 
@@ -30,6 +33,26 @@ class CreateAccountResponse(BaseModel):
 def get_killbill_client(request: Request) -> KillBillClient:
     """Dependency to get KillBill client"""
     return request.app.state.killbill
+
+async def get_customer_instances(customer_id: str) -> List[Dict[str, Any]]:
+    """Get instances for a customer from instance service"""
+    try:
+        instance_service_url = os.getenv("INSTANCE_SERVICE_URL", "http://instance-service:8003")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{instance_service_url}/api/v1/instances/",
+                params={"customer_id": customer_id},
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("instances", [])
+            else:
+                logger.warning(f"Failed to get instances for customer {customer_id}: {response.status_code}")
+                return []
+    except Exception as e:
+        logger.warning(f"Failed to connect to instance service for customer {customer_id}: {e}")
+        return []
 
 @router.post("/", response_model=CreateAccountResponse)
 async def create_account(
@@ -93,3 +116,174 @@ async def get_account(
     except Exception as e:
         logger.error(f"Failed to get account for customer {customer_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve account")
+
+@router.get("/overview/{customer_id}")
+async def get_billing_overview(
+    customer_id: str,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Get comprehensive billing overview for a customer with per-instance information"""
+    try:
+        # Get customer's KillBill account
+        account = await killbill.get_account_by_external_key(customer_id)
+        if not account:
+            raise HTTPException(status_code=404, detail="Customer account not found")
+        
+        account_id = account.get("accountId")
+        logger.info(f"Getting billing overview for customer {customer_id}, account {account_id}")
+        
+        # Get subscriptions with instance metadata
+        subscriptions = await killbill.get_account_subscriptions(account_id)
+        
+        # Get customer instances for linking with subscriptions
+        customer_instances = await get_customer_instances(customer_id)
+        
+        # Get account balance from KillBill
+        account_balance = 0.0
+        try:
+            balance_info = await killbill.get_account_balance(account_id)
+            account_balance = balance_info.get('accountBalance', 0.0) if balance_info else 0.0
+        except Exception as e:
+            logger.warning(f"Failed to get account balance for {account_id}: {e}")
+        
+        # Process subscriptions and extract trial info with per-instance linking
+        active_subscriptions = []
+        trial_info = None
+        next_billing_date = None
+        next_billing_amount = 0.0
+        
+        # Create instance lookup for faster matching
+        instance_lookup = {instance['id']: instance for instance in customer_instances}
+        
+        for sub in subscriptions:
+            if sub.get('state') == 'ACTIVE':
+                # Get subscription metadata to find linked instance
+                subscription_metadata = {}
+                try:
+                    subscription_metadata = await killbill.get_subscription_metadata(sub.get('subscriptionId', ''))
+                except Exception as e:
+                    logger.warning(f"Failed to get metadata for subscription {sub.get('subscriptionId')}: {e}")
+                
+                # Find linked instance
+                instance_id = subscription_metadata.get('instance_id')
+                linked_instance = None
+                if instance_id and instance_id in instance_lookup:
+                    linked_instance = instance_lookup[instance_id]
+                
+                subscription_data = {
+                    'id': sub.get('subscriptionId'),
+                    'account_id': account_id,
+                    'plan_name': sub.get('planName'),
+                    'product_name': sub.get('productName', sub.get('planName')),
+                    'product_category': sub.get('productCategory', 'SAAS'),
+                    'billing_period': sub.get('billingPeriod', 'MONTHLY'),
+                    'state': sub.get('state'),
+                    'start_date': sub.get('startDate'),
+                    'charged_through_date': sub.get('chargedThroughDate'),
+                    'billing_start_date': sub.get('billingStartDate'),
+                    'billing_end_date': sub.get('billingEndDate'),
+                    'trial_start_date': sub.get('trialStartDate'),
+                    'trial_end_date': sub.get('trialEndDate'),
+                    'metadata': subscription_metadata,
+                    'created_at': sub.get('createdDate'),
+                    'updated_at': sub.get('updatedDate'),
+                    # Per-instance information
+                    'instance_id': instance_id,
+                    'instance_name': linked_instance.get('name') if linked_instance else None,
+                    'instance_status': linked_instance.get('status') if linked_instance else None,
+                    'instance_billing_status': linked_instance.get('billing_status') if linked_instance else None
+                }
+                
+                active_subscriptions.append(subscription_data)
+                
+                # Check for trial phase
+                phase_type = sub.get('phaseType')
+                if phase_type == 'TRIAL' and sub.get('trialEndDate'):
+                    trial_end_date = sub.get('trialEndDate')
+                    try:
+                        trial_end = datetime.fromisoformat(trial_end_date.replace('Z', '+00:00'))
+                        now = datetime.now(trial_end.tzinfo)
+                        days_remaining = max(0, (trial_end - now).days)
+                        
+                        trial_info = {
+                            'is_trial': True,
+                            'trial_end_date': trial_end_date,
+                            'days_remaining': days_remaining
+                        }
+                    except Exception as e:
+                        logger.warning(f"Failed to parse trial date {trial_end_date}: {e}")
+                
+                # Calculate next billing
+                if sub.get('chargedThroughDate') and not phase_type == 'TRIAL':
+                    try:
+                        charged_through = datetime.fromisoformat(sub.get('chargedThroughDate').replace('Z', '+00:00'))
+                        if not next_billing_date or charged_through < next_billing_date:
+                            next_billing_date = charged_through
+                            # Estimate billing amount (in real implementation, get from KillBill plan)
+                            next_billing_amount += 25.0  # Default amount
+                    except Exception as e:
+                        logger.warning(f"Failed to parse charged through date: {e}")
+        
+        # Get recent invoices from KillBill
+        recent_invoices = []
+        try:
+            recent_invoices = await killbill.get_account_invoices(account_id, limit=5)
+        except Exception as e:
+            logger.warning(f"Failed to get invoices for {account_id}: {e}")
+        
+        # Get payment methods from KillBill
+        payment_methods = []
+        try:
+            payment_methods = await killbill.get_account_payment_methods(account_id)
+        except Exception as e:
+            logger.warning(f"Failed to get payment methods for {account_id}: {e}")
+        
+        # Format account info
+        billing_account = {
+            'id': account_id,
+            'customer_id': customer_id,
+            'external_key': customer_id,
+            'name': account.get('name', ''),
+            'email': account.get('email', ''),
+            'currency': account.get('currency', 'USD'),
+            'company': account.get('company'),
+            'created_at': account.get('createdDate'),
+            'updated_at': account.get('updatedDate')
+        }
+        
+        # Calculate instance billing summary
+        total_instances = len(customer_instances)
+        trial_instances = len([i for i in customer_instances if i.get('billing_status') == 'trial'])
+        paid_instances = len([i for i in customer_instances if i.get('billing_status') == 'paid'])
+        
+        instance_summary = {
+            'total_instances': total_instances,
+            'trial_instances': trial_instances,
+            'paid_instances': paid_instances,
+            'instances_with_subscriptions': len([s for s in active_subscriptions if s.get('instance_id')])
+        }
+        
+        # Build comprehensive billing overview with per-instance data
+        billing_overview = {
+            'account': billing_account,
+            'active_subscriptions': active_subscriptions,
+            'recent_invoices': recent_invoices,
+            'next_billing_date': next_billing_date.isoformat() if next_billing_date else None,
+            'next_billing_amount': next_billing_amount if next_billing_amount > 0 else None,
+            'payment_methods': payment_methods,
+            'account_balance': account_balance,
+            'trial_info': trial_info,
+            'instance_summary': instance_summary,
+            'customer_instances': customer_instances
+        }
+        
+        return {
+            "success": True,
+            "data": billing_overview
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get billing overview for customer {customer_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve billing overview: {str(e)}")

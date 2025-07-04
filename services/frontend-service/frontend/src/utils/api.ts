@@ -385,7 +385,7 @@ export const billingAPI = {
   
   // Billing Overview
   getBillingOverview: (customerId: string): Promise<AxiosResponse<{success: boolean, data: BillingOverview}>> => 
-    api.get(`/billing/api/billing/overview/${customerId}`),
+    api.get(`/billing/api/billing/accounts/overview/${customerId}`),
   
   // Instance with Subscription Creation
   createInstanceWithSubscription: (data: CreateInstanceWithSubscriptionRequest): Promise<AxiosResponse<CreateInstanceWithSubscriptionResponse>> =>

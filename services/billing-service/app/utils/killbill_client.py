@@ -472,3 +472,96 @@ class KillBillClient:
                     "fallback": True
                 }
             ]
+    
+    async def get_account_balance(self, account_id: str) -> Optional[Dict[str, Any]]:
+        """Get account balance from KillBill"""
+        try:
+            endpoint = f"/1.0/kb/accounts/{account_id}"
+            response = await self._make_request("GET", endpoint)
+            
+            if response:
+                return {
+                    'accountBalance': response.get('accountBalance', 0.0),
+                    'accountCBA': response.get('accountCBA', 0.0),
+                    'currency': response.get('currency', 'USD')
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get account balance for {account_id}: {e}")
+            return None
+    
+    async def get_account_invoices(self, account_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get invoices for an account from KillBill"""
+        try:
+            endpoint = f"/1.0/kb/accounts/{account_id}/invoices"
+            params = {"withItems": "true", "audit": "NONE"}
+            
+            response = await self._make_request("GET", endpoint, params=params)
+            
+            invoices = []
+            if isinstance(response, list):
+                # Sort by invoice date (most recent first) and limit
+                sorted_invoices = sorted(response, key=lambda x: x.get('invoiceDate', ''), reverse=True)
+                
+                for invoice in sorted_invoices[:limit]:
+                    invoice_data = {
+                        'id': invoice.get('invoiceId'),
+                        'account_id': account_id,
+                        'invoice_number': invoice.get('invoiceNumber'),
+                        'invoice_date': invoice.get('invoiceDate'),
+                        'target_date': invoice.get('targetDate'),
+                        'amount': float(invoice.get('amount', 0)),
+                        'currency': invoice.get('currency', 'USD'),
+                        'status': invoice.get('status', 'DRAFT'),
+                        'balance': float(invoice.get('balance', 0)),
+                        'credit_adj': float(invoice.get('creditAdj', 0)),
+                        'refund_adj': float(invoice.get('refundAdj', 0)),
+                        'created_at': invoice.get('createdDate'),
+                        'updated_at': invoice.get('updatedDate')
+                    }
+                    invoices.append(invoice_data)
+            
+            logger.info(f"Retrieved {len(invoices)} invoices for account {account_id}")
+            return invoices
+            
+        except Exception as e:
+            logger.error(f"Failed to get invoices for account {account_id}: {e}")
+            return []
+    
+    async def get_account_payment_methods(self, account_id: str) -> List[Dict[str, Any]]:
+        """Get payment methods for an account from KillBill"""
+        try:
+            endpoint = f"/1.0/kb/accounts/{account_id}/paymentMethods"
+            response = await self._make_request("GET", endpoint)
+            
+            payment_methods = []
+            if isinstance(response, list):
+                for pm in response:
+                    plugin_info = pm.get('pluginInfo', {})
+                    
+                    payment_method_data = {
+                        'id': pm.get('paymentMethodId'),
+                        'account_id': account_id,
+                        'plugin_name': pm.get('pluginName', 'unknown'),
+                        'is_default': pm.get('isDefault', False),
+                        'plugin_info': {
+                            'type': plugin_info.get('type', 'UNKNOWN'),
+                            'card_type': plugin_info.get('ccType'),
+                            'exp_month': plugin_info.get('ccExpirationMonth'),
+                            'exp_year': plugin_info.get('ccExpirationYear'),
+                            'last_4': plugin_info.get('ccLast4'),
+                            'email': plugin_info.get('email'),
+                            'account_name': plugin_info.get('accountName')
+                        },
+                        'created_at': pm.get('createdDate'),
+                        'updated_at': pm.get('updatedDate')
+                    }
+                    payment_methods.append(payment_method_data)
+            
+            logger.info(f"Retrieved {len(payment_methods)} payment methods for account {account_id}")
+            return payment_methods
+            
+        except Exception as e:
+            logger.error(f"Failed to get payment methods for account {account_id}: {e}")
+            return []

@@ -32,6 +32,11 @@ export interface Subscription {
   };
   created_at: string;
   updated_at: string;
+  // Per-instance information
+  instance_id?: string;
+  instance_name?: string;
+  instance_status?: string;
+  instance_billing_status?: 'trial' | 'paid';
 }
 
 export interface Invoice {
@@ -134,6 +139,23 @@ export interface CreatePaymentMethodRequest {
   is_default?: boolean;
 }
 
+export interface InstanceSummary {
+  total_instances: number;
+  trial_instances: number;
+  paid_instances: number;
+  instances_with_subscriptions: number;
+}
+
+export interface CustomerInstance {
+  id: string;
+  name: string;
+  status: string;
+  instance_type: string;
+  billing_status: 'trial' | 'paid';
+  created_at: string;
+  [key: string]: any;
+}
+
 export interface BillingOverview {
   account: BillingAccount;
   active_subscriptions: Subscription[];
@@ -147,6 +169,8 @@ export interface BillingOverview {
     trial_end_date?: string;
     days_remaining?: number;
   };
+  instance_summary?: InstanceSummary;
+  customer_instances?: CustomerInstance[];
 }
 
 // API Response types

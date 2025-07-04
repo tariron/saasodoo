@@ -90,8 +90,8 @@ async def get_payment_methods(
         
         logger.info(f"Retrieving payment methods for customer {customer_id}")
         
-        # For now, return empty list (in real implementation, fetch from KillBill)
-        payment_methods = []
+        # Get real payment methods from KillBill
+        payment_methods = await killbill.get_account_payment_methods(account_id)
         
         return {
             "success": True,

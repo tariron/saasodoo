@@ -39,8 +39,8 @@ async def get_customer_invoices(
         
         logger.info(f"Retrieving invoices for customer {customer_id}")
         
-        # For now, return empty list (in real implementation, fetch from KillBill)
-        invoices = []
+        # Get real invoices from KillBill
+        invoices = await killbill.get_account_invoices(account_id, limit=limit)
         
         return {
             "success": True,

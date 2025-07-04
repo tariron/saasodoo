@@ -169,6 +169,93 @@ const Billing: React.FC = () => {
         </div>
       )}
 
+      {/* Per-Instance Billing Summary */}
+      {billingData?.instance_summary && (
+        <div className="bg-white shadow rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Instance Billing Summary</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">
+                {billingData.instance_summary.total_instances}
+              </div>
+              <div className="text-sm text-gray-600">Total Instances</div>
+            </div>
+            <div className="text-center p-4 bg-yellow-50 rounded-lg">
+              <div className="text-2xl font-bold text-yellow-600">
+                {billingData.instance_summary.trial_instances}
+              </div>
+              <div className="text-sm text-gray-600">Trial Instances</div>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600">
+                {billingData.instance_summary.paid_instances}
+              </div>
+              <div className="text-sm text-gray-600">Paid Instances</div>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600">
+                {billingData.instance_summary.instances_with_subscriptions}
+              </div>
+              <div className="text-sm text-gray-600">With Subscriptions</div>
+            </div>
+          </div>
+          
+          {/* Instance Details */}
+          {billingData.customer_instances && billingData.customer_instances.length > 0 && (
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Instance Billing Details</h3>
+              <div className="space-y-3">
+                {billingData.customer_instances.map((instance: any) => {
+                  // Find linked subscription
+                  const linkedSubscription = billingData.active_subscriptions.find(
+                    (sub: any) => sub.instance_id === instance.id
+                  );
+                  
+                  return (
+                    <div key={instance.id} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center mr-3">
+                            <span className="text-primary-600 font-medium text-xs">
+                              {instance.name[0].toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-gray-900">{instance.name}</h4>
+                            <p className="text-sm text-gray-600">
+                              Status: {instance.status} • Type: {instance.instance_type}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            instance.billing_status === 'paid' 
+                              ? 'text-green-600 bg-green-100' 
+                              : 'text-yellow-600 bg-yellow-100'
+                          }`}>
+                            {instance.billing_status === 'paid' ? 'Paid' : 'Trial'}
+                          </span>
+                          {linkedSubscription && (
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-gray-900">
+                                {linkedSubscription.plan_name}
+                              </p>
+                              <p className="text-xs text-gray-600">
+                                {linkedSubscription.billing_period}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Active Subscriptions */}
         <div className="bg-white shadow rounded-lg p-6">
