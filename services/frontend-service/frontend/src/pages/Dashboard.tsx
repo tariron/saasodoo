@@ -296,17 +296,13 @@ const Dashboard: React.FC = () => {
                   </div>
                   <div className="text-center p-4 bg-green-50 rounded-lg">
                     <div className="text-2xl font-bold text-green-600">
-                      {billingData.active_subscriptions?.filter(sub => 
-                        instances.some(instance => instance.id === sub.metadata?.instance_id)
-                      ).length || 0}
+                      {instances.filter(instance => instance.billing_status === 'paid').length}
                     </div>
                     <div className="text-sm text-gray-600">Billed Instances</div>
                   </div>
                   <div className="text-center p-4 bg-purple-50 rounded-lg">
                     <div className="text-2xl font-bold text-purple-600">
-                      {instances.length - (billingData.active_subscriptions?.filter(sub => 
-                        instances.some(instance => instance.id === sub.metadata?.instance_id)
-                      ).length || 0)}
+                      {instances.filter(instance => instance.billing_status === 'trial').length}
                     </div>
                     <div className="text-sm text-gray-600">Trial Instances</div>
                   </div>

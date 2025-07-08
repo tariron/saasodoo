@@ -53,6 +53,9 @@ export interface Invoice {
   refund_adj: number;
   created_at: string;
   updated_at: string;
+  subscription_id?: string; // For linking invoices to subscriptions
+  payments?: Payment[]; // Payment data for this invoice
+  payment_status?: 'paid' | 'unpaid' | 'no_payments'; // Payment status summary
 }
 
 export interface InvoiceItem {
@@ -139,19 +142,13 @@ export interface CreatePaymentMethodRequest {
   is_default?: boolean;
 }
 
-export interface InstanceSummary {
-  total_instances: number;
-  trial_instances: number;
-  paid_instances: number;
-  instances_with_subscriptions: number;
-}
-
 export interface CustomerInstance {
   id: string;
   name: string;
   status: string;
   instance_type: string;
   billing_status: 'trial' | 'paid';
+  external_url?: string;
   created_at: string;
   [key: string]: any;
 }
@@ -169,7 +166,6 @@ export interface BillingOverview {
     trial_end_date?: string;
     days_remaining?: number;
   };
-  instance_summary?: InstanceSummary;
   customer_instances?: CustomerInstance[];
 }
 

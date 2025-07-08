@@ -565,3 +565,33 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get payment methods for account {account_id}: {e}")
             return []
+    
+    async def get_invoice_payments(self, invoice_id: str) -> List[Dict[str, Any]]:
+        """Get payments for a specific invoice from KillBill"""
+        try:
+            endpoint = f"/1.0/kb/invoices/{invoice_id}/payments"
+            response = await self._make_request("GET", endpoint)
+            
+            payments = []
+            if isinstance(response, list):
+                for payment in response:
+                    payment_data = {
+                        'id': payment.get('paymentId'),
+                        'invoice_id': invoice_id,
+                        'amount': float(payment.get('purchasedAmount', 0)),
+                        'currency': payment.get('currency', 'USD'),
+                        'status': payment.get('status', 'UNKNOWN'),
+                        'payment_method_id': payment.get('paymentMethodId'),
+                        'gateway_error_code': payment.get('gatewayErrorCode'),
+                        'gateway_error_msg': payment.get('gatewayErrorMsg'),
+                        'created_at': payment.get('createdDate'),
+                        'updated_at': payment.get('updatedDate')
+                    }
+                    payments.append(payment_data)
+            
+            logger.info(f"Retrieved {len(payments)} payments for invoice {invoice_id}")
+            return payments
+            
+        except Exception as e:
+            logger.error(f"Failed to get payments for invoice {invoice_id}: {e}")
+            return []

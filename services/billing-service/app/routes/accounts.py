@@ -224,12 +224,93 @@ async def get_billing_overview(
                     except Exception as e:
                         logger.warning(f"Failed to parse charged through date: {e}")
         
-        # Get recent invoices from KillBill
+        # Get invoices and payments using instance-driven approach
+        # Build invoice data by linking: Instance → Subscription → Invoice → Payment
         recent_invoices = []
+        processed_subscription_ids = set()  # Avoid duplicate invoices for subscriptions
+        
         try:
-            recent_invoices = await killbill.get_account_invoices(account_id, limit=5)
+            # For each instance, find its subscription and get invoice/payment data
+            for instance in customer_instances:
+                instance_id = instance['id']
+                logger.info(f"Processing payment data for instance {instance_id}")
+                
+                # Find the subscription linked to this instance
+                linked_subscription = None
+                for sub in active_subscriptions:
+                    if sub.get('instance_id') == instance_id:
+                        linked_subscription = sub
+                        break
+                
+                if not linked_subscription:
+                    logger.info(f"No subscription found for instance {instance_id}")
+                    continue
+                
+                subscription_id = linked_subscription.get('id')
+                if subscription_id in processed_subscription_ids:
+                    logger.info(f"Already processed invoices for subscription {subscription_id}")
+                    continue
+                
+                processed_subscription_ids.add(subscription_id)
+                logger.info(f"Getting invoices for subscription {subscription_id} linked to instance {instance_id}")
+                
+                # Get invoices specifically for this subscription
+                try:
+                    # For now, get all account invoices and filter by subscription
+                    # TODO: Implement get_subscription_invoices method in KillBill client if available
+                    all_account_invoices = await killbill.get_account_invoices(account_id, limit=20)
+                    
+                    for invoice in all_account_invoices:
+                        # Check if this invoice is for our subscription
+                        invoice_subscription_id = None
+                        try:
+                            invoice_subscription_id = await killbill.get_subscription_id_from_invoice(invoice['id'])
+                        except Exception as e:
+                            logger.warning(f"Failed to get subscription ID for invoice {invoice['id']}: {e}")
+                            continue
+                        
+                        if invoice_subscription_id != subscription_id:
+                            continue  # This invoice is for a different subscription
+                        
+                        logger.info(f"Found invoice {invoice['id']} for subscription {subscription_id}")
+                        
+                        # Get payment data for this invoice
+                        payments = []
+                        try:
+                            payments = await killbill.get_invoice_payments(invoice['id'])
+                            logger.info(f"Found {len(payments)} payments for invoice {invoice['id']}")
+                        except Exception as e:
+                            logger.warning(f"Failed to get payments for invoice {invoice['id']}: {e}")
+                        
+                        # Determine payment status with enhanced logic
+                        payment_status = 'no_payments'
+                        if any(p.get('status') == 'SUCCESS' for p in payments):
+                            payment_status = 'paid'
+                        elif payments:
+                            payment_status = 'unpaid'
+                        elif instance.get('billing_status') == 'paid':
+                            # If instance is marked as paid but no payment records exist,
+                            # likely processed outside of KillBill payment system
+                            payment_status = 'paid'
+                            logger.info(f"No payment records for invoice {invoice['id']}, but instance {instance_id} is marked as paid")
+                        
+                        # Add subscription_id and payment data to invoice
+                        invoice_with_data = invoice.copy()
+                        invoice_with_data['subscription_id'] = subscription_id
+                        invoice_with_data['payments'] = payments
+                        invoice_with_data['payment_status'] = payment_status
+                        invoice_with_data['instance_id'] = instance_id  # Add instance linkage
+                        recent_invoices.append(invoice_with_data)
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to get invoices for subscription {subscription_id}: {e}")
+            
+            # Sort invoices by date (most recent first)
+            recent_invoices.sort(key=lambda x: x.get('invoice_date', ''), reverse=True)
+            logger.info(f"Built {len(recent_invoices)} invoices with instance-driven linking")
+                
         except Exception as e:
-            logger.warning(f"Failed to get invoices for {account_id}: {e}")
+            logger.warning(f"Failed to build instance-driven invoices for {account_id}: {e}")
         
         # Get payment methods from KillBill
         payment_methods = []
@@ -251,18 +332,6 @@ async def get_billing_overview(
             'updated_at': account.get('updatedDate')
         }
         
-        # Calculate instance billing summary
-        total_instances = len(customer_instances)
-        trial_instances = len([i for i in customer_instances if i.get('billing_status') == 'trial'])
-        paid_instances = len([i for i in customer_instances if i.get('billing_status') == 'paid'])
-        
-        instance_summary = {
-            'total_instances': total_instances,
-            'trial_instances': trial_instances,
-            'paid_instances': paid_instances,
-            'instances_with_subscriptions': len([s for s in active_subscriptions if s.get('instance_id')])
-        }
-        
         # Build comprehensive billing overview with per-instance data
         billing_overview = {
             'account': billing_account,
@@ -273,7 +342,6 @@ async def get_billing_overview(
             'payment_methods': payment_methods,
             'account_balance': account_balance,
             'trial_info': trial_info,
-            'instance_summary': instance_summary,
             'customer_instances': customer_instances
         }
         
