@@ -194,7 +194,7 @@ const Billing: React.FC = () => {
                       Subscription
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Latest Invoice
+                      Invoices & Payments
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Payment Status
@@ -206,16 +206,20 @@ const Billing: React.FC = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {billingData.customer_instances.map((instance: any) => {
-                    // Find linked subscription
+                    // Find linked subscription using multiple methods
                     const linkedSubscription = billingData.active_subscriptions.find(
-                      (sub: any) => sub.instance_id === instance.id
+                      (sub: any) => sub.instance_id === instance.id || sub.id === instance.subscription_id
                     );
                     
-                    // Find latest invoice for this subscription
-                    const latestInvoice = linkedSubscription ? 
-                      billingData.recent_invoices.find((invoice: any) => 
-                        invoice.subscription_id === linkedSubscription.id
-                      ) : null;
+                    // Find all invoices for this instance using simplified logic
+                    const instanceInvoices = billingData.recent_invoices
+                      .filter((invoice: any) => {
+                        // Try multiple linking methods
+                        return invoice.instance_id === instance.id || 
+                               invoice.subscription_id === instance.subscription_id ||
+                               (linkedSubscription && invoice.subscription_id === linkedSubscription.id);
+                      })
+                      .sort((a: any, b: any) => new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime());
                     
                     return (
                       <tr key={instance.id} className="hover:bg-gray-50">
@@ -271,19 +275,43 @@ const Billing: React.FC = () => {
                           )}
                         </td>
                         
-                        {/* Latest Invoice Column */}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {latestInvoice ? (
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">
-                                {formatCurrency(latestInvoice.amount, latestInvoice.currency)}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {formatDate(latestInvoice.invoice_date)}
-                              </div>
-                              <span className={`text-xs px-2 py-1 rounded-full ${getInvoiceStatusColor(latestInvoice.status)}`}>
-                                {latestInvoice.status}
-                              </span>
+                        {/* Invoices & Payments Column */}
+                        <td className="px-6 py-4">
+                          {instanceInvoices.length > 0 ? (
+                            <div className="space-y-2">
+                              {instanceInvoices.map((invoice: any) => (
+                                <div key={invoice.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2">
+                                      <div className="text-sm font-medium text-gray-900">
+                                        {formatCurrency(invoice.amount, invoice.currency)}
+                                      </div>
+                                      {invoice.amount === 0 && (
+                                        <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full">
+                                          Trial
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {formatDate(invoice.invoice_date)} • #{invoice.invoice_number}
+                                    </div>
+                                    <div className="flex items-center space-x-2 mt-1">
+                                      <span className={`text-xs px-2 py-1 rounded-full ${getInvoiceStatusColor(invoice.status)}`}>
+                                        {invoice.status}
+                                      </span>
+                                      <span className={`text-xs px-2 py-1 rounded-full ${
+                                        invoice.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                                        invoice.payment_status === 'unpaid' ? 'bg-orange-100 text-orange-800' :
+                                        'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {invoice.payment_status === 'paid' ? 'Paid' :
+                                         invoice.payment_status === 'unpaid' ? 'Unpaid' :
+                                         'No Payment'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           ) : (
                             <div className="text-sm text-gray-500">No invoices</div>
@@ -292,29 +320,40 @@ const Billing: React.FC = () => {
                         
                         {/* Payment Status Column */}
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {latestInvoice ? (
+                          {instanceInvoices.length > 0 ? (
                             <div>
-                              <div className={`text-sm font-medium ${
-                                latestInvoice.payment_status === 'paid' ? 'text-green-600' :
-                                latestInvoice.payment_status === 'unpaid' ? 'text-orange-600' :
-                                latestInvoice.payment_status === 'no_payments' ? 'text-gray-600' :
-                                'text-gray-600'
-                              }`}>
-                                {latestInvoice.payment_status === 'paid' ? 'Paid' :
-                                 latestInvoice.payment_status === 'unpaid' ? 'Unpaid' :
-                                 latestInvoice.payment_status === 'no_payments' ? 'No Payments' :
-                                 'Unknown'}
-                              </div>
-                              {latestInvoice.payments && latestInvoice.payments.length > 0 && (
-                                <div className="text-xs text-gray-500">
-                                  {latestInvoice.payments.length} payment(s)
-                                </div>
-                              )}
-                              {latestInvoice.balance > 0 && (
-                                <div className="text-xs text-gray-500">
-                                  Balance: {formatCurrency(latestInvoice.balance, latestInvoice.currency)}
-                                </div>
-                              )}
+                              {(() => {
+                                const paidInvoices = instanceInvoices.filter((inv: any) => inv.payment_status === 'paid');
+                                const unpaidInvoices = instanceInvoices.filter((inv: any) => inv.payment_status === 'unpaid');
+                                const totalPaid = paidInvoices.reduce((sum: number, inv: any) => sum + inv.amount, 0);
+                                const totalUnpaid = unpaidInvoices.reduce((sum: number, inv: any) => sum + inv.amount, 0);
+                                const totalBalance = instanceInvoices.reduce((sum: number, inv: any) => sum + inv.balance, 0);
+                                
+                                return (
+                                  <div className="space-y-1">
+                                    {paidInvoices.length > 0 && (
+                                      <div className="text-xs text-green-600">
+                                        {paidInvoices.length} paid • {formatCurrency(totalPaid)}
+                                      </div>
+                                    )}
+                                    {unpaidInvoices.length > 0 && (
+                                      <div className="text-xs text-orange-600">
+                                        {unpaidInvoices.length} unpaid • {formatCurrency(totalUnpaid)}
+                                      </div>
+                                    )}
+                                    {totalBalance > 0 && (
+                                      <div className="text-xs text-gray-600">
+                                        Balance: {formatCurrency(totalBalance)}
+                                      </div>
+                                    )}
+                                    {instanceInvoices.length === 1 && instanceInvoices[0].amount === 0 && (
+                                      <div className="text-xs text-yellow-600">
+                                        Trial Period
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           ) : (
                             <div className="text-sm text-gray-500">No invoices</div>

@@ -224,93 +224,68 @@ async def get_billing_overview(
                     except Exception as e:
                         logger.warning(f"Failed to parse charged through date: {e}")
         
-        # Get invoices and payments using instance-driven approach
-        # Build invoice data by linking: Instance → Subscription → Invoice → Payment
+        # Get all invoices for the account using direct approach
         recent_invoices = []
-        processed_subscription_ids = set()  # Avoid duplicate invoices for subscriptions
         
         try:
-            # For each instance, find its subscription and get invoice/payment data
-            for instance in customer_instances:
-                instance_id = instance['id']
-                logger.info(f"Processing payment data for instance {instance_id}")
+            # Fetch all invoices for the account directly
+            all_invoices = await killbill.get_account_invoices(account_id, limit=20)
+            logger.info(f"Retrieved {len(all_invoices)} invoices for account {account_id}")
+            
+            for invoice in all_invoices:
+                invoice_id = invoice.get('id')
                 
-                # Find the subscription linked to this instance
-                linked_subscription = None
+                # Get subscription ID from invoice
+                subscription_id = None
+                try:
+                    subscription_id = await killbill.get_subscription_id_from_invoice(invoice_id)
+                    logger.info(f"DEBUG - Invoice {invoice_id} extracted subscription_id: {subscription_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to get subscription ID for invoice {invoice_id}: {e}")
+                
+                # Find linked instance if subscription exists
+                instance_id = None
                 for sub in active_subscriptions:
-                    if sub.get('instance_id') == instance_id:
-                        linked_subscription = sub
+                    logger.info(f"DEBUG - Checking subscription {sub.get('id')} == {subscription_id}")
+                    if sub.get('id') == subscription_id:
+                        instance_id = sub.get('instance_id')
+                        logger.info(f"DEBUG - Found matching subscription, instance_id: {instance_id}")
                         break
                 
-                if not linked_subscription:
-                    logger.info(f"No subscription found for instance {instance_id}")
-                    continue
-                
-                subscription_id = linked_subscription.get('id')
-                if subscription_id in processed_subscription_ids:
-                    logger.info(f"Already processed invoices for subscription {subscription_id}")
-                    continue
-                
-                processed_subscription_ids.add(subscription_id)
-                logger.info(f"Getting invoices for subscription {subscription_id} linked to instance {instance_id}")
-                
-                # Get invoices specifically for this subscription
+                # Get payment data for this invoice
+                payments = []
                 try:
-                    # For now, get all account invoices and filter by subscription
-                    # TODO: Implement get_subscription_invoices method in KillBill client if available
-                    all_account_invoices = await killbill.get_account_invoices(account_id, limit=20)
-                    
-                    for invoice in all_account_invoices:
-                        # Check if this invoice is for our subscription
-                        invoice_subscription_id = None
-                        try:
-                            invoice_subscription_id = await killbill.get_subscription_id_from_invoice(invoice['id'])
-                        except Exception as e:
-                            logger.warning(f"Failed to get subscription ID for invoice {invoice['id']}: {e}")
-                            continue
-                        
-                        if invoice_subscription_id != subscription_id:
-                            continue  # This invoice is for a different subscription
-                        
-                        logger.info(f"Found invoice {invoice['id']} for subscription {subscription_id}")
-                        
-                        # Get payment data for this invoice
-                        payments = []
-                        try:
-                            payments = await killbill.get_invoice_payments(invoice['id'])
-                            logger.info(f"Found {len(payments)} payments for invoice {invoice['id']}")
-                        except Exception as e:
-                            logger.warning(f"Failed to get payments for invoice {invoice['id']}: {e}")
-                        
-                        # Determine payment status with enhanced logic
-                        payment_status = 'no_payments'
-                        if any(p.get('status') == 'SUCCESS' for p in payments):
-                            payment_status = 'paid'
-                        elif payments:
-                            payment_status = 'unpaid'
-                        elif instance.get('billing_status') == 'paid':
-                            # If instance is marked as paid but no payment records exist,
-                            # likely processed outside of KillBill payment system
-                            payment_status = 'paid'
-                            logger.info(f"No payment records for invoice {invoice['id']}, but instance {instance_id} is marked as paid")
-                        
-                        # Add subscription_id and payment data to invoice
-                        invoice_with_data = invoice.copy()
-                        invoice_with_data['subscription_id'] = subscription_id
-                        invoice_with_data['payments'] = payments
-                        invoice_with_data['payment_status'] = payment_status
-                        invoice_with_data['instance_id'] = instance_id  # Add instance linkage
-                        recent_invoices.append(invoice_with_data)
-                        
+                    payments = await killbill.get_invoice_payments(invoice_id)
+                    logger.info(f"Found {len(payments)} payments for invoice {invoice_id}")
                 except Exception as e:
-                    logger.warning(f"Failed to get invoices for subscription {subscription_id}: {e}")
+                    logger.warning(f"Failed to get payments for invoice {invoice_id}: {e}")
+                
+                # Determine payment status
+                payment_status = 'no_payments'
+                if any(p.get('status') == 'SUCCESS' for p in payments):
+                    payment_status = 'paid'
+                elif payments:
+                    payment_status = 'unpaid'
+                
+                # Add subscription_id and payment data to invoice
+                invoice_with_data = invoice.copy()
+                invoice_with_data['subscription_id'] = subscription_id
+                invoice_with_data['payments'] = payments
+                invoice_with_data['payment_status'] = payment_status
+                invoice_with_data['instance_id'] = instance_id
+                recent_invoices.append(invoice_with_data)
             
             # Sort invoices by date (most recent first)
             recent_invoices.sort(key=lambda x: x.get('invoice_date', ''), reverse=True)
-            logger.info(f"Built {len(recent_invoices)} invoices with instance-driven linking")
+            logger.info(f"Built {len(recent_invoices)} invoices with direct fetching")
+            
+            # DEBUG: Log all invoice data being returned
+            logger.info("DEBUG - Final invoice data:")
+            for invoice in recent_invoices:
+                logger.info(f"  Invoice {invoice.get('id')} - Amount: {invoice.get('amount')}, Subscription: {invoice.get('subscription_id')}, Instance: {invoice.get('instance_id')}, Payment Status: {invoice.get('payment_status')}")
                 
         except Exception as e:
-            logger.warning(f"Failed to build instance-driven invoices for {account_id}: {e}")
+            logger.warning(f"Failed to get invoices for account {account_id}: {e}")
         
         # Get payment methods from KillBill
         payment_methods = []

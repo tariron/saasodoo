@@ -308,7 +308,28 @@ class KillBillClient:
             logger.info(f"Adding {len(custom_fields)} custom fields to subscription {subscription_id}: {field_summary}")
             
             endpoint = f"/1.0/kb/subscriptions/{subscription_id}/customFields"
-            await self._make_request("POST", endpoint, data=custom_fields)
+            
+            # Add required headers for custom fields
+            headers = self.headers.copy()
+            headers["X-Killbill-CreatedBy"] = "billing-service"
+            headers["X-Killbill-Reason"] = "Instance metadata"
+            headers["X-Killbill-Comment"] = f"Adding instance metadata to subscription {subscription_id}"
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url=f"{self.base_url}{endpoint}",
+                    headers=headers,
+                    json=custom_fields,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+                
+                logger.info(f"KillBill custom fields POST {endpoint}: {response.status_code}")
+                
+                if response.status_code >= 400:
+                    logger.error(f"KillBill custom fields error: {response.status_code} - {response.text}")
+                    response.raise_for_status()
+            
             logger.info(f"Successfully added {len(custom_fields)} custom fields to subscription {subscription_id}")
             
             return {"status": "success", "metadata": metadata}
@@ -492,10 +513,11 @@ class KillBillClient:
             return None
     
     async def get_account_invoices(self, account_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get invoices for an account from KillBill"""
+        """Get invoices for an account from KillBill - fetch each invoice individually for complete data"""
         try:
+            # First, get the list of invoices (without items due to API bug)
             endpoint = f"/1.0/kb/accounts/{account_id}/invoices"
-            params = {"withItems": "true", "audit": "NONE"}
+            params = {"withItems": "false", "audit": "NONE"}
             
             response = await self._make_request("GET", endpoint, params=params)
             
@@ -505,22 +527,50 @@ class KillBillClient:
                 sorted_invoices = sorted(response, key=lambda x: x.get('invoiceDate', ''), reverse=True)
                 
                 for invoice in sorted_invoices[:limit]:
-                    invoice_data = {
-                        'id': invoice.get('invoiceId'),
-                        'account_id': account_id,
-                        'invoice_number': invoice.get('invoiceNumber'),
-                        'invoice_date': invoice.get('invoiceDate'),
-                        'target_date': invoice.get('targetDate'),
-                        'amount': float(invoice.get('amount', 0)),
-                        'currency': invoice.get('currency', 'USD'),
-                        'status': invoice.get('status', 'DRAFT'),
-                        'balance': float(invoice.get('balance', 0)),
-                        'credit_adj': float(invoice.get('creditAdj', 0)),
-                        'refund_adj': float(invoice.get('refundAdj', 0)),
-                        'created_at': invoice.get('createdDate'),
-                        'updated_at': invoice.get('updatedDate')
-                    }
-                    invoices.append(invoice_data)
+                    invoice_id = invoice.get('invoiceId')
+                    
+                    # Fetch each invoice individually to get complete data with items
+                    try:
+                        complete_invoice = await self.get_invoice_by_id(invoice_id)
+                        if complete_invoice:
+                            invoice_data = {
+                                'id': complete_invoice.get('invoiceId'),
+                                'account_id': account_id,
+                                'invoice_number': complete_invoice.get('invoiceNumber'),
+                                'invoice_date': complete_invoice.get('invoiceDate'),
+                                'target_date': complete_invoice.get('targetDate'),
+                                'amount': float(complete_invoice.get('amount', 0)),
+                                'currency': complete_invoice.get('currency', 'USD'),
+                                'status': complete_invoice.get('status', 'DRAFT'),
+                                'balance': float(complete_invoice.get('balance', 0)),
+                                'credit_adj': float(complete_invoice.get('creditAdj', 0)),
+                                'refund_adj': float(complete_invoice.get('refundAdj', 0)),
+                                'created_at': complete_invoice.get('createdDate'),
+                                'updated_at': complete_invoice.get('updatedDate'),
+                                'items': complete_invoice.get('items', [])  # Include items for debugging
+                            }
+                            invoices.append(invoice_data)
+                        else:
+                            logger.warning(f"Could not fetch complete data for invoice {invoice_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch details for invoice {invoice_id}: {e}")
+                        # Fallback to basic data if individual fetch fails
+                        invoice_data = {
+                            'id': invoice.get('invoiceId'),
+                            'account_id': account_id,
+                            'invoice_number': invoice.get('invoiceNumber'),
+                            'invoice_date': invoice.get('invoiceDate'),
+                            'target_date': invoice.get('targetDate'),
+                            'amount': float(invoice.get('amount', 0)),
+                            'currency': invoice.get('currency', 'USD'),
+                            'status': invoice.get('status', 'DRAFT'),
+                            'balance': float(invoice.get('balance', 0)),
+                            'credit_adj': float(invoice.get('creditAdj', 0)),
+                            'refund_adj': float(invoice.get('refundAdj', 0)),
+                            'created_at': invoice.get('createdDate'),
+                            'updated_at': invoice.get('updatedDate')
+                        }
+                        invoices.append(invoice_data)
             
             logger.info(f"Retrieved {len(invoices)} invoices for account {account_id}")
             return invoices
@@ -538,7 +588,14 @@ class KillBillClient:
             payment_methods = []
             if isinstance(response, list):
                 for pm in response:
+                    # Add null checks for payment method data
+                    if not pm or not isinstance(pm, dict):
+                        logger.warning(f"Invalid payment method data for account {account_id}: {pm}")
+                        continue
+                    
                     plugin_info = pm.get('pluginInfo', {})
+                    if not isinstance(plugin_info, dict):
+                        plugin_info = {}
                     
                     payment_method_data = {
                         'id': pm.get('paymentMethodId'),
@@ -546,18 +603,22 @@ class KillBillClient:
                         'plugin_name': pm.get('pluginName', 'unknown'),
                         'is_default': pm.get('isDefault', False),
                         'plugin_info': {
-                            'type': plugin_info.get('type', 'UNKNOWN'),
-                            'card_type': plugin_info.get('ccType'),
-                            'exp_month': plugin_info.get('ccExpirationMonth'),
-                            'exp_year': plugin_info.get('ccExpirationYear'),
-                            'last_4': plugin_info.get('ccLast4'),
-                            'email': plugin_info.get('email'),
-                            'account_name': plugin_info.get('accountName')
+                            'type': plugin_info.get('type', 'UNKNOWN') if plugin_info else 'UNKNOWN',
+                            'card_type': plugin_info.get('ccType') if plugin_info else None,
+                            'exp_month': plugin_info.get('ccExpirationMonth') if plugin_info else None,
+                            'exp_year': plugin_info.get('ccExpirationYear') if plugin_info else None,
+                            'last_4': plugin_info.get('ccLast4') if plugin_info else None,
+                            'email': plugin_info.get('email') if plugin_info else None,
+                            'account_name': plugin_info.get('accountName') if plugin_info else None
                         },
                         'created_at': pm.get('createdDate'),
                         'updated_at': pm.get('updatedDate')
                     }
                     payment_methods.append(payment_method_data)
+            elif response is None:
+                logger.info(f"No payment methods found for account {account_id}")
+            else:
+                logger.warning(f"Unexpected payment methods response for account {account_id}: {type(response)}")
             
             logger.info(f"Retrieved {len(payment_methods)} payment methods for account {account_id}")
             return payment_methods
@@ -575,17 +636,32 @@ class KillBillClient:
             payments = []
             if isinstance(response, list):
                 for payment in response:
+                    # Check transaction status for actual payment success
+                    payment_status = 'UNKNOWN'
+                    transactions = payment.get('transactions', [])
+                    
+                    if transactions:
+                        # Check if any transaction was successful
+                        for transaction in transactions:
+                            if transaction.get('status') == 'SUCCESS':
+                                payment_status = 'SUCCESS'
+                                break
+                        # If no successful transaction, use the last transaction status
+                        if payment_status == 'UNKNOWN' and transactions:
+                            payment_status = transactions[-1].get('status', 'UNKNOWN')
+                    
                     payment_data = {
                         'id': payment.get('paymentId'),
                         'invoice_id': invoice_id,
                         'amount': float(payment.get('purchasedAmount', 0)),
                         'currency': payment.get('currency', 'USD'),
-                        'status': payment.get('status', 'UNKNOWN'),
+                        'status': payment_status,
                         'payment_method_id': payment.get('paymentMethodId'),
                         'gateway_error_code': payment.get('gatewayErrorCode'),
                         'gateway_error_msg': payment.get('gatewayErrorMsg'),
                         'created_at': payment.get('createdDate'),
-                        'updated_at': payment.get('updatedDate')
+                        'updated_at': payment.get('updatedDate'),
+                        'transactions': transactions  # Include transaction details for debugging
                     }
                     payments.append(payment_data)
             
