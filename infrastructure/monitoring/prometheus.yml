@@ -115,9 +115,9 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
-        - https://${APP_DOMAIN}
-        - https://${ADMIN_DOMAIN}
-        - https://${API_DOMAIN}/health
+        - http://${APP_DOMAIN}
+        - http://${ADMIN_DOMAIN}
+        - http://${API_DOMAIN}/health
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

@@ -15,7 +15,7 @@ from app.models.instance import (
 )
 from app.utils.validators import validate_instance_resources, validate_database_name, validate_addon_names
 from app.utils.database import InstanceDatabase
-from app.utils.billing_client import billing_client
+# NOTE: billing_client import removed to prevent accidental subscription creation calls
 from app.tasks.provisioning import provision_instance_task
 from app.tasks.lifecycle import restart_instance_task, start_instance_task, stop_instance_task
 from app.tasks.maintenance import backup_instance_task, restore_instance_task, update_instance_task
@@ -59,95 +59,39 @@ async def create_instance(
         if addon_errors:
             raise HTTPException(status_code=400, detail={"errors": addon_errors})
         
-        # Billing validation and trial eligibility check
-        customer_id = str(instance_data.customer_id)
-        billing_info = None
-        trial_eligible = False
-        
-        try:
-            # Check if customer has billing account
-            billing_info = await billing_client.get_customer_billing_info(customer_id)
-            
-            if not billing_info:
-                raise HTTPException(
-                    status_code=402,  # Payment Required
-                    detail="No billing account found. Please complete your billing setup first."
-                )
-            
-            # Check trial eligibility
-            trial_status = await billing_client.check_customer_trial_status(customer_id)
-            trial_eligible = trial_status.get("trial_eligible", False)
-            
-            logger.info("Billing validation passed", 
-                       customer_id=customer_id, 
-                       trial_eligible=trial_eligible)
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("Billing validation failed", customer_id=customer_id, error=str(e))
+        # The billing service is the source of truth for billing status.
+        # This service only creates an instance record in the database.
+        # The subscription must be created first by the billing service.
+        if not instance_data.subscription_id:
+            logger.error("INSTANCE SERVICE: Instance creation called without a subscription_id - this could trigger unwanted subscription creation",
+                         customer_id=str(instance_data.customer_id),
+                         instance_name=instance_data.name)
             raise HTTPException(
-                status_code=500,
-                detail="Billing validation failed. Please try again."
+                status_code=400,
+                detail="Instance creation must include a valid subscription_id to prevent duplicate subscription creation."
             )
         
-        # Determine billing and provisioning status based on trial eligibility
-        if trial_eligible:
-            billing_status = BillingStatus.TRIAL
-            provisioning_status = ProvisioningStatus.PENDING  # Will be provisioned via subscription webhook
-        else:
-            billing_status = BillingStatus.PENDING_PAYMENT
-            provisioning_status = ProvisioningStatus.PENDING  # Will be provisioned via payment webhook
-        
-        # Create instance in database with pending status (NO immediate provisioning)
+        logger.info(f"INSTANCE SERVICE: Creating instance with existing subscription {instance_data.subscription_id} for customer {instance_data.customer_id}")
+
+        # Create instance in database with status provided by the billing service
         instance = await db.create_instance(
-            instance_data, 
-            billing_status=billing_status,
-            provisioning_status=provisioning_status
+            instance_data,
+            billing_status=instance_data.billing_status,
+            provisioning_status=instance_data.provisioning_status
         )
-        
-        # Create billing subscription for this instance
-        subscription_id = None
-        try:
-            subscription_result = await billing_client.create_instance_subscription(
-                customer_id=customer_id,
-                instance_id=str(instance.id),
-                instance_type=instance_data.instance_type,
-                trial_eligible=trial_eligible
-            )
-            
-            if subscription_result and subscription_result.get("success"):
-                subscription_id = subscription_result.get("subscription_id")
-                
-                # Update instance with subscription ID
-                if subscription_id:
-                    await db.update_instance_subscription(str(instance.id), subscription_id)
-                    instance.subscription_id = subscription_id
-                
-                logger.info("Billing subscription created", 
-                          instance_id=str(instance.id), 
-                          subscription_id=subscription_id,
-                          trial_eligible=trial_eligible)
-            else:
-                logger.error("Failed to create billing subscription", instance_id=str(instance.id))
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to create billing subscription. Please try again."
-                )
-                
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("Billing subscription creation failed", instance_id=str(instance.id), error=str(e))
-            raise HTTPException(
-                status_code=500,
-                detail="Billing subscription creation failed. Please try again."
-            )
-        
-        # NOTE: NO immediate provisioning here!
+
+        # Link instance to the provided subscription ID
+        await db.update_instance_subscription(str(instance.id), str(instance_data.subscription_id))
+        instance.subscription_id = instance_data.subscription_id
+        logger.info("Instance linked to existing subscription",
+                    instance_id=str(instance.id),
+                    subscription_id=str(instance_data.subscription_id))
+
+        # CRITICAL: NO subscription creation here! The subscription_id was provided by billing service
+        # CRITICAL: NO immediate provisioning here!
         # Provisioning will be triggered by billing webhooks:
         # - For trial instances: SUBSCRIPTION_CREATION webhook
-        # - For paid instances: PAYMENT_SUCCESS webhook
+        # - For paid instances: INVOICE_PAYMENT_SUCCESS webhook
         
         # Convert to response format and return immediately
         response_data = {
@@ -686,7 +630,7 @@ async def _start_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
         # Update status to running and set started_at
         await db.update_instance_status(instance_id, InstanceStatus.RUNNING)
         
-        # Update started_at timestamp (this would be done in the update method)
+        # Update started_at timestamp (this would be done in a more complete implementation)
         instance = await db.get_instance(instance_id)
         if instance:
             update_data = InstanceUpdate()

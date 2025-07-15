@@ -111,7 +111,7 @@ async def create_instance_with_subscription(
         }
         
         # Check trial eligibility for trial plans before creating subscription
-        is_trial_plan = 'trial' in instance_data.plan_name.lower() or instance_data.plan_name.endswith('-monthly')
+        is_trial_plan = 'trial' in instance_data.plan_name.lower()
         if is_trial_plan:
             logger.info(f"Checking trial eligibility for customer {instance_data.customer_id}")
             

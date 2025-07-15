@@ -144,6 +144,9 @@ class InstanceBase(BaseModel):
 class InstanceCreate(InstanceBase):
     """Schema for creating a new instance"""
     customer_id: UUID = Field(..., description="Customer ID that owns this instance")
+    subscription_id: Optional[UUID] = Field(None, description="Pre-existing billing subscription ID")
+    billing_status: BillingStatus = Field(default=BillingStatus.PENDING_PAYMENT, description="Billing status provided by the billing service")
+    provisioning_status: ProvisioningStatus = Field(default=ProvisioningStatus.PENDING, description="Provisioning status provided by the billing service")
 
 
 # Update instance schema (for API requests)

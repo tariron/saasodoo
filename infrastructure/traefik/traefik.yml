@@ -10,18 +10,6 @@ api:
 entryPoints:
   web:
     address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-          permanent: true
-
-  websecure:
-    address: ":443"
-    http:
-      tls:
-        options: default
 
 serversTransport:
   insecureSkipVerify: true
@@ -37,35 +25,7 @@ providers:
     directory: /etc/traefik/dynamic
     watch: true
 
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: ${SSL_EMAIL}
-      storage: /certificates/acme.json
-      httpChallenge:
-        entryPoint: web
-      # For development, use staging server
-      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
-
-  letsencrypt-prod:
-    acme:
-      email: ${SSL_EMAIL}
-      storage: /certificates/acme-prod.json
-      httpChallenge:
-        entryPoint: web
-      # Production server
-      caServer: https://acme-v02.api.letsencrypt.org/directory
-
-# TLS Configuration
-tls:
-  options:
-    default:
-      minVersion: "VersionTLS12"
-      cipherSuites:
-        - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
-        - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
-        - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
-        - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+# TLS Configuration removed for development - HTTP only
 
 # Logging
 log:
@@ -99,19 +59,12 @@ metrics:
 # Rate limiting middleware (defined globally)
 http:
   middlewares:
-    # Security headers
+    # Security headers (SSL/HTTPS headers removed for development)
     security-headers:
       headers:
         frameDeny: true
-        sslRedirect: true
         browserXssFilter: true
         contentTypeNosniff: true
-        forceSTSHeader: true
-        stsIncludeSubdomains: true
-        stsPreload: true
-        stsSeconds: 31536000
-        customRequestHeaders:
-          X-Forwarded-Proto: "https"
 
     # Rate limiting
     rate-limit:

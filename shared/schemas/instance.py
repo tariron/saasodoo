@@ -137,7 +137,7 @@ class InstanceResponseSchema(BaseModel):
                 "odoo_version": "17.0",
                 "instance_type": "community",
                 "status": "running",
-                "url": "https://mycompany.saasodoo.com",
+                "url": "http://mycompany.saasodoo.com",
                 "custom_domain": "erp.mycompany.com",
                 "ssl_enabled": True,
                 "backup_enabled": True,

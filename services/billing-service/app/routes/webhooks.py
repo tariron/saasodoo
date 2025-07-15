@@ -301,7 +301,7 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         phase_type = subscription_details.get('phaseType', 'UNKNOWN')
         
         # Check if this is a trial subscription
-        is_trial = 'trial' in plan_name.lower() or phase_type == 'TRIAL'
+        is_trial = 'trial' in plan_name.lower()
         
         if not is_trial:
             logger.info(f"Subscription {subscription_id} is not a trial ({plan_name}, {phase_type}). Skipping instance creation.")
@@ -396,11 +396,11 @@ async def handle_invoice_created(payload: Dict[str, Any]):
         logger.error(f"Error handling invoice creation: {e}")
 
 async def handle_invoice_payment_success(payload: Dict[str, Any]):
-    """Handle invoice payment success webhook - create instance for paid subscription"""
+    """Handle invoice payment success - create instances for paid subscriptions"""
     invoice_id = payload.get('objectId')
     account_id = payload.get('accountId')
     
-    logger.info(f"Invoice payment successful: {invoice_id} for account: {account_id}")
+    logger.info(f"Invoice payment success for invoice: {invoice_id}, account: {account_id}")
     
     try:
         # Get customer information from KillBill
@@ -409,9 +409,7 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             logger.warning(f"Could not find customer for account {account_id}")
             return
         
-        logger.info(f"Invoice {invoice_id} paid for customer {customer_external_key}")
-        
-        # Initialize KillBill client
+        # Get subscription details from the invoice
         killbill = KillBillClient(
             base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
             api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
@@ -420,26 +418,48 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             password=os.getenv('KILLBILL_PASSWORD', 'password')
         )
         
-        # Get subscription ID from invoice
-        subscription_id = await killbill.get_subscription_id_from_invoice(invoice_id)
-        if not subscription_id:
-            logger.warning(f"No subscription found for invoice {invoice_id}")
+        invoice_details = await killbill.get_invoice_by_id(invoice_id)
+        if not invoice_details or not invoice_details.get('items'):
+            logger.warning(f"Could not get invoice details or no items found for invoice {invoice_id}")
             return
+            
+        # Extract subscription ID from the first invoice item
+        first_item = invoice_details['items'][0]
+        subscription_id = first_item.get('subscriptionId')
+        plan_name = first_item.get('planName', 'unknown')
         
-        logger.info(f"Found subscription {subscription_id} for paid invoice {invoice_id}")
+        if not subscription_id:
+            logger.warning(f"No subscription ID found in invoice {invoice_id}")
+            return
+            
+        logger.info(f"Processing invoice for subscription {subscription_id} (plan: {plan_name})")
         
-        # Get subscription details to determine if it's a paid (non-trial) subscription
+        # Get subscription details
         subscription_details = await killbill.get_subscription_by_id(subscription_id)
         if not subscription_details:
             logger.warning(f"Could not get subscription details for {subscription_id}")
             return
         
-        plan_name = subscription_details.get('planName', '')
-        logger.info(f"Subscription {subscription_id} uses plan: {plan_name}")
-        
         # Only create instances for non-trial subscriptions
-        if 'trial' in plan_name.lower() or subscription_details.get('phaseType') == 'TRIAL':
+        if 'trial' in plan_name.lower():
             logger.info(f"Subscription {subscription_id} is trial - not creating instance on payment")
+            return
+
+        # SAFETY CHECK: Prevent duplicate instance creation for the same subscription
+        existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+        if existing_instance:
+            logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
+            # Trigger provisioning if it's in a pending state
+            if existing_instance.get('provisioning_status') in ['pending_payment', 'pending']:
+                logger.info(f"Triggering provisioning for existing instance {existing_instance.get('id')}")
+                await instance_client.provision_instance(
+                    instance_id=existing_instance['id'],
+                    subscription_id=subscription_id,
+                    billing_status="paid",
+                    provisioning_trigger="invoice_payment_success_existing"
+                )
+            else:
+                logger.info(f"Existing instance {existing_instance.get('id')} is in status {existing_instance.get('provisioning_status')} - no action needed")
             return
         
         # Create instance for this customer and subscription
@@ -453,7 +473,10 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
 async def _create_instance_for_subscription(customer_id: str, subscription_id: str, plan_name: str, billing_status: str = "paid"):
     """Create instance for customer when subscription is created or paid"""
     try:
-        logger.info(f"Creating instance for customer {customer_id}, subscription {subscription_id}")
+        logger.info(f"WEBHOOK FLOW: Creating instance for customer {customer_id}, subscription {subscription_id}, plan {plan_name}, billing_status {billing_status}")
+        
+        # CRITICAL: This function should ONLY create an instance record, NOT a new subscription
+        # The subscription (subscription_id) already exists and was just paid for
         
         # Get custom instance configuration from subscription metadata
         killbill = KillBillClient(
@@ -501,9 +524,11 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
         if not instance_data["subdomain"]:
             instance_data["subdomain"] = None
             
-        logger.info(f"Using custom instance configuration: {instance_data}")
+        logger.info(f"WEBHOOK FLOW: Using custom instance configuration for subscription {subscription_id}: {instance_data}")
         
-        # Call instance service to create instance
+        # CRITICAL: Call instance service to create instance record ONLY
+        # This should NOT trigger any new subscription creation since subscription_id is provided
+        logger.info(f"WEBHOOK FLOW: Calling instance service to create instance with existing subscription {subscription_id}")
         created_instance = await instance_client.create_instance_with_subscription(instance_data)
         
         if created_instance and created_instance.get('id'):

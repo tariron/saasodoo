@@ -213,7 +213,7 @@ class TokenManager {
 
 // Axios instance configuration - Direct calls to microservices
 const api = axios.create({
-  baseURL: 'https://api.saasodoo.local', // Direct to microservices via Traefik
+  baseURL: 'http://api.saasodoo.local', // Direct to microservices via Traefik (HTTP for development)
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -246,7 +246,7 @@ api.interceptors.response.use(
       const refreshToken = TokenManager.getRefreshToken();
       if (refreshToken) {
         try {
-          const response = await axios.post('https://api.saasodoo.local/user/auth/refresh-token', {
+          const response = await axios.post('http://api.saasodoo.local/user/auth/refresh-token', {
             refresh_token: refreshToken
           });
           

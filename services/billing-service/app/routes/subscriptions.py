@@ -35,7 +35,7 @@ async def create_subscription(
     subscription_data: CreateSubscriptionRequest,
     killbill: KillBillClient = Depends(get_killbill_client)
 ):
-    """Create a subscription for a customer with 14-day trial"""
+    """Create a subscription for a customer"""
     try:
         # Get customer's KillBill account
         account = await killbill.get_account_by_external_key(subscription_data.customer_id)
@@ -62,8 +62,7 @@ async def create_subscription(
             "instance_id": subscription_data.instance_id,
             "plan_name": subscription_data.plan_name,
             "billing_period": subscription_data.billing_period,
-            "trial_days": 14,
-            "status": "trial",  # KillBill will have its own status
+            "status": "active",  # KillBill will have its own status
             "account_id": account_id,
             "killbill_data": killbill_subscription
         }
@@ -71,7 +70,7 @@ async def create_subscription(
         return {
             "success": True,
             "subscription": subscription_info,
-            "message": f"Subscription created with 14-day trial for plan {subscription_data.plan_name}"
+            "message": f"Subscription created successfully for plan {subscription_data.plan_name}"
         }
         
     except HTTPException:

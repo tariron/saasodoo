@@ -87,6 +87,23 @@ class InstanceServiceClient:
             logger.error(f"Failed to get instances for customer {customer_id}: {e}")
             return []
     
+    async def get_instance_by_subscription_id(self, subscription_id: str) -> Optional[Dict[str, Any]]:
+        """Get an instance by its subscription ID"""
+        endpoint = f"/api/v1/instances/?subscription_id={subscription_id}"
+        try:
+            result = await self._make_request("GET", endpoint)
+            # The instance service returns a list, so we expect one item
+            if result and result.get('instances') and len(result['instances']) > 0:
+                instance = result['instances'][0]
+                logger.info(f"Found instance {instance.get('id')} for subscription {subscription_id}")
+                return instance
+            
+            logger.info(f"No instance found for subscription_id {subscription_id}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get instance by subscription_id {subscription_id}: {e}")
+            return None
+
     async def _get_tenant_id_for_customer(self, customer_id: str) -> Optional[str]:
         """Get tenant_id for a customer from user service"""
         try:

@@ -1,6 +1,6 @@
 http:
   middlewares:
-    # Security Headers
+    # Security Headers (SSL/HTTPS headers removed for development)
     secure-headers:
       headers:
         accessControlAllowMethods:
@@ -16,15 +16,8 @@ http:
           - "*"
         accessControlMaxAge: 86400
         frameDeny: true
-        sslRedirect: true
         browserXssFilter: true
         contentTypeNosniff: true
-        forceSTSHeader: true
-        stsIncludeSubdomains: true
-        stsPreload: true
-        stsSeconds: 31536000
-        customRequestHeaders:
-          X-Forwarded-Proto: "https"
 
     # Rate Limiting for APIs
     api-rate-limit:
@@ -85,8 +78,8 @@ http:
           - PATCH
           - OPTIONS
         accessControlAllowOriginList:
-          - "https://${APP_DOMAIN}"
-          - "https://${ADMIN_DOMAIN}"
+          - "http://${APP_DOMAIN}"
+          - "http://${ADMIN_DOMAIN}"
           - "http://localhost:3000"
           - "http://localhost:3001"
         accessControlAllowHeaders:

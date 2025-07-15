@@ -17,7 +17,7 @@ export const useConfig = () => {
         setConfig({
           BASE_DOMAIN: 'saasodoo.local',
           ENVIRONMENT: 'development',
-          API_BASE_URL: 'https://api.saasodoo.local',
+          API_BASE_URL: 'http://api.saasodoo.local',
           VERSION: '1.0.0',
           FEATURES: {
             billing: true,

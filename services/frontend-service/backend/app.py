@@ -24,7 +24,7 @@ def get_config():
     config = {
         'BASE_DOMAIN': os.getenv('BASE_DOMAIN', 'saasodoo.local'),
         'ENVIRONMENT': os.getenv('ENVIRONMENT', 'development'),
-        'API_BASE_URL': f"https://api.{os.getenv('BASE_DOMAIN', 'saasodoo.local')}",
+        'API_BASE_URL': f"http://api.{os.getenv('BASE_DOMAIN', 'saasodoo.local')}",
         'VERSION': '1.0.0',
         'FEATURES': {
             'billing': True,

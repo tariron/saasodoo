@@ -8,13 +8,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
       - "8080:8080"  # Traefik dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ../traefik/dynamic:/etc/traefik/dynamic:ro
-      - traefik-certificates:/certificates
     networks:
       - saasodoo-network
     labels:
@@ -608,8 +606,6 @@ volumes:
   elasticsearch-data:
     driver: local
   minio-data:
-    driver: local
-  traefik-certificates:
     driver: local
   pgadmin-data:
     driver: local
