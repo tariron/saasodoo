@@ -463,7 +463,7 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             return
         
         # Create instance for this customer and subscription
-        await _create_instance_for_subscription(customer_external_key, subscription_id, plan_name)
+        await _create_instance_for_subscription(customer_external_key, subscription_id, plan_name, billing_status="paid")
         
         logger.info(f"Processed invoice payment success for customer {customer_external_key}")
         

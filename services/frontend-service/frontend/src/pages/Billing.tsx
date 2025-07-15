@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { billingAPI, authAPI } from '../utils/api';
+import { billingAPI, authAPI, UserProfile } from '../utils/api';
 import { BillingOverview, Subscription, Invoice } from '../types/billing';
+import Navigation from '../components/Navigation';
 
 const Billing: React.FC = () => {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [billingData, setBillingData] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +23,7 @@ const Billing: React.FC = () => {
   const fetchUserProfile = async () => {
     try {
       const response = await authAPI.getProfile();
+      setProfile(response.data);
       setCustomerId(response.data.id);
     } catch (err) {
       setError('Failed to load user profile');
@@ -89,40 +92,51 @@ const Billing: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
-      </div>
+      <>
+        <Navigation userProfile={profile || undefined} />
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+        </div>
+      </>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          <strong className="font-bold">Error: </strong>
-          <span>{error}</span>
+      <>
+        <Navigation userProfile={profile || undefined} />
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <strong className="font-bold">Error: </strong>
+            <span>{error}</span>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (!billingData) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">No Billing Data</h2>
-          <p className="text-gray-600">No billing information found for your account.</p>
+      <>
+        <Navigation userProfile={profile || undefined} />
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">No Billing Data</h2>
+            <p className="text-gray-600">No billing information found for your account.</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Billing & Subscriptions</h1>
-        <p className="mt-2 text-gray-600">Manage your billing information and subscriptions</p>
-      </div>
+    <>
+      <Navigation userProfile={profile || undefined} />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Billing & Subscriptions</h1>
+          <p className="mt-2 text-gray-600">Manage your billing information and subscriptions</p>
+        </div>
 
       {/* Account Overview */}
       <div className="bg-white shadow rounded-lg p-6 mb-8">
@@ -525,8 +539,9 @@ const Billing: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
-  );
+      </div>
+      </>
+    );
 };
 
 export default Billing;
