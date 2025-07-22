@@ -22,7 +22,7 @@ class InstanceStatus(str, Enum):
     MAINTENANCE = "maintenance"
     ERROR = "error"
     TERMINATED = "terminated"
-    SUSPENDED = "suspended"
+    PAUSED = "paused"
 
 
 class BillingStatus(str, Enum):
@@ -30,7 +30,6 @@ class BillingStatus(str, Enum):
     PENDING_PAYMENT = "pending_payment"
     TRIAL = "trial"
     PAID = "paid"
-    SUSPENDED = "suspended"
     PAYMENT_REQUIRED = "payment_required"
 
 

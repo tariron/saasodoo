@@ -655,7 +655,7 @@ def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction
         InstanceStatus.MAINTENANCE: [],  # No actions allowed during maintenance operations
         InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE, InstanceAction.SUSPEND],
         InstanceStatus.TERMINATED: [],
-        InstanceStatus.SUSPENDED: [InstanceAction.UNSUSPEND]
+        InstanceStatus.PAUSED: [InstanceAction.UNSUSPEND]
     }
     return action_map.get(status, [])
 
@@ -835,7 +835,7 @@ async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             logger.info("Container stopped for suspension", instance_id=str(instance_id))
         
         # Update status to suspended
-        await db.update_instance_status(instance_id, InstanceStatus.SUSPENDED, "Instance suspended due to billing issues")
+        await db.update_instance_status(instance_id, InstanceStatus.PAUSED, "Instance suspended due to billing issues")
         
         logger.info("Instance suspended successfully with container stopped", instance_id=str(instance_id))
         return {

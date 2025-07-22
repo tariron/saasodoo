@@ -46,7 +46,7 @@ class DockerEventMonitor:
             'kill': InstanceStatus.STOPPED,
             'stop': InstanceStatus.STOPPED,
             'restart': InstanceStatus.RUNNING,
-            'pause': InstanceStatus.SUSPENDED,
+            'pause': InstanceStatus.PAUSED,
             'unpause': InstanceStatus.RUNNING,
         }
     
@@ -474,7 +474,7 @@ async def _reconcile_instance_statuses() -> Dict[str, Any]:
                         'running': InstanceStatus.RUNNING.value,
                         'exited': InstanceStatus.STOPPED.value,
                         'stopped': InstanceStatus.STOPPED.value,
-                        'paused': InstanceStatus.SUSPENDED.value,
+                        'paused': InstanceStatus.PAUSED.value,
                         'restarting': InstanceStatus.RESTARTING.value,
                         'dead': InstanceStatus.ERROR.value,
                     }
