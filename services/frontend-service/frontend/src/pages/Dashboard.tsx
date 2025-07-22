@@ -319,50 +319,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
-          {/* Quick actions */}
-          <div className="bg-white shadow rounded-lg mb-8">
-            <div className="px-4 py-5 sm:p-6">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-                Quick Actions
-              </h3>
-              <div className="flex flex-wrap gap-4">
-                <Link
-                  to="/instances/create"
-                  className="btn-primary inline-flex items-center"
-                >
-                  <span className="mr-2">➕</span>
-                  Create Instance
-                </Link>
-                <Link
-                  to="/instances"
-                  className="btn-secondary inline-flex items-center"
-                >
-                  <span className="mr-2">🖥️</span>
-                  Manage Instances
-                </Link>
-                <Link
-                  to="/billing"
-                  className="btn-secondary inline-flex items-center"
-                >
-                  <span className="mr-2">💳</span>
-                  View Billing
-                </Link>
-                {trialInfo.isInTrial && (
-                  <Link
-                    to="/billing/subscription"
-                    className="btn-primary inline-flex items-center bg-yellow-600 hover:bg-yellow-700"
-                  >
-                    <span className="mr-2">⭐</span>
-                    Upgrade Plan
-                  </Link>
-                )}
-                <button className="btn-secondary inline-flex items-center">
-                  <span className="mr-2">📊</span>
-                  View Analytics
-                </button>
-              </div>
-            </div>
-          </div>
 
           {/* Recent Instances */}
           <div className="space-y-6">

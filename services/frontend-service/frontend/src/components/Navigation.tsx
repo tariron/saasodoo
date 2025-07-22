@@ -37,6 +37,8 @@ const Navigation: React.FC<NavigationProps> = ({ userProfile }) => {
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/instances', label: 'Instances', icon: '🖥️' },
     { path: '/instances/create', label: 'Create Instance', icon: '➕' },
+    { path: '/billing', label: 'Billing', icon: '💳' },
+    { path: '/analytics', label: 'View Analytics', icon: '📈' },
   ];
 
   return (
