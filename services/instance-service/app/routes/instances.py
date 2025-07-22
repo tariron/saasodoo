@@ -596,6 +596,50 @@ async def list_instance_backups(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/check-subdomain/{subdomain}")
+async def check_subdomain_availability(
+    subdomain: str,
+    db: InstanceDatabase = Depends(get_database)
+):
+    """Check if subdomain is available for use"""
+    try:
+        # Validate subdomain format (basic validation)
+        if not subdomain or len(subdomain) < 3 or len(subdomain) > 50:
+            raise HTTPException(
+                status_code=400, 
+                detail="Subdomain must be between 3 and 50 characters"
+            )
+        
+        # Check if subdomain contains only valid characters
+        if not subdomain.replace('-', '').isalnum():
+            raise HTTPException(
+                status_code=400, 
+                detail="Subdomain must contain only alphanumeric characters and hyphens"
+            )
+        
+        # Check if subdomain starts or ends with hyphen
+        if subdomain.startswith('-') or subdomain.endswith('-'):
+            raise HTTPException(
+                status_code=400, 
+                detail="Subdomain cannot start or end with a hyphen"
+            )
+        
+        # Check availability in database
+        is_available = await db.check_subdomain_availability(subdomain)
+        
+        return {
+            "subdomain": subdomain,
+            "available": is_available,
+            "message": "Available" if is_available else "Already taken"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to check subdomain availability", subdomain=subdomain, error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # Helper functions for instance actions
 
 def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction]:

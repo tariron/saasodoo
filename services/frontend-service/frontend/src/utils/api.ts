@@ -329,6 +329,9 @@ export const instanceAPI = {
   
   status: (id: string): Promise<AxiosResponse<any>> => 
     api.get(`/instance/api/v1/instances/${id}/status`),
+  
+  checkSubdomain: (subdomain: string): Promise<AxiosResponse<{subdomain: string, available: boolean, message: string}>> => 
+    api.get(`/instance/api/v1/instances/check-subdomain/${subdomain}`),
 };
 
 export const billingAPI = {

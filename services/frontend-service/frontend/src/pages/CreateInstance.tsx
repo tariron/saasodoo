@@ -27,6 +27,15 @@ const CreateInstance: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
+  const [subdomainStatus, setSubdomainStatus] = useState<{
+    checking: boolean;
+    available: boolean | null;
+    message: string;
+  }>({
+    checking: false,
+    available: null,
+    message: ''
+  });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -78,6 +87,20 @@ const CreateInstance: React.FC = () => {
       return;
     }
 
+    // Check if subdomain is available
+    if (subdomainStatus.available === false) {
+      setError('Please choose an available subdomain');
+      setLoading(false);
+      return;
+    }
+
+    // Check if subdomain check is still in progress
+    if (subdomainStatus.checking) {
+      setError('Please wait for subdomain availability check to complete');
+      setLoading(false);
+      return;
+    }
+
     try {
       // All plans now go through billing service for proper subscription management and trial eligibility checking
       // Create subscription with instance configuration through billing service
@@ -123,6 +146,41 @@ const CreateInstance: React.FC = () => {
   const handleInputChange = (field: keyof CreateInstanceRequest, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
+
+  // Debounced subdomain availability check
+  useEffect(() => {
+    const checkSubdomainAvailability = async (subdomain: string) => {
+      if (!subdomain || subdomain.length < 3) {
+        setSubdomainStatus({ checking: false, available: null, message: '' });
+        return;
+      }
+
+      setSubdomainStatus({ checking: true, available: null, message: 'Checking...' });
+
+      try {
+        const response = await instanceAPI.checkSubdomain(subdomain);
+        setSubdomainStatus({
+          checking: false,
+          available: response.data.available,
+          message: response.data.message
+        });
+      } catch (error: any) {
+        setSubdomainStatus({
+          checking: false,
+          available: false,
+          message: error.response?.data?.detail || 'Error checking subdomain'
+        });
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (formData.subdomain) {
+        checkSubdomainAvailability(formData.subdomain);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.subdomain]);
 
   const generateInstanceName = (subdomain: string) => {
     return subdomain
@@ -279,7 +337,11 @@ const CreateInstance: React.FC = () => {
                         required
                         value={formData.subdomain || ''}
                         onChange={(e) => handleSubdomainChange(e.target.value)}
-                        className="input-field rounded-r-none"
+                        className={`input-field rounded-r-none ${
+                          subdomainStatus.available === false ? 'border-red-300 focus:border-red-500' :
+                          subdomainStatus.available === true ? 'border-green-300 focus:border-green-500' :
+                          'border-gray-300'
+                        }`}
                         placeholder="crm"
                         pattern="[a-z0-9-]+"
                         title="Only lowercase letters, numbers, and hyphens allowed"
@@ -289,6 +351,36 @@ const CreateInstance: React.FC = () => {
                         .saasodoo.local
                       </span>
                     </div>
+                    
+                    {/* Subdomain availability status */}
+                    {formData.subdomain && formData.subdomain.length >= 3 && (
+                      <div className="mt-2 flex items-center space-x-1">
+                        {subdomainStatus.checking ? (
+                          <>
+                            <svg className="animate-spin h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span className="text-sm text-gray-500">Checking availability...</span>
+                          </>
+                        ) : subdomainStatus.available === true ? (
+                          <>
+                            <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span className="text-sm text-green-600 font-medium">Available</span>
+                          </>
+                        ) : subdomainStatus.available === false ? (
+                          <>
+                            <svg className="h-4 w-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                            <span className="text-sm text-red-600 font-medium">Already taken</span>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
+                    
                     <p className="mt-1 text-xs text-gray-500">
                       This will be your Odoo URL: {formData.subdomain || 'subdomain'}.saasodoo.local
                     </p>
@@ -506,7 +598,7 @@ const CreateInstance: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={loading || !selectedPlan}
+                    disabled={loading || !selectedPlan || subdomainStatus.available === false || subdomainStatus.checking}
                     className="btn-primary"
                   >
                     {loading ? (

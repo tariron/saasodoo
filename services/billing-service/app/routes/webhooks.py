@@ -301,7 +301,7 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         phase_type = subscription_details.get('phaseType', 'UNKNOWN')
         
         # Check if this is a trial subscription
-        is_trial = 'trial' in plan_name.lower()
+        is_trial = phase_type == 'TRIAL'
         
         if not is_trial:
             logger.info(f"Subscription {subscription_id} is not a trial ({plan_name}, {phase_type}). Skipping instance creation.")

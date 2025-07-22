@@ -384,4 +384,30 @@ class InstanceDatabase:
                 
             except Exception as e:
                 logger.error("Failed to get instances by status", status=status.value, error=str(e))
+                raise
+
+    async def check_subdomain_availability(self, subdomain: str) -> bool:
+        """Check if subdomain is available (not taken by any active instance)"""
+        async with self.pool.acquire() as conn:
+            try:
+                # Check if subdomain exists for any active instance (not terminated)
+                count = await conn.fetchval("""
+                    SELECT COUNT(*) FROM instances 
+                    WHERE subdomain = $1 AND status != $2
+                """, subdomain.lower(), InstanceStatus.TERMINATED.value)
+                
+                # Return True if available (count is 0), False if taken
+                is_available = count == 0
+                
+                logger.info("Subdomain availability check", 
+                           subdomain=subdomain, 
+                           available=is_available,
+                           existing_count=count)
+                
+                return is_available
+                
+            except Exception as e:
+                logger.error("Failed to check subdomain availability", 
+                           subdomain=subdomain, 
+                           error=str(e))
                 raise 

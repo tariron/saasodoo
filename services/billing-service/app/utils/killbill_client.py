@@ -526,13 +526,22 @@ class KillBillClient:
                 # Sort by invoice date (most recent first) and limit
                 sorted_invoices = sorted(response, key=lambda x: x.get('invoiceDate', ''), reverse=True)
                 
-                for invoice in sorted_invoices[:limit]:
-                    invoice_id = invoice.get('invoiceId')
-                    
-                    # Fetch each invoice individually to get complete data with items
+                # Fetch all invoice details in parallel
+                limited_invoices = sorted_invoices[:limit]
+                invoice_ids = [invoice.get('invoiceId') for invoice in limited_invoices]
+                
+                # Batch fetch all complete invoice data in parallel
+                import asyncio
+                complete_invoice_tasks = [self.get_invoice_by_id(invoice_id) for invoice_id in invoice_ids]
+                complete_invoices = await asyncio.gather(*complete_invoice_tasks, return_exceptions=True)
+                
+                for i, invoice in enumerate(limited_invoices):
                     try:
-                        complete_invoice = await self.get_invoice_by_id(invoice_id)
-                        if complete_invoice:
+                        invoice_id = invoice.get('invoiceId')
+                        
+                        # Use complete invoice data if available, otherwise fallback to basic data
+                        if i < len(complete_invoices) and not isinstance(complete_invoices[i], Exception):
+                            complete_invoice = complete_invoices[i]
                             invoice_data = {
                                 'id': complete_invoice.get('invoiceId'),
                                 'account_id': account_id,
@@ -549,28 +558,30 @@ class KillBillClient:
                                 'updated_at': complete_invoice.get('updatedDate'),
                                 'items': complete_invoice.get('items', [])  # Include items for debugging
                             }
-                            invoices.append(invoice_data)
                         else:
-                            logger.warning(f"Could not fetch complete data for invoice {invoice_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch details for invoice {invoice_id}: {e}")
-                        # Fallback to basic data if individual fetch fails
-                        invoice_data = {
-                            'id': invoice.get('invoiceId'),
-                            'account_id': account_id,
-                            'invoice_number': invoice.get('invoiceNumber'),
-                            'invoice_date': invoice.get('invoiceDate'),
-                            'target_date': invoice.get('targetDate'),
-                            'amount': float(invoice.get('amount', 0)),
-                            'currency': invoice.get('currency', 'USD'),
-                            'status': invoice.get('status', 'DRAFT'),
-                            'balance': float(invoice.get('balance', 0)),
-                            'credit_adj': float(invoice.get('creditAdj', 0)),
-                            'refund_adj': float(invoice.get('refundAdj', 0)),
-                            'created_at': invoice.get('createdDate'),
-                            'updated_at': invoice.get('updatedDate')
-                        }
+                            # Fallback to basic data if individual fetch fails
+                            if isinstance(complete_invoices[i], Exception):
+                                logger.warning(f"Failed to fetch details for invoice {invoice_id}: {complete_invoices[i]}")
+                            
+                            invoice_data = {
+                                'id': invoice.get('invoiceId'),
+                                'account_id': account_id,
+                                'invoice_number': invoice.get('invoiceNumber'),
+                                'invoice_date': invoice.get('invoiceDate'),
+                                'target_date': invoice.get('targetDate'),
+                                'amount': float(invoice.get('amount', 0)),
+                                'currency': invoice.get('currency', 'USD'),
+                                'status': invoice.get('status', 'DRAFT'),
+                                'balance': float(invoice.get('balance', 0)),
+                                'credit_adj': float(invoice.get('creditAdj', 0)),
+                                'refund_adj': float(invoice.get('refundAdj', 0)),
+                                'created_at': invoice.get('createdDate'),
+                                'updated_at': invoice.get('updatedDate')
+                            }
+                        
                         invoices.append(invoice_data)
+                    except Exception as e:
+                        logger.warning(f"Failed to process invoice {invoice.get('invoiceId')}: {e}")
             
             logger.info(f"Retrieved {len(invoices)} invoices for account {account_id}")
             return invoices
