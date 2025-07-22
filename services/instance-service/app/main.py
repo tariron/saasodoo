@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from app.utils.database import InstanceDatabase
-from app.routes import instances, admin
+from app.routes import instances, admin, monitoring
 
 
 # Configure structured logging
@@ -49,9 +49,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("Failed to initialize database", error=str(e))
         raise
     
+    # Initialize Docker event monitoring (if enabled)
+    try:
+        auto_start_monitoring = os.getenv('AUTO_START_MONITORING', 'true').lower() == 'true'
+        if auto_start_monitoring:
+            logger.info("Auto-starting Docker event monitoring")
+            from app.tasks.monitoring import monitor_docker_events_task
+            task = monitor_docker_events_task.delay()
+            logger.info("Docker event monitoring task started", task_id=task.id)
+        else:
+            logger.info("Docker event monitoring auto-start disabled")
+    except Exception as e:
+        logger.error("Failed to start Docker event monitoring", error=str(e))
+        # Don't raise - monitoring is optional and can be started manually
+    
     yield
     
     # Cleanup
+    try:
+        # Stop Docker event monitoring if running
+        from app.tasks.monitoring import stop_docker_events_monitoring_task, _monitoring_active
+        if _monitoring_active:
+            logger.info("Stopping Docker event monitoring")
+            stop_task = stop_docker_events_monitoring_task.delay()
+            try:
+                stop_task.get(timeout=10)
+                logger.info("Docker event monitoring stopped")
+            except Exception as e:
+                logger.warning("Failed to gracefully stop monitoring", error=str(e))
+    except Exception as e:
+        logger.error("Error during monitoring cleanup", error=str(e))
+    
     if hasattr(app.state, 'db'):
         await app.state.db.close()
         logger.info("Database connection closed")
@@ -160,6 +188,7 @@ async def database_health_check(request: Request):
 # Register routes
 app.include_router(instances.router, prefix="/api/v1/instances", tags=["Instances"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+app.include_router(monitoring.router, prefix="/api/v1/monitoring", tags=["Monitoring"])
 
 
 # Root endpoint

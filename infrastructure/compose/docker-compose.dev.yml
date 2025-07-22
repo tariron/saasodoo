@@ -469,7 +469,7 @@ services:
       dockerfile: Dockerfile
     container_name: saasodoo-instance-worker
     restart: unless-stopped
-    command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance
+    command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
