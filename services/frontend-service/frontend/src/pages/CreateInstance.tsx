@@ -8,6 +8,7 @@ const CreateInstance: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [phaseType, setPhaseType] = useState<string>('TRIAL');
   const [formData, setFormData] = useState<CreateInstanceRequest>({
     customer_id: '',
     name: '',
@@ -120,17 +121,19 @@ const CreateInstance: React.FC = () => {
           memory_limit: formData.memory_limit,
           storage_limit: formData.storage_limit,
           custom_addons: formData.custom_addons,
+          phase_type: selectedPlan.trial_length > 0 ? phaseType : undefined,
         };
         
         const response = await billingAPI.createInstanceWithSubscription(subscriptionData);
         
         // Show success message with payment instructions
-        const message = selectedPlan.trial_length > 0 
+        const isTrialStarted = selectedPlan.trial_length > 0 && phaseType === 'TRIAL';
+        const message = isTrialStarted
           ? `Trial subscription created! Your ${selectedPlan.trial_length}-day trial will start immediately.`
           : `Subscription created! Please pay the invoice to activate your instance. Invoice amount: $${response.data.invoice?.amount || selectedPlan.price || '5.00'}`;
         
         alert(message);
-        navigate(selectedPlan.trial_length > 0 ? '/instances' : '/billing');
+        navigate(isTrialStarted ? '/instances' : '/billing');
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 
                           (err.response?.data?.errors ? 
@@ -318,6 +321,47 @@ const CreateInstance: React.FC = () => {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                
+                {/* Trial/Payment Choice */}
+                {selectedPlan && selectedPlan.trial_length > 0 && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-medium text-gray-900 mb-2">Billing Options</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center">
+                        <input
+                          type="radio"
+                          id="start-trial"
+                          name="phaseOption"
+                          checked={phaseType === 'TRIAL'}
+                          onChange={() => setPhaseType('TRIAL')}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                        />
+                        <label htmlFor="start-trial" className="ml-2 text-sm text-gray-900">
+                          Start with {selectedPlan.trial_length}-day free trial
+                          <span className="block text-xs text-gray-500">
+                            No payment required now. You'll be charged ${selectedPlan.price} after the trial ends.
+                          </span>
+                        </label>
+                      </div>
+                      <div className="flex items-center">
+                        <input
+                          type="radio"
+                          id="skip-trial"
+                          name="phaseOption"
+                          checked={phaseType === 'EVERGREEN'}
+                          onChange={() => setPhaseType('EVERGREEN')}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                        />
+                        <label htmlFor="skip-trial" className="ml-2 text-sm text-gray-900">
+                          Skip trial, start paid subscription immediately
+                          <span className="block text-xs text-gray-500">
+                            You'll be charged ${selectedPlan.price} immediately to activate your instance.
+                          </span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -607,13 +651,11 @@ const CreateInstance: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        {selectedPlan?.trial_length ? 'Creating Trial...' : 'Creating Subscription...'}
+                        {selectedPlan && selectedPlan.trial_length > 0 && phaseType === 'TRIAL' ? 'Creating Trial...' : 'Creating Subscription...'}
                       </span>
                     ) : (
                       selectedPlan
-                        ? selectedPlan.trial_length > 0 && selectedPlan.price === 0
-                          ? 'Create Trial Instance'
-                          : selectedPlan.trial_length > 0
+                        ? selectedPlan.trial_length > 0 && phaseType === 'TRIAL'
                           ? `Start ${selectedPlan.trial_length}-Day Trial`
                           : `Create Instance - $${selectedPlan.price}/${selectedPlan.billing_period.toLowerCase()}`
                         : 'Select a Plan'

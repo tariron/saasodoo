@@ -134,6 +134,7 @@ export interface CreateInstanceWithSubscriptionRequest {
   memory_limit?: string;
   storage_limit?: string;
   custom_addons?: string[];
+  phase_type?: string;
 }
 
 export interface CreateInstanceWithSubscriptionResponse {

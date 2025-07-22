@@ -149,13 +149,18 @@ class KillBillClient:
         plan_name: str,
         billing_period: str = "MONTHLY",
         product_category: str = "BASE",
-        instance_id: Optional[str] = None
+        instance_id: Optional[str] = None,
+        phase_type: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a subscription for an account with optional instance metadata"""
+        """Create a subscription for an account with optional instance metadata and phase type"""
         subscription_data = {
             "accountId": account_id,
             "planName": plan_name
         }
+        
+        # Add phase type to control trial/skip trial behavior
+        if phase_type:
+            subscription_data["phaseType"] = phase_type
         
         try:
             response = await self._make_request("POST", "/1.0/kb/subscriptions", data=subscription_data)

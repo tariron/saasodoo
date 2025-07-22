@@ -40,6 +40,7 @@ class CreateInstanceWithSubscriptionRequest(BaseModel):
     
     # Additional settings
     custom_addons: List[str] = Field(default_factory=list, description="Custom addon names")
+    phase_type: Optional[str] = Field(None, description="Target phase type: TRIAL or EVERGREEN")
     
     @validator('admin_password')
     def validate_admin_password(cls, v):
@@ -145,7 +146,8 @@ async def create_instance_with_subscription(
         subscription = await killbill.create_subscription(
             account_id=account_id,
             plan_name=instance_data.plan_name,
-            billing_period="MONTHLY"
+            billing_period="MONTHLY",
+            phase_type=instance_data.phase_type
         )
         
         subscription_id = subscription.get("subscriptionId")
