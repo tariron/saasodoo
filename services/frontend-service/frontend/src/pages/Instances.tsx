@@ -96,6 +96,21 @@ const Instances: React.FC = () => {
     const buttons = [];
     const isLoading = actionLoading === instance.id;
 
+    // Only show Unpause button for paused instances
+    if (instance.status === 'paused') {
+      buttons.push(
+        <button
+          key="unpause"
+          onClick={() => handleInstanceAction(instance.id, 'unpause')}
+          disabled={isLoading}
+          className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
+        >
+          {isLoading ? '...' : 'Unpause'}
+        </button>
+      );
+      return buttons;
+    }
+
     // Start button: available for stopped or error instances
     if (['stopped', 'error'].includes(instance.status)) {
       buttons.push(
@@ -110,8 +125,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    // Stop button: available for running, paused, or error instances
-    if (['running', 'paused', 'error'].includes(instance.status)) {
+    // Stop button: available for running or error instances
+    if (['running', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="stop"
@@ -124,8 +139,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    // Backup button: available for running or paused instances (not error to avoid corrupted backups)
-    if (['running', 'paused'].includes(instance.status)) {
+    // Backup button: available for running instances (not error to avoid corrupted backups)
+    if (['running'].includes(instance.status)) {
       buttons.push(
         <button
           key="backup"
@@ -138,8 +153,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    // Restart button: available for running, paused, or error instances
-    if (['running', 'paused', 'error'].includes(instance.status)) {
+    // Restart button: available for running or error instances
+    if (['running', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="restart"

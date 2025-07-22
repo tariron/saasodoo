@@ -308,6 +308,7 @@ class InstanceAction(str, Enum):
     RESTORE = "restore"
     SUSPEND = "suspend"
     UNSUSPEND = "unsuspend"
+    UNPAUSE = "unpause"
 
 
 class InstanceActionRequest(BaseModel):

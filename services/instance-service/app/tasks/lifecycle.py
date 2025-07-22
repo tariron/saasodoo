@@ -59,6 +59,20 @@ def restart_instance_task(self, instance_id: str):
         raise
 
 
+@celery_app.task(bind=True)
+def unpause_instance_task(self, instance_id: str):
+    """Background task to unpause instance"""
+    try:
+        logger.info("Starting instance unpause workflow", instance_id=instance_id, task_id=self.request.id)
+        result = asyncio.run(_unpause_instance_workflow(instance_id))
+        logger.info("Instance unpause completed", instance_id=instance_id, result=result)
+        return result
+    except Exception as e:
+        logger.error("Instance unpause failed", instance_id=instance_id, error=str(e))
+        asyncio.run(_update_instance_status(instance_id, InstanceStatus.ERROR, str(e)))
+        raise
+
+
 async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
     """Main start workflow with Docker operations"""
     
@@ -166,6 +180,30 @@ async def _restart_instance_workflow(instance_id: str) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error("Restart workflow failed", error=str(e))
+        await _update_instance_status(instance_id, InstanceStatus.ERROR, str(e))
+        raise
+
+
+async def _unpause_instance_workflow(instance_id: str) -> Dict[str, Any]:
+    """Main unpause workflow with Docker operations"""
+    instance = await _get_instance_from_db(instance_id)
+    if not instance:
+        raise ValueError(f"Instance {instance_id} not found")
+    logger.info("Starting unpause workflow", instance_name=instance['name'])
+    try:
+        # Step 1: Unpause Docker container
+        await _unpause_docker_container(instance)
+        logger.info("Container unpaused successfully")
+        
+        # Step 2: Mark as RUNNING
+        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        
+        return {
+            "status": "success",
+            "message": "Instance unpaused successfully"
+        }
+    except Exception as e:
+        logger.error("Unpause workflow failed", error=str(e))
         await _update_instance_status(instance_id, InstanceStatus.ERROR, str(e))
         raise
 
@@ -286,6 +324,37 @@ async def _stop_docker_container(instance: Dict[str, Any]):
         logger.warning("Container not found during stop", container_name=container_name)
     except Exception as e:
         logger.error("Failed to stop container", container_name=container_name, error=str(e))
+        raise
+
+
+async def _unpause_docker_container(instance: Dict[str, Any]):
+    """Unpause Docker container"""
+    client = docker.from_env()
+    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
+    try:
+        container = client.containers.get(container_name)
+        
+        if container.status != 'paused':
+            logger.info("Container is not paused", container_name=container_name, status=container.status)
+            return
+        
+        logger.info("Unpausing container", container_name=container_name)
+        container.unpause()
+        
+        # Wait for container to be running
+        for _ in range(10):
+            container.reload()
+            if container.status == 'running':
+                break
+            await asyncio.sleep(1)
+        else:
+            raise RuntimeError("Container failed to unpause within timeout")
+        
+        logger.info("Container unpaused", container_name=container_name)
+    except docker.errors.NotFound:
+        logger.warning("Container not found during unpause", container_name=container_name)
+    except Exception as e:
+        logger.error("Failed to unpause container", container_name=container_name, error=str(e))
         raise
 
 

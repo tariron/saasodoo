@@ -17,7 +17,7 @@ from app.utils.validators import validate_instance_resources, validate_database_
 from app.utils.database import InstanceDatabase
 # NOTE: billing_client import removed to prevent accidental subscription creation calls
 from app.tasks.provisioning import provision_instance_task
-from app.tasks.lifecycle import restart_instance_task, start_instance_task, stop_instance_task
+from app.tasks.lifecycle import restart_instance_task, start_instance_task, stop_instance_task, unpause_instance_task
 from app.tasks.maintenance import backup_instance_task, restore_instance_task, update_instance_task
 
 logger = structlog.get_logger(__name__)
@@ -455,6 +455,15 @@ async def perform_instance_action(
         elif action == InstanceAction.UNSUSPEND:
             # Unsuspend instance (immediate status change)
             result = await _unsuspend_instance(instance_id, db)
+        elif action == InstanceAction.UNPAUSE:
+            # Queue unpause task instead of direct execution
+            job = unpause_instance_task.delay(str(instance_id))
+            result = {
+                "status": "queued",
+                "message": f"Instance unpause queued for processing",
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job.id
+            }
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
         
@@ -979,4 +988,4 @@ async def _unsuspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             "status": "error",
             "message": f"Failed to unsuspend instance: {str(e)}",
             "timestamp": datetime.utcnow().isoformat()
-        } 
+        }

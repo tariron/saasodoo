@@ -88,7 +88,7 @@ export interface Instance {
   customer_id: string;
   name: string;
   description: string;
-  status: 'creating' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error' | 'terminated';
+  status: 'creating' | 'starting' | 'running' | 'stopping' | 'stopped' | 'paused' | 'error' | 'terminated';
   billing_status: 'trial' | 'paid';
   external_url: string | null;
   internal_url: string | null;
