@@ -655,7 +655,7 @@ def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction
         InstanceStatus.MAINTENANCE: [],  # No actions allowed during maintenance operations
         InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE, InstanceAction.SUSPEND],
         InstanceStatus.TERMINATED: [],
-        InstanceStatus.PAUSED: [InstanceAction.UNSUSPEND]
+        InstanceStatus.PAUSED: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE, InstanceAction.SUSPEND]
     }
     return action_map.get(status, [])
 

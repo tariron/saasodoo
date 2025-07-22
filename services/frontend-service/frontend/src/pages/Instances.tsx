@@ -110,8 +110,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    // Stop button: available for running or error instances
-    if (['running', 'error'].includes(instance.status)) {
+    // Stop button: available for running, paused, or error instances
+    if (['running', 'paused', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="stop"
@@ -124,8 +124,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    // Backup button: available for running or stopped instances (not error to avoid corrupted backups)
-    if (['running', 'stopped'].includes(instance.status)) {
+    // Backup button: available for running or paused instances (not error to avoid corrupted backups)
+    if (['running', 'paused'].includes(instance.status)) {
       buttons.push(
         <button
           key="backup"
@@ -138,8 +138,8 @@ const Instances: React.FC = () => {
       );
     }
 
-    // Restart button: available for running or error instances
-    if (['running', 'error'].includes(instance.status)) {
+    // Restart button: available for running, paused, or error instances
+    if (['running', 'paused', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="restart"
