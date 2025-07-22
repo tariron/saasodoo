@@ -52,11 +52,13 @@ async def create_subscription(
         # Count existing trial subscriptions
         trial_count = 0
         for sub in existing_subscriptions:
+            sub_phase = sub.get('phaseType', '')
             if sub.get('phaseType') == 'TRIAL':
                 trial_count += 1
         
-        if trial_count > 0:
+        if sub.get('phaseType') == 'TRIAL' and trial_count > 0: #this is my fix i made
             logger.warning(f"Trial eligibility check failed - customer {subscription_data.customer_id} has {trial_count} existing trial subscriptions")
+            logger.warning(f"Trial eligibility check failed - customer has {sub_phase} existing trial subscriptions")
             raise HTTPException(
                 status_code=400, 
                 detail=f"Trial limit exceeded. You already have {trial_count} active trial subscription(s). Only one trial per customer is allowed."
