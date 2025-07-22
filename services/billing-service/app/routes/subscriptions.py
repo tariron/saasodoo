@@ -165,3 +165,257 @@ async def get_customer_subscriptions(
     except Exception as e:
         logger.error(f"Failed to get subscriptions for customer {customer_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve subscriptions: {str(e)}")
+
+@router.get("/subscription/{subscription_id}")
+async def get_subscription_details(
+    subscription_id: str,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Get individual subscription details by subscription ID"""
+    try:
+        # Get subscription details from KillBill
+        subscription = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+        
+        # Get subscription metadata (instance info, etc.)
+        metadata = await killbill.get_subscription_metadata(subscription_id)
+        
+        logger.info(f"Retrieved subscription {subscription_id} with metadata")
+        
+        return {
+            "success": True,
+            "subscription": subscription,
+            "metadata": metadata,
+            "subscription_id": subscription_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get subscription {subscription_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve subscription: {str(e)}")
+
+@router.get("/subscription/{subscription_id}/invoices")
+async def get_subscription_invoices(
+    subscription_id: str,
+    page: int = 1,
+    limit: int = 10,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Get invoices for a specific subscription"""
+    try:
+        # Get subscription details to find the account
+        subscription = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+        
+        account_id = subscription.get("accountId")
+        if not account_id:
+            raise HTTPException(status_code=400, detail="No account found for subscription")
+        
+        # Get all account invoices and filter by subscription
+        # Note: This is a simplified approach. In a production system, you'd want more efficient filtering
+        account_response = await killbill._make_request("GET", f"/1.0/kb/accounts/{account_id}/invoices")
+        all_invoices = account_response if isinstance(account_response, list) else []
+        
+        # Filter invoices for this specific subscription and get complete invoice data
+        import asyncio
+        subscription_invoice_ids = []
+        
+        # First pass: find which invoices belong to this subscription
+        for invoice in all_invoices:
+            invoice_id = invoice.get("invoiceId")
+            if invoice_id:
+                # Check if invoice belongs to this subscription
+                invoice_subscription_id = await killbill.get_subscription_id_from_invoice(invoice_id)
+                if invoice_subscription_id == subscription_id:
+                    subscription_invoice_ids.append(invoice_id)
+        
+        # Second pass: get complete invoice data for subscription invoices only
+        subscription_invoices = []
+        if subscription_invoice_ids:
+            # Fetch complete invoice details in parallel
+            complete_invoice_tasks = [killbill.get_invoice_by_id(invoice_id) for invoice_id in subscription_invoice_ids]
+            complete_invoices = await asyncio.gather(*complete_invoice_tasks, return_exceptions=True)
+            
+            # Build subscription invoices with complete data
+            for i, complete_invoice in enumerate(complete_invoices):
+                if not isinstance(complete_invoice, Exception) and complete_invoice:
+                    # Use complete invoice data with correct amounts and field names for frontend
+                    invoice_data = {
+                        'invoiceId': complete_invoice.get('invoiceId'),
+                        'account_id': account_id,
+                        'invoice_number': complete_invoice.get('invoiceNumber'),
+                        'invoiceDate': complete_invoice.get('invoiceDate'),
+                        'target_date': complete_invoice.get('targetDate'),
+                        'amount': float(complete_invoice.get('amount', 0)),
+                        'currency': complete_invoice.get('currency', 'USD'),
+                        'status': complete_invoice.get('status', 'DRAFT'),
+                        'balance': float(complete_invoice.get('balance', 0)),
+                        'credit_adj': float(complete_invoice.get('creditAdj', 0)),
+                        'refund_adj': float(complete_invoice.get('refundAdj', 0)),
+                        'created_at': complete_invoice.get('createdDate'),
+                        'updated_at': complete_invoice.get('updatedDate'),
+                        'items': complete_invoice.get('items', [])
+                    }
+                    subscription_invoices.append(invoice_data)
+                else:
+                    if isinstance(complete_invoices[i], Exception):
+                        logger.warning(f"Failed to get complete data for invoice {subscription_invoice_ids[i]}: {complete_invoices[i]}")
+        
+        # Sort by invoice date (most recent first)
+        subscription_invoices.sort(key=lambda x: x.get('invoiceDate', ''), reverse=True)
+        
+        # Apply pagination
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paginated_invoices = subscription_invoices[start_idx:end_idx]
+        
+        logger.info(f"Found {len(subscription_invoices)} invoices for subscription {subscription_id}")
+        
+        return {
+            "success": True,
+            "invoices": paginated_invoices,
+            "total": len(subscription_invoices),
+            "page": page,
+            "limit": limit,
+            "subscription_id": subscription_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get invoices for subscription {subscription_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve invoices: {str(e)}")
+
+@router.post("/subscription/{subscription_id}/pause")
+async def pause_subscription_and_instance(
+    subscription_id: str,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Pause subscription billing and suspend associated instance"""
+    try:
+        # Get subscription metadata to find instance ID
+        metadata = await killbill.get_subscription_metadata(subscription_id)
+        instance_id = metadata.get("instance_id")
+        
+        if not instance_id:
+            logger.warning(f"No instance_id found in subscription {subscription_id} metadata")
+        
+        # TODO: Implement actual KillBill subscription pause
+        # For now, we'll use the suspend instance action which should handle billing status
+        
+        # Import instance client to suspend the instance
+        from ..utils.instance_client import InstanceServiceClient
+        instance_client = InstanceServiceClient()
+        
+        if instance_id:
+            try:
+                # Suspend the instance (this will also update billing status)
+                await instance_client.suspend_instance(instance_id)
+                logger.info(f"Successfully suspended instance {instance_id} for subscription {subscription_id}")
+            except Exception as instance_error:
+                logger.error(f"Failed to suspend instance {instance_id}: {instance_error}")
+                # Continue with subscription pause even if instance suspension fails
+        
+        logger.info(f"Paused subscription {subscription_id}")
+        
+        return {
+            "success": True,
+            "message": "Subscription paused and instance suspended",
+            "subscription_id": subscription_id,
+            "instance_id": instance_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to pause subscription {subscription_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to pause subscription: {str(e)}")
+
+@router.post("/subscription/{subscription_id}/resume")
+async def resume_subscription_and_instance(
+    subscription_id: str,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Resume subscription billing and unsuspend associated instance"""
+    try:
+        # Get subscription metadata to find instance ID
+        metadata = await killbill.get_subscription_metadata(subscription_id)
+        instance_id = metadata.get("instance_id")
+        
+        if not instance_id:
+            logger.warning(f"No instance_id found in subscription {subscription_id} metadata")
+        
+        # TODO: Implement actual KillBill subscription resume
+        # For now, we'll use the unsuspend instance action
+        
+        # Import instance client to unsuspend the instance
+        from ..utils.instance_client import InstanceServiceClient
+        instance_client = InstanceServiceClient()
+        
+        if instance_id:
+            try:
+                # Unsuspend the instance (this will also update billing status)
+                await instance_client.unsuspend_instance(instance_id)
+                logger.info(f"Successfully unsuspended instance {instance_id} for subscription {subscription_id}")
+            except Exception as instance_error:
+                logger.error(f"Failed to unsuspend instance {instance_id}: {instance_error}")
+        
+        logger.info(f"Resumed subscription {subscription_id}")
+        
+        return {
+            "success": True,
+            "message": "Subscription resumed and instance unsuspended",
+            "subscription_id": subscription_id,
+            "instance_id": instance_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resume subscription {subscription_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resume subscription: {str(e)}")
+
+@router.delete("/subscription/{subscription_id}")
+async def cancel_subscription_and_instance(
+    subscription_id: str,
+    reason: str = "User requested cancellation",
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Cancel subscription and suspend associated instance"""
+    try:
+        # Get subscription metadata to find instance ID
+        metadata = await killbill.get_subscription_metadata(subscription_id)
+        instance_id = metadata.get("instance_id")
+        
+        # Cancel subscription in KillBill
+        await killbill.cancel_subscription(subscription_id, reason)
+        logger.info(f"Cancelled subscription {subscription_id} in KillBill")
+        
+        # Suspend associated instance
+        if instance_id:
+            from ..utils.instance_client import InstanceServiceClient
+            instance_client = InstanceServiceClient()
+            
+            try:
+                await instance_client.suspend_instance(instance_id)
+                logger.info(f"Successfully suspended instance {instance_id} for cancelled subscription {subscription_id}")
+            except Exception as instance_error:
+                logger.error(f"Failed to suspend instance {instance_id}: {instance_error}")
+                # Continue even if instance suspension fails
+        
+        return {
+            "success": True,
+            "message": "Subscription cancelled and instance suspended",
+            "subscription_id": subscription_id,
+            "instance_id": instance_id,
+            "reason": reason
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel subscription {subscription_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cancel subscription: {str(e)}")

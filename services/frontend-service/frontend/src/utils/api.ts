@@ -99,6 +99,7 @@ export interface Instance {
   updated_at: string;
   admin_email: string;
   demo_data: boolean;
+  subscription_id?: string;
 }
 
 export interface CreateInstanceRequest {
@@ -394,6 +395,22 @@ export const billingAPI = {
   // Instance with Subscription Creation
   createInstanceWithSubscription: (data: CreateInstanceWithSubscriptionRequest): Promise<AxiosResponse<CreateInstanceWithSubscriptionResponse>> =>
     api.post('/billing/api/billing/instances/', data),
+  
+  // Individual Subscription Management
+  getSubscription: (subscriptionId: string): Promise<AxiosResponse<{success: boolean, subscription: any, metadata: any}>> =>
+    api.get(`/billing/api/billing/subscriptions/subscription/${subscriptionId}`),
+  
+  getSubscriptionInvoices: (subscriptionId: string, page: number = 1, limit: number = 10): Promise<AxiosResponse<{success: boolean, invoices: any[], total: number}>> =>
+    api.get(`/billing/api/billing/subscriptions/subscription/${subscriptionId}/invoices?page=${page}&limit=${limit}`),
+  
+  pauseSubscription: (subscriptionId: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
+    api.post(`/billing/api/billing/subscriptions/subscription/${subscriptionId}/pause`),
+  
+  resumeSubscription: (subscriptionId: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
+    api.post(`/billing/api/billing/subscriptions/subscription/${subscriptionId}/resume`),
+  
+  cancelSubscriptionById: (subscriptionId: string, reason?: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
+    api.delete(`/billing/api/billing/subscriptions/subscription/${subscriptionId}`, { data: { reason } }),
 };
 
 export { TokenManager };

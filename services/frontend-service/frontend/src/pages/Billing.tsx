@@ -388,7 +388,7 @@ const Billing: React.FC = () => {
                               </a>
                             )}
                             <a
-                              href={`/instances/${instance.id}`}
+                              href={`/billing/instance/${instance.id}`}
                               className="text-blue-600 hover:text-blue-900 text-xs"
                             >
                               Manage

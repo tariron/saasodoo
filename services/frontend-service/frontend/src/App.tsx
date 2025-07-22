@@ -10,6 +10,7 @@ import Billing from './pages/Billing';
 import BillingSubscription from './pages/BillingSubscription';
 import BillingInvoices from './pages/BillingInvoices';
 import BillingPayment from './pages/BillingPayment';
+import BillingInstanceManage from './pages/BillingInstanceManage';
 import AuthGuard from './components/AuthGuard';
 import { TokenManager } from './utils/api';
 
@@ -98,6 +99,15 @@ function App() {
             element={
               <AuthGuard>
                 <BillingPayment />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/billing/instance/:instanceId" 
+            element={
+              <AuthGuard>
+                <BillingInstanceManage />
               </AuthGuard>
             } 
           />
