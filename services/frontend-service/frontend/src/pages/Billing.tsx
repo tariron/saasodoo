@@ -208,47 +208,41 @@ const Billing: React.FC = () => {
                       Subscription
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Invoices & Payments
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Payment Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {billingData.customer_instances.map((instance: any) => {
-                    // Find linked subscription using multiple methods
+                    // Find linked subscription
                     const linkedSubscription = billingData.active_subscriptions.find(
                       (sub: any) => sub.instance_id === instance.id || sub.id === instance.subscription_id
                     );
-                    
-                    // Find all invoices for this instance using simplified logic
-                    const instanceInvoices = billingData.recent_invoices
-                      .filter((invoice: any) => {
-                        // Try multiple linking methods
-                        return invoice.instance_id === instance.id || 
-                               invoice.subscription_id === instance.subscription_id ||
-                               (linkedSubscription && invoice.subscription_id === linkedSubscription.id);
-                      })
-                      .sort((a: any, b: any) => new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime());
                     
                     return (
                       <tr key={instance.id} className="hover:bg-gray-50">
                         {/* Instance Column */}
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center mr-3">
-                              <span className="text-primary-600 font-medium text-sm">
+                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
+                              <span className="text-blue-600 font-bold text-lg">
                                 {instance.name[0].toUpperCase()}
                               </span>
                             </div>
                             <div>
-                              <div className="text-sm font-medium text-gray-900">{instance.name}</div>
-                              <div className="text-sm text-gray-500">
-                                {instance.status} • {instance.instance_type}
+                              <div className="text-sm font-bold text-gray-900">{instance.name}</div>
+                              <div className="text-sm text-gray-500">{instance.description || 'No description'}</div>
+                              <div className="flex items-center space-x-2 mt-1">
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                  instance.status === 'running' ? 'text-green-700 bg-green-100' :
+                                  instance.status === 'stopped' ? 'text-gray-700 bg-gray-100' :
+                                  instance.status === 'paused' ? 'text-yellow-700 bg-yellow-100' :
+                                  'text-blue-700 bg-blue-100'
+                                }`}>
+                                  {instance.status}
+                                </span>
+                                <span className="text-xs text-gray-500">•</span>
+                                <span className="text-xs text-gray-500">{instance.instance_type}</span>
                               </div>
                             </div>
                           </div>
@@ -258,30 +252,38 @@ const Billing: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           {linkedSubscription ? (
                             <div>
-                              <div className="text-sm font-medium text-gray-900">
+                              <div className="text-sm font-bold text-gray-900">
                                 {linkedSubscription.plan_name}
                               </div>
                               <div className="text-sm text-gray-500">
-                                {linkedSubscription.billing_period} • 
-                                <span className={`ml-1 px-2 py-1 text-xs rounded-full ${
+                                {linkedSubscription.billing_period} billing
+                              </div>
+                              <div className="flex items-center space-x-2 mt-2">
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                   instance.billing_status === 'paid' 
-                                    ? 'text-green-600 bg-green-100' 
-                                    : 'text-yellow-600 bg-yellow-100'
+                                    ? 'text-green-700 bg-green-100' 
+                                    : 'text-yellow-700 bg-yellow-100'
                                 }`}>
                                   {instance.billing_status === 'paid' ? 'Paid' : 'Trial'}
                                 </span>
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                  linkedSubscription.state === 'ACTIVE' ? 'text-blue-700 bg-blue-100' :
+                                  'text-gray-700 bg-gray-100'
+                                }`}>
+                                  {linkedSubscription.state}
+                                </span>
                               </div>
                               {linkedSubscription.charged_through_date && (
-                                <div className="text-xs text-gray-400">
-                                  Next: {formatDate(linkedSubscription.charged_through_date)}
+                                <div className="text-xs text-gray-600 mt-1">
+                                  <strong>Next billing:</strong> {formatDate(linkedSubscription.charged_through_date)}
                                 </div>
                               )}
                             </div>
                           ) : (
                             <div className="text-sm text-gray-500">
-                              No subscription
-                              <div>
-                                <a href="/billing/subscription" className="text-blue-600 hover:text-blue-800 text-xs">
+                              <div className="text-sm font-medium text-gray-700">No subscription</div>
+                              <div className="mt-1">
+                                <a href="/billing/subscription" className="text-blue-600 hover:text-blue-800 text-xs font-medium">
                                   Add Plan →
                                 </a>
                               </div>
@@ -289,109 +291,24 @@ const Billing: React.FC = () => {
                           )}
                         </td>
                         
-                        {/* Invoices & Payments Column */}
-                        <td className="px-6 py-4">
-                          {instanceInvoices.length > 0 ? (
-                            <div className="space-y-2">
-                              {instanceInvoices.map((invoice: any) => (
-                                <div key={invoice.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                                  <div className="flex-1">
-                                    <div className="flex items-center space-x-2">
-                                      <div className="text-sm font-medium text-gray-900">
-                                        {formatCurrency(invoice.amount, invoice.currency)}
-                                      </div>
-                                      {invoice.amount === 0 && (
-                                        <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full">
-                                          Trial
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                      {formatDate(invoice.invoice_date)} • #{invoice.invoice_number}
-                                    </div>
-                                    <div className="flex items-center space-x-2 mt-1">
-                                      <span className={`text-xs px-2 py-1 rounded-full ${getInvoiceStatusColor(invoice.status)}`}>
-                                        {invoice.status}
-                                      </span>
-                                      <span className={`text-xs px-2 py-1 rounded-full ${
-                                        invoice.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
-                                        invoice.payment_status === 'unpaid' ? 'bg-orange-100 text-orange-800' :
-                                        'bg-gray-100 text-gray-800'
-                                      }`}>
-                                        {invoice.payment_status === 'paid' ? 'Paid' :
-                                         invoice.payment_status === 'unpaid' ? 'Unpaid' :
-                                         'No Payment'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-sm text-gray-500">No invoices</div>
-                          )}
-                        </td>
-                        
-                        {/* Payment Status Column */}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {instanceInvoices.length > 0 ? (
-                            <div>
-                              {(() => {
-                                const paidInvoices = instanceInvoices.filter((inv: any) => inv.payment_status === 'paid');
-                                const unpaidInvoices = instanceInvoices.filter((inv: any) => inv.payment_status === 'unpaid');
-                                const totalPaid = paidInvoices.reduce((sum: number, inv: any) => sum + inv.amount, 0);
-                                const totalUnpaid = unpaidInvoices.reduce((sum: number, inv: any) => sum + inv.amount, 0);
-                                const totalBalance = instanceInvoices.reduce((sum: number, inv: any) => sum + inv.balance, 0);
-                                
-                                return (
-                                  <div className="space-y-1">
-                                    {paidInvoices.length > 0 && (
-                                      <div className="text-xs text-green-600">
-                                        {paidInvoices.length} paid • {formatCurrency(totalPaid)}
-                                      </div>
-                                    )}
-                                    {unpaidInvoices.length > 0 && (
-                                      <div className="text-xs text-orange-600">
-                                        {unpaidInvoices.length} unpaid • {formatCurrency(totalUnpaid)}
-                                      </div>
-                                    )}
-                                    {totalBalance > 0 && (
-                                      <div className="text-xs text-gray-600">
-                                        Balance: {formatCurrency(totalBalance)}
-                                      </div>
-                                    )}
-                                    {instanceInvoices.length === 1 && instanceInvoices[0].amount === 0 && (
-                                      <div className="text-xs text-yellow-600">
-                                        Trial Period
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          ) : (
-                            <div className="text-sm text-gray-500">No invoices</div>
-                          )}
-                        </td>
-                        
                         {/* Actions Column */}
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex space-x-2">
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex space-x-3 justify-end">
                             {instance.external_url && (
                               <a
                                 href={instance.external_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-900 text-xs"
+                                className="text-blue-600 hover:text-blue-800 font-medium text-sm"
                               >
-                                Open
+                                Open Instance
                               </a>
                             )}
                             <a
                               href={`/billing/instance/${instance.id}`}
-                              className="text-blue-600 hover:text-blue-900 text-xs"
+                              className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 text-sm font-medium"
                             >
-                              Manage
+                              Manage Billing
                             </a>
                           </div>
                         </td>

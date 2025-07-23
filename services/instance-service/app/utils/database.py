@@ -159,6 +159,54 @@ class InstanceDatabase:
                 logger.error("Failed to get instance", instance_id=str(instance_id), error=str(e))
                 raise
     
+    async def get_instance_by_subscription_id(self, subscription_id: str) -> Optional[Instance]:
+        """Get instance by subscription ID"""
+        async with self.pool.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    "SELECT * FROM instances WHERE subscription_id = $1",
+                    UUID(subscription_id)
+                )
+                if row:
+                    logger.info("Found instance by subscription_id", 
+                              instance_id=str(row['id']), 
+                              subscription_id=subscription_id)
+                    
+                    # Convert row to dict and deserialize JSON fields (same as get_instance method)
+                    instance_data = dict(row)
+                    
+                    # Deserialize JSON fields
+                    if instance_data.get('custom_addons'):
+                        instance_data['custom_addons'] = json.loads(instance_data['custom_addons'])
+                    else:
+                        instance_data['custom_addons'] = []
+                        
+                    if instance_data.get('disabled_modules'):
+                        instance_data['disabled_modules'] = json.loads(instance_data['disabled_modules'])
+                    else:
+                        instance_data['disabled_modules'] = []
+                        
+                    if instance_data.get('environment_vars'):
+                        instance_data['environment_vars'] = json.loads(instance_data['environment_vars'])
+                    else:
+                        instance_data['environment_vars'] = {}
+                        
+                    if instance_data.get('metadata'):
+                        instance_data['metadata'] = json.loads(instance_data['metadata'])
+                    else:
+                        instance_data['metadata'] = {}
+                    
+                    return Instance(**instance_data)
+                
+                logger.info("No instance found for subscription_id", subscription_id=subscription_id)
+                return None
+                
+            except Exception as e:
+                logger.error("Failed to get instance by subscription_id", 
+                           subscription_id=subscription_id, 
+                           error=str(e))
+                return None
+
     async def update_instance_subscription(self, instance_id: str, subscription_id: str) -> bool:
         """Update instance with subscription ID"""
         async with self.pool.acquire() as conn:

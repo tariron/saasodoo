@@ -379,43 +379,38 @@ async def resume_subscription_and_instance(
         raise HTTPException(status_code=500, detail=f"Failed to resume subscription: {str(e)}")
 
 @router.delete("/subscription/{subscription_id}")
-async def cancel_subscription_and_instance(
+async def cancel_subscription(
     subscription_id: str,
     reason: str = "User requested cancellation",
     killbill: KillBillClient = Depends(get_killbill_client)
 ):
-    """Cancel subscription and suspend associated instance"""
+    """Schedule subscription cancellation at end of billing period"""
     try:
-        # Get subscription metadata to find instance ID
-        metadata = await killbill.get_subscription_metadata(subscription_id)
-        instance_id = metadata.get("instance_id")
+        # Get subscription details to determine cancellation date
+        subscription = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Subscription not found")
         
-        # Cancel subscription in KillBill
+        # Schedule end-of-term cancellation in KillBill
         await killbill.cancel_subscription(subscription_id, reason)
-        logger.info(f"Cancelled subscription {subscription_id} in KillBill")
+        logger.info(f"Scheduled end-of-term cancellation for subscription {subscription_id}")
         
-        # Suspend associated instance
-        if instance_id:
-            from ..utils.instance_client import InstanceServiceClient
-            instance_client = InstanceServiceClient()
-            
-            try:
-                await instance_client.suspend_instance(instance_id)
-                logger.info(f"Successfully suspended instance {instance_id} for cancelled subscription {subscription_id}")
-            except Exception as instance_error:
-                logger.error(f"Failed to suspend instance {instance_id}: {instance_error}")
-                # Continue even if instance suspension fails
+        # Extract cancellation information
+        charged_through_date = subscription.get("chargedThroughDate")
+        plan_name = subscription.get("planName", "Unknown")
         
         return {
             "success": True,
-            "message": "Subscription cancelled and instance suspended",
+            "message": "Subscription scheduled for cancellation at end of billing period",
             "subscription_id": subscription_id,
-            "instance_id": instance_id,
-            "reason": reason
+            "plan_name": plan_name,
+            "cancellation_date": charged_through_date,
+            "reason": reason,
+            "note": "You will continue to have access to your service until the end of your current billing period."
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to cancel subscription {subscription_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel subscription: {str(e)}")
+        logger.error(f"Failed to schedule cancellation for subscription {subscription_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to schedule subscription cancellation: {str(e)}")

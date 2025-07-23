@@ -315,55 +315,126 @@ const BillingInstanceManage: React.FC = () => {
           )}
         </div>
 
-        {/* Subscription Details */}
+        {/* Subscription Billing Context */}
         {subscriptionData && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Current Subscription</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <div className="text-sm text-gray-500">Plan</div>
-                <div className="text-lg font-medium text-gray-900">
+            <h2 className="text-xl font-semibold text-gray-900 mb-6">Subscription Billing Context</h2>
+            
+            {/* Billing Overview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600">Current Plan</div>
+                <div className="text-lg font-bold text-blue-800">
                   {subscriptionData.subscription.planName || 'Unknown Plan'}
                 </div>
+                <div className="text-sm text-gray-600">
+                  {subscriptionData.subscription.billingPeriod || 'MONTHLY'} billing
+                </div>
               </div>
-              <div>
-                <div className="text-sm text-gray-500">Status</div>
+              
+              <div className="bg-green-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600">Billing Status</div>
                 <div>
-                  <span className={`px-2 py-1 text-sm font-medium rounded-full ${getSubscriptionStatusColor(subscriptionData.subscription.state)}`}>
+                  <span className={`px-3 py-1 text-sm font-bold rounded-full ${getSubscriptionStatusColor(subscriptionData.subscription.state)}`}>
                     {subscriptionData.subscription.state || 'Unknown'}
                   </span>
                 </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  {instance?.billing_status === 'trial' ? 'Trial Period' : 'Paid Subscription'}
+                </div>
+              </div>
+
+              <div className="bg-purple-50 rounded-lg p-4">
+                <div className="text-sm text-gray-600">Next Billing</div>
+                <div className="text-lg font-bold text-purple-800">
+                  {subscriptionData.subscription.chargedThroughDate 
+                    ? formatDate(subscriptionData.subscription.chargedThroughDate)
+                    : 'Not Available'
+                  }
+                </div>
+                <div className="text-sm text-gray-600">Auto-renewal date</div>
               </div>
             </div>
 
-            {/* Subscription Actions */}
-            <div className="mt-6 border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Subscription Actions</h3>
-              <div className="flex flex-wrap gap-4">
-                <button
-                  onClick={handlePauseSubscription}
-                  disabled={actionLoading === 'pause' || subscriptionData.subscription.state !== 'ACTIVE'}
-                  className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {actionLoading === 'pause' ? 'Pausing...' : 'Pause Subscription'}
-                </button>
+            {/* Billing Period & Details */}
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Billing Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-sm text-gray-500">Subscription Started</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {subscriptionData.subscription.startDate 
+                      ? formatDate(subscriptionData.subscription.startDate)
+                      : 'Not Available'
+                    }
+                  </div>
+                </div>
                 
-                <button
-                  onClick={handleResumeSubscription}
-                  disabled={actionLoading === 'resume' || subscriptionData.subscription.state === 'ACTIVE'}
-                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {actionLoading === 'resume' ? 'Resuming...' : 'Resume Subscription'}
-                </button>
-                
-                <button
-                  onClick={handleCancelSubscription}
-                  disabled={actionLoading === 'cancel' || subscriptionData.subscription.state === 'CANCELLED'}
-                  className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {actionLoading === 'cancel' ? 'Cancelling...' : 'Cancel Subscription'}
-                </button>
+                {subscriptionData.subscription.trialEndDate && (
+                  <div>
+                    <div className="text-sm text-gray-500">Trial Period</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {subscriptionData.subscription.trialStartDate 
+                        ? formatDate(subscriptionData.subscription.trialStartDate)
+                        : 'Start'
+                      } → {formatDate(subscriptionData.subscription.trialEndDate)}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-sm text-gray-500">Billing Start Date</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {subscriptionData.subscription.billingStartDate 
+                      ? formatDate(subscriptionData.subscription.billingStartDate)
+                      : 'Not Available'
+                    }
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm text-gray-500">Current Period</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {subscriptionData.subscription.billingStartDate && subscriptionData.subscription.chargedThroughDate
+                      ? `${formatDate(subscriptionData.subscription.billingStartDate)} → ${formatDate(subscriptionData.subscription.chargedThroughDate)}`
+                      : 'Not Available'
+                    }
+                  </div>
+                </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Subscription Management Actions */}
+        {subscriptionData && (
+          <div className="bg-white shadow rounded-lg p-6 mb-8">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Subscription Management</h2>
+            
+            <div className="flex flex-wrap gap-4">
+              <button
+                onClick={handlePauseSubscription}
+                disabled={actionLoading === 'pause' || subscriptionData.subscription.state !== 'ACTIVE'}
+                className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {actionLoading === 'pause' ? 'Pausing...' : 'Pause Subscription'}
+              </button>
+              
+              <button
+                onClick={handleResumeSubscription}
+                disabled={actionLoading === 'resume' || subscriptionData.subscription.state === 'ACTIVE'}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {actionLoading === 'resume' ? 'Resuming...' : 'Resume Subscription'}
+              </button>
+              
+              <button
+                onClick={handleCancelSubscription}
+                disabled={actionLoading === 'cancel' || subscriptionData.subscription.state === 'CANCELLED'}
+                className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {actionLoading === 'cancel' ? 'Cancelling...' : 'Cancel Subscription'}
+              </button>
             </div>
           </div>
         )}

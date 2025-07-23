@@ -89,14 +89,12 @@ class InstanceServiceClient:
     
     async def get_instance_by_subscription_id(self, subscription_id: str) -> Optional[Dict[str, Any]]:
         """Get an instance by its subscription ID"""
-        endpoint = f"/api/v1/instances/?subscription_id={subscription_id}"
+        endpoint = f"/api/v1/instances/by-subscription/{subscription_id}"
         try:
             result = await self._make_request("GET", endpoint)
-            # The instance service returns a list, so we expect one item
-            if result and result.get('instances') and len(result['instances']) > 0:
-                instance = result['instances'][0]
-                logger.info(f"Found instance {instance.get('id')} for subscription {subscription_id}")
-                return instance
+            if result:
+                logger.info(f"Found instance {result.get('id')} for subscription {subscription_id}")
+                return result
             
             logger.info(f"No instance found for subscription_id {subscription_id}")
             return None
@@ -154,6 +152,26 @@ class InstanceServiceClient:
             logger.info(f"Successfully unsuspended instance {instance_id}")
         else:
             logger.error(f"Failed to unsuspend instance {instance_id}: {result}")
+        
+        return result or {}
+    
+    async def terminate_instance(self, instance_id: str, reason: str = "Subscription cancelled") -> Dict[str, Any]:
+        """Terminate an instance permanently"""
+        endpoint = f"/api/v1/instances/{instance_id}/actions"
+        payload = {
+            "action": "terminate",
+            "parameters": {
+                "reason": reason
+            }
+        }
+        
+        logger.info(f"Terminating instance {instance_id}: {reason}")
+        result = await self._make_request("POST", endpoint, json=payload)
+        
+        if result and result.get("status") == "success":
+            logger.info(f"Successfully terminated instance {instance_id}")
+        else:
+            logger.error(f"Failed to terminate instance {instance_id}: {result}")
         
         return result or {}
     

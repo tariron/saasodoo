@@ -121,6 +121,10 @@ async def handle_killbill_webhook(request: Request, response: Response):
             await handle_subscription_created(payload)
         elif event_type == "SUBSCRIPTION_CANCELLATION":
             await handle_subscription_cancelled(payload)
+        elif event_type == "SUBSCRIPTION_CANCEL":
+            await handle_subscription_cancelled(payload)
+        elif event_type == "ENTITLEMENT_CANCEL":
+            await handle_entitlement_cancelled(payload)
         elif event_type == "INVOICE_CREATION":
             await handle_invoice_created(payload)
         elif event_type == "PING":
@@ -327,11 +331,11 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         logger.error(f"Error handling subscription creation: {e}")
 
 async def handle_subscription_cancelled(payload: Dict[str, Any]):
-    """Handle subscription cancellation webhook"""
+    """Handle subscription cancellation webhook - database updates and notifications only"""
     subscription_id = payload.get('objectId')
     account_id = payload.get('accountId')
     
-    logger.warning(f"Subscription cancelled: {subscription_id} for account: {account_id}")
+    logger.info(f"Subscription cancellation scheduled: {subscription_id} for account: {account_id}")
     
     try:
         # Get customer information from KillBill
@@ -340,30 +344,57 @@ async def handle_subscription_cancelled(payload: Dict[str, Any]):
             logger.warning(f"Could not find customer for account {account_id}")
             return
         
-        # Suspend all instances for this customer due to subscription cancellation
-        logger.warning(f"Subscription cancelled for customer {customer_external_key} - suspending all instances")
+        logger.info(f"Subscription {subscription_id} scheduled for cancellation for customer {customer_external_key}")
         
-        instances = await instance_client.get_instances_by_customer(customer_external_key)
-        suspended_count = 0
+        # TODO: Update subscription status in our database if we have one
+        # TODO: Log cancellation event for analytics
+        # TODO: Send cancellation confirmation email to customer
+        # TODO: Update billing dashboard/UI status
         
-        for instance in instances:
-            if instance.get('status') in ['running', 'stopped', 'starting', 'stopping']:
-                try:
-                    result = await instance_client.suspend_instance(instance['id'], "Subscription cancelled")
-                    if result.get('status') == 'success':
-                        suspended_count += 1
-                        logger.warning(f"Suspended instance {instance['id']} for customer {customer_external_key}")
-                    else:
-                        logger.error(f"Failed to suspend instance {instance['id']}: {result}")
-                except Exception as e:
-                    logger.error(f"Error suspending instance {instance['id']}: {e}")
+        # NOTE: We DO NOT terminate instances here - that happens in ENTITLEMENT_CANCEL webhook
+        # at the end of the billing period when the user's access actually ends
         
-        logger.warning(f"Suspended {suspended_count} instances for customer {customer_external_key}")
-        
-        # TODO: Send cancellation confirmation email
+        logger.info(f"Processed subscription cancellation notification for {subscription_id}")
         
     except Exception as e:
         logger.error(f"Error handling subscription cancellation: {e}")
+
+async def handle_entitlement_cancelled(payload: Dict[str, Any]):
+    """Handle entitlement cancellation webhook - terminate instance when access ends"""
+    subscription_id = payload.get('objectId')
+    account_id = payload.get('accountId')
+    
+    logger.info(f"Entitlement cancelled: {subscription_id} for account: {account_id}")
+    
+    try:
+        # Find instance by subscription_id using our database lookup
+        instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+        if not instance:
+            logger.warning(f"No instance found for subscription {subscription_id} during entitlement cancellation")
+            return
+        
+        instance_id = instance.get("id")
+        logger.info(f"Found instance {instance_id} for cancelled entitlement {subscription_id}")
+        
+        # Terminate the instance since entitlement has ended
+        try:
+            await instance_client.terminate_instance(instance_id, "Subscription entitlement ended")
+            logger.info(f"Successfully terminated instance {instance_id} for subscription {subscription_id}")
+            
+            # Get customer information for logging
+            customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+            logger.info(f"Instance {instance_id} terminated for customer {customer_external_key} - subscription {subscription_id} entitlement ended")
+            
+        except Exception as instance_error:
+            logger.error(f"Failed to terminate instance {instance_id} for subscription {subscription_id}: {instance_error}")
+            # Don't raise - we want to continue processing other webhooks
+        
+        # TODO: Send service termination notification email
+        # TODO: Trigger data backup before final cleanup
+        # TODO: Clean up any additional resources
+        
+    except Exception as e:
+        logger.error(f"Error handling entitlement cancellation for subscription {subscription_id}: {e}")
 
 async def handle_invoice_created(payload: Dict[str, Any]):
     """Handle invoice creation webhook"""

@@ -231,20 +231,26 @@ class KillBillClient:
             raise
     
     async def cancel_subscription(self, subscription_id: str, reason: str = "User cancellation") -> Dict[str, Any]:
-        """Cancel a subscription"""
+        """Cancel a subscription with END_OF_TERM policy (graceful cancellation)"""
         try:
-            # KillBill expects a DELETE request with query parameters
+            # KillBill expects a DELETE request with END_OF_TERM policies
             params = {
-                "requestedDate": datetime.utcnow().isoformat(),
+                "entitlementPolicy": "END_OF_TERM",  # Keep access until period end
+                "billingPolicy": "END_OF_TERM",      # Stop billing at period end
+                "useRequestedDateForBilling": "true",
                 "callCompletion": "true",
                 "callTimeoutSec": "10"
             }
             
+            # Add reason to plugin properties if provided
+            if reason:
+                params["pluginProperty"] = f"reason={reason}"
+            
             response = await self._make_request("DELETE", f"/1.0/kb/subscriptions/{subscription_id}", params=params)
-            logger.info(f"Cancelled subscription {subscription_id}: {reason}")
-            return response or {"status": "cancelled"}
+            logger.info(f"Scheduled end-of-term cancellation for subscription {subscription_id}: {reason}")
+            return response or {"status": "scheduled_for_cancellation"}
         except Exception as e:
-            logger.error(f"Failed to cancel subscription {subscription_id}: {e}")
+            logger.error(f"Failed to schedule cancellation for subscription {subscription_id}: {e}")
             raise
     
     async def get_subscription_by_id(self, subscription_id: str) -> Optional[Dict[str, Any]]:

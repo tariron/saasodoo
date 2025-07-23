@@ -255,6 +255,64 @@ async def list_instances(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/by-subscription/{subscription_id}", response_model=InstanceResponse)
+async def get_instance_by_subscription(
+    subscription_id: str,
+    db: InstanceDatabase = Depends(get_database)
+):
+    """Get instance by subscription ID"""
+    try:
+        logger.info("Getting instance by subscription_id", subscription_id=subscription_id)
+        
+        instance = await db.get_instance_by_subscription_id(subscription_id)
+        if not instance:
+            raise HTTPException(status_code=404, detail="Instance not found for subscription")
+        
+        logger.info("Found instance by subscription_id", 
+                   instance_id=str(instance.id), 
+                   subscription_id=subscription_id)
+        
+        response_data = {
+            "id": str(instance.id),
+            "customer_id": str(instance.customer_id),
+            "subscription_id": str(instance.subscription_id) if instance.subscription_id else None,
+            "name": instance.name,
+            "description": instance.description,
+            "odoo_version": instance.odoo_version,
+            "instance_type": instance.instance_type,
+            "status": instance.status,
+            "billing_status": instance.billing_status,
+            "provisioning_status": instance.provisioning_status,
+            "cpu_limit": instance.cpu_limit,
+            "memory_limit": instance.memory_limit,
+            "storage_limit": instance.storage_limit,
+            "external_url": instance.external_url,
+            "internal_url": instance.internal_url,
+            "admin_email": instance.admin_email,
+            "admin_password": instance.admin_password,
+            "subdomain": instance.subdomain,
+            "error_message": instance.error_message,
+            "last_health_check": instance.last_health_check.isoformat() if instance.last_health_check else None,
+            "created_at": instance.created_at.isoformat(),
+            "updated_at": instance.updated_at.isoformat(),
+            "started_at": instance.started_at.isoformat() if instance.started_at else None,
+            "demo_data": instance.demo_data,
+            "database_name": instance.database_name,
+            "custom_addons": instance.custom_addons,
+            "metadata": instance.metadata or {}
+        }
+        
+        return InstanceResponse(**response_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get instance by subscription", 
+                    subscription_id=subscription_id, 
+                    error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve instance: {str(e)}")
+
+
 @router.put("/{instance_id}", response_model=InstanceResponse)
 async def update_instance(
     instance_id: UUID,
@@ -464,6 +522,9 @@ async def perform_instance_action(
                 "timestamp": datetime.utcnow().isoformat(),
                 "job_id": job.id
             }
+        elif action == InstanceAction.TERMINATE:
+            # Terminate instance (immediate status change)
+            result = await _terminate_instance(instance_id, db)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
         
@@ -654,17 +715,17 @@ async def check_subdomain_availability(
 def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction]:
     """Get valid actions for current instance status"""
     action_map = {
-        InstanceStatus.CREATING: [],
-        InstanceStatus.STARTING: [InstanceAction.STOP, InstanceAction.SUSPEND],
-        InstanceStatus.RUNNING: [InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.UPDATE, InstanceAction.BACKUP, InstanceAction.SUSPEND],
-        InstanceStatus.STOPPING: [],
-        InstanceStatus.STOPPED: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE, InstanceAction.SUSPEND],
-        InstanceStatus.RESTARTING: [],
-        InstanceStatus.UPDATING: [],
-        InstanceStatus.MAINTENANCE: [],  # No actions allowed during maintenance operations
-        InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE, InstanceAction.SUSPEND],
-        InstanceStatus.TERMINATED: [],
-        InstanceStatus.PAUSED: [InstanceAction.UNPAUSE]
+        InstanceStatus.CREATING: [InstanceAction.TERMINATE],
+        InstanceStatus.STARTING: [InstanceAction.STOP, InstanceAction.SUSPEND, InstanceAction.TERMINATE],
+        InstanceStatus.RUNNING: [InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.UPDATE, InstanceAction.BACKUP, InstanceAction.SUSPEND, InstanceAction.TERMINATE],
+        InstanceStatus.STOPPING: [InstanceAction.TERMINATE],
+        InstanceStatus.STOPPED: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE, InstanceAction.SUSPEND, InstanceAction.TERMINATE],
+        InstanceStatus.RESTARTING: [InstanceAction.TERMINATE],
+        InstanceStatus.UPDATING: [InstanceAction.TERMINATE],
+        InstanceStatus.MAINTENANCE: [InstanceAction.TERMINATE],  # Allow termination during maintenance
+        InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE, InstanceAction.SUSPEND, InstanceAction.TERMINATE],
+        InstanceStatus.TERMINATED: [],  # No actions allowed on terminated instances
+        InstanceStatus.PAUSED: [InstanceAction.UNPAUSE, InstanceAction.TERMINATE]
     }
     return action_map.get(status, [])
 
@@ -859,6 +920,45 @@ async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
         return {
             "status": "error",
             "message": f"Failed to suspend instance: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
+    """Terminate instance permanently - stops container and sets status to terminated"""
+    from datetime import datetime
+    import docker
+    
+    try:
+        # Get current instance to check if it needs to be stopped first
+        instance = await db.get_instance(instance_id)
+        if not instance:
+            raise Exception("Instance not found")
+        
+        # If instance is running, stop the actual Docker container first
+        if instance.status == InstanceStatus.RUNNING:
+            logger.info("Stopping running instance container before termination", instance_id=str(instance_id))
+            
+            # Use the same Docker stopping logic as the lifecycle module
+            await _stop_container_for_suspension(instance)
+            logger.info("Container stopped for termination", instance_id=str(instance_id))
+        
+        # Update status to terminated (permanent)
+        await db.update_instance_status(instance_id, InstanceStatus.TERMINATED, "Instance terminated due to subscription cancellation")
+        
+        logger.info("Instance terminated successfully with container stopped", instance_id=str(instance_id))
+        return {
+            "status": "success",
+            "message": "Instance terminated successfully",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error("Failed to terminate instance", instance_id=str(instance_id), error=str(e))
+        await db.update_instance_status(instance_id, InstanceStatus.ERROR, f"Termination failed: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Failed to terminate instance: {str(e)}",
             "timestamp": datetime.utcnow().isoformat()
         }
 

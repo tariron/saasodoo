@@ -144,11 +144,10 @@ async def get_billing_overview(
         parallel_start = time.time()
         logger.info(f"Starting parallel data fetch for account {account_id}")
         
-        # Execute independent API calls in parallel
+        # Execute independent API calls in parallel (removed invoice processing for performance)
         logger.info("Creating parallel tasks...")
         subscriptions_task = killbill.get_account_subscriptions(account_id)
         instances_task = get_customer_instances(customer_id)
-        invoices_task = killbill.get_account_invoices(account_id, limit=20)
         payment_methods_task = killbill.get_account_payment_methods(account_id)
         
         # Balance call can fail, so handle separately
@@ -156,10 +155,9 @@ async def get_billing_overview(
         
         logger.info("Waiting for parallel tasks to complete...")
         # Wait for all parallel calls to complete
-        subscriptions, customer_instances, all_invoices, payment_methods = await asyncio.gather(
+        subscriptions, customer_instances, payment_methods = await asyncio.gather(
             subscriptions_task, 
             instances_task, 
-            invoices_task, 
             payment_methods_task,
             return_exceptions=True
         )
@@ -180,9 +178,6 @@ async def get_billing_overview(
         if isinstance(customer_instances, Exception):
             logger.error(f"Failed to get customer instances: {customer_instances}")
             customer_instances = []
-        if isinstance(all_invoices, Exception):
-            logger.error(f"Failed to get invoices: {all_invoices}")
-            all_invoices = []
         if isinstance(payment_methods, Exception):
             logger.error(f"Failed to get payment methods: {payment_methods}")
             payment_methods = []
@@ -287,87 +282,9 @@ async def get_billing_overview(
                     except Exception as e:
                         logger.warning(f"Failed to parse charged through date: {e}")
         
-        # Process invoices with parallel calls for subscription IDs and payments
-        recent_invoices = []
-        
-        try:
-            invoice_processing_start = time.time()
-            logger.info(f"Retrieved {len(all_invoices)} invoices for account {account_id}")
-            
-            # Batch all expensive invoice operations
-            if all_invoices:
-                invoice_ids = [invoice.get('id') for invoice in all_invoices]
-                logger.info(f"Starting invoice processing for {len(invoice_ids)} invoices")
-                
-                # Fetch subscription IDs and payments for all invoices in parallel
-                subscription_id_tasks = [killbill.get_subscription_id_from_invoice(inv_id) for inv_id in invoice_ids]
-                payment_tasks = [killbill.get_invoice_payments(inv_id) for inv_id in invoice_ids]
-                
-                # Execute both batches in parallel
-                subscription_results, payment_results = await asyncio.gather(
-                    asyncio.gather(*subscription_id_tasks, return_exceptions=True),
-                    asyncio.gather(*payment_tasks, return_exceptions=True),
-                    return_exceptions=True
-                )
-                
-                invoice_batch_time = time.time() - invoice_processing_start
-                logger.info(f"Invoice batch processing completed in {invoice_batch_time:.2f} seconds")
-                
-                # Handle exceptions from batched calls
-                if isinstance(subscription_results, Exception):
-                    logger.error(f"Failed to get subscription IDs: {subscription_results}")
-                    subscription_results = [None] * len(invoice_ids)
-                if isinstance(payment_results, Exception):
-                    logger.error(f"Failed to get payments: {payment_results}")
-                    payment_results = [None] * len(invoice_ids)
-                
-                # Process results
-                for i, invoice in enumerate(all_invoices):
-                    invoice_id = invoice.get('id')
-                    
-                    # Get subscription ID from batched results
-                    subscription_id = None
-                    if i < len(subscription_results) and not isinstance(subscription_results[i], Exception):
-                        subscription_id = subscription_results[i]
-                    elif isinstance(subscription_results[i], Exception):
-                        logger.warning(f"Failed to get subscription ID for invoice {invoice_id}: {subscription_results[i]}")
-                    
-                    # Find linked instance if subscription exists
-                    instance_id = None
-                    for sub in active_subscriptions:
-                        if sub.get('id') == subscription_id:
-                            instance_id = sub.get('instance_id')
-                            break
-                    
-                    # Get payment data from batched results
-                    payments = []
-                    if i < len(payment_results) and not isinstance(payment_results[i], Exception):
-                        payments = payment_results[i] or []
-                    elif isinstance(payment_results[i], Exception):
-                        logger.warning(f"Failed to get payments for invoice {invoice_id}: {payment_results[i]}")
-                    
-                    # Determine payment status
-                    payment_status = 'no_payments'
-                    if any(p.get('status') == 'SUCCESS' for p in payments):
-                        payment_status = 'paid'
-                    elif payments:
-                        payment_status = 'unpaid'
-                    
-                    # Add subscription_id and payment data to invoice
-                    invoice_with_data = invoice.copy()
-                    invoice_with_data['subscription_id'] = subscription_id
-                    invoice_with_data['payments'] = payments
-                    invoice_with_data['payment_status'] = payment_status
-                    invoice_with_data['instance_id'] = instance_id
-                    recent_invoices.append(invoice_with_data)
-            
-            # Sort invoices by date (most recent first)
-            recent_invoices.sort(key=lambda x: x.get('invoice_date', ''), reverse=True)
-            logger.info(f"Built {len(recent_invoices)} invoices with batched processing")
-                
-        except Exception as e:
-            logger.warning(f"Failed to process invoices for account {account_id}: {e}")
-            recent_invoices = []
+        # Invoice processing removed for performance optimization
+        # Detailed invoice information is now available in dedicated instance billing pages
+        # This eliminates expensive parallel processing and improves dashboard load times
         
         # Format account info
         billing_account = {
@@ -382,11 +299,10 @@ async def get_billing_overview(
             'updated_at': account.get('updatedDate')
         }
         
-        # Build comprehensive billing overview with per-instance data
+        # Build simplified billing overview focused on instances and subscriptions
         billing_overview = {
             'account': billing_account,
             'active_subscriptions': active_subscriptions,
-            'recent_invoices': recent_invoices,
             'next_billing_date': next_billing_date.isoformat() if next_billing_date else None,
             'next_billing_amount': next_billing_amount if next_billing_amount > 0 else None,
             'payment_methods': payment_methods,
