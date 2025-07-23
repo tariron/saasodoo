@@ -267,15 +267,29 @@ const Billing: React.FC = () => {
                                   {instance.billing_status === 'paid' ? 'Paid' : 'Trial'}
                                 </span>
                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                  linkedSubscription.is_scheduled_for_cancellation ? 'text-orange-700 bg-orange-100' :
                                   linkedSubscription.state === 'ACTIVE' ? 'text-blue-700 bg-blue-100' :
                                   'text-gray-700 bg-gray-100'
                                 }`}>
-                                  {linkedSubscription.state}
+                                  {linkedSubscription.is_scheduled_for_cancellation 
+                                    ? `${linkedSubscription.state} (Scheduled for Cancellation)` 
+                                    : linkedSubscription.state}
                                 </span>
                               </div>
                               {linkedSubscription.charged_through_date && (
                                 <div className="text-xs text-gray-600 mt-1">
-                                  <strong>Next billing:</strong> {formatDate(linkedSubscription.charged_through_date)}
+                                  {linkedSubscription.is_scheduled_for_cancellation ? (
+                                    <>
+                                      <strong className="text-orange-600">Service ends:</strong> {formatDate(linkedSubscription.charged_through_date)}
+                                      <div className="text-orange-600 font-medium mt-1">
+                                        ⚠️ No future billing - Service will end
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <strong>Next billing:</strong> {formatDate(linkedSubscription.charged_through_date)}
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </div>

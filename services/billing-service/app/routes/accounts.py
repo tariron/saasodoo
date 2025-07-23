@@ -228,6 +228,19 @@ async def get_billing_overview(
                 if instance_id and instance_id in instance_lookup:
                     linked_instance = instance_lookup[instance_id]
                 
+                # Extract cancellation information
+                cancelled_date = sub.get('cancelledDate')
+                billing_end_date = sub.get('billingEndDate')
+                is_scheduled_for_cancellation = bool(cancelled_date) and sub.get('state') == 'ACTIVE'
+                
+                # Determine cancellation reason from events if available
+                cancellation_reason = "User requested cancellation"  # Default reason
+                events = sub.get('events', [])
+                for event in events:
+                    if event.get('eventType') in ['STOP_ENTITLEMENT', 'STOP_BILLING']:
+                        # Could extract reason from audit logs if available
+                        break
+
                 subscription_data = {
                     'id': sub.get('subscriptionId'),
                     'account_id': account_id,
@@ -239,12 +252,16 @@ async def get_billing_overview(
                     'start_date': sub.get('startDate'),
                     'charged_through_date': sub.get('chargedThroughDate'),
                     'billing_start_date': sub.get('billingStartDate'),
-                    'billing_end_date': sub.get('billingEndDate'),
+                    'billing_end_date': billing_end_date,
                     'trial_start_date': sub.get('trialStartDate'),
                     'trial_end_date': sub.get('trialEndDate'),
                     'metadata': subscription_metadata,
                     'created_at': sub.get('createdDate'),
                     'updated_at': sub.get('updatedDate'),
+                    # Cancellation information
+                    'cancelled_date': cancelled_date,
+                    'is_scheduled_for_cancellation': is_scheduled_for_cancellation,
+                    'cancellation_reason': cancellation_reason if is_scheduled_for_cancellation else None,
                     # Per-instance information
                     'instance_id': instance_id,
                     'instance_name': linked_instance.get('name') if linked_instance else None,

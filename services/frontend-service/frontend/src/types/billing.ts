@@ -32,6 +32,10 @@ export interface Subscription {
   };
   created_at: string;
   updated_at: string;
+  // Cancellation information
+  cancelled_date?: string;
+  is_scheduled_for_cancellation?: boolean;
+  cancellation_reason?: string;
   // Per-instance information
   instance_id?: string;
   instance_name?: string;
