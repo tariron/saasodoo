@@ -214,6 +214,28 @@ const CreateInstance: React.FC = () => {
     }
   };
 
+  const checkAdminPasswordStrength = (password: string) => {
+    let strength = 0;
+    const checks = {
+      length: password.length >= 8,
+      lowercase: /[a-z]/.test(password),
+      uppercase: /[A-Z]/.test(password),
+      digit: /[0-9]/.test(password),
+      special: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)
+    };
+    if (checks.length) strength++;
+    if (checks.lowercase) strength++;
+    if (checks.uppercase) strength++;
+    if (checks.digit) strength++;
+    if (checks.special) strength++;
+    return { strength, checks };
+  };
+
+  const isAdminPasswordValid = () => {
+    const result = checkAdminPasswordStrength(formData.admin_password);
+    const { checks } = result;
+    return checks.length && checks.lowercase && checks.uppercase && checks.digit && checks.special;
+  };
 
   if (initialLoading) {
     return (
@@ -521,16 +543,22 @@ const CreateInstance: React.FC = () => {
                       type="password"
                       required
                       value={formData.admin_password || ''}
-                      onChange={(e) => handleInputChange('admin_password', e.target.value)}
+                      onChange={(e) => {
+                        setFormData({ ...formData, admin_password: e.target.value });
+                        // Optionally clear error on change
+                        if (error) setError('');
+                      }}
                       className="input-field"
                       placeholder="Enter secure password for Odoo admin"
                       minLength={8}
-                      pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"
-                      title="Password must contain at least 8 characters with uppercase, lowercase, and number"
+                      pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).{8,}$"
+                      title="Password must contain at least 8 characters with uppercase, lowercase, number, and special character"
                     />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Must be at least 8 characters with uppercase, lowercase, and number
-                    </p>
+                    {formData.admin_password && !isAdminPasswordValid() && (
+                      <p className="mt-1 text-xs text-red-500">
+                        Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
+                      </p>
+                    )}
                   </div>
                 </div>
 

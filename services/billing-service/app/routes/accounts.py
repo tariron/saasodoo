@@ -217,6 +217,12 @@ async def get_billing_overview(
         metadata_time = time.time() - metadata_start
         logger.info(f"Metadata fetch completed in {metadata_time:.2f} seconds")
         
+        # Separate processing for all subscription states
+        pending_subscriptions = []
+        outstanding_invoices = []
+        total_outstanding = 0.0
+        provisioning_blocked_instances = []
+        
         for sub in subscriptions:
             if sub.get('state') == 'ACTIVE':
                 # Get subscription metadata from our batched results
@@ -298,6 +304,62 @@ async def get_billing_overview(
                             next_billing_amount += 25.0  # Default amount
                     except Exception as e:
                         logger.warning(f"Failed to parse charged through date: {e}")
+            
+            # Handle non-ACTIVE subscriptions (pending payment states)
+            elif sub.get('state') in ['COMMITTED']:  # Subscriptions created but not fully activated
+                subscription_metadata = metadata_lookup.get(sub.get('subscriptionId', ''), {})
+                
+                # Find linked instance
+                instance_id = subscription_metadata.get('instance_id')
+                linked_instance = None
+                if instance_id and instance_id in instance_lookup:
+                    linked_instance = instance_lookup[instance_id]
+                    
+                    # Track instances blocked by pending payment
+                    if linked_instance.get('billing_status') == 'pending_payment':
+                        provisioning_blocked_instances.append({
+                            'instance_id': instance_id,
+                            'instance_name': linked_instance.get('name'),
+                            'subscription_id': sub.get('subscriptionId'),
+                            'plan_name': sub.get('planName'),
+                            'created_at': sub.get('createdDate')
+                        })
+
+                pending_subscription_data = {
+                    'id': sub.get('subscriptionId'),
+                    'account_id': account_id,
+                    'plan_name': sub.get('planName'),
+                    'product_name': sub.get('productName', sub.get('planName')),
+                    'billing_period': sub.get('billingPeriod', 'MONTHLY'),
+                    'state': sub.get('state'),
+                    'start_date': sub.get('startDate'),
+                    'created_at': sub.get('createdDate'),
+                    'instance_id': instance_id,
+                    'instance_name': linked_instance.get('name') if linked_instance else None,
+                    'instance_status': linked_instance.get('status') if linked_instance else None,
+                    'awaiting_payment': True
+                }
+                
+                pending_subscriptions.append(pending_subscription_data)
+        
+        # Get outstanding invoices (invoices with balance > 0)
+        try:
+            invoices = await killbill.get_account_invoices(account_id, limit=50)
+            for invoice in invoices:
+                balance = float(invoice.get('balance', 0))
+                if balance > 0:  # Invoice has outstanding balance
+                    outstanding_invoices.append({
+                        'id': invoice.get('id'),
+                        'invoice_number': invoice.get('invoice_number'),
+                        'invoice_date': invoice.get('invoice_date'),
+                        'amount': float(invoice.get('amount', 0)),
+                        'balance': balance,
+                        'currency': invoice.get('currency', 'USD'),
+                        'status': invoice.get('status')
+                    })
+                    total_outstanding += balance
+        except Exception as e:
+            logger.warning(f"Failed to fetch outstanding invoices for {customer_id}: {e}")
         
         # Invoice processing removed for performance optimization
         # Detailed invoice information is now available in dedicated instance billing pages
@@ -316,10 +378,14 @@ async def get_billing_overview(
             'updated_at': account.get('updatedDate')
         }
         
-        # Build simplified billing overview focused on instances and subscriptions
+        # Build comprehensive billing overview with payment visibility
         billing_overview = {
             'account': billing_account,
             'active_subscriptions': active_subscriptions,
+            'pending_subscriptions': pending_subscriptions,
+            'outstanding_invoices': outstanding_invoices,
+            'total_outstanding': total_outstanding,
+            'provisioning_blocked_instances': provisioning_blocked_instances,
             'next_billing_date': next_billing_date.isoformat() if next_billing_date else None,
             'next_billing_amount': next_billing_amount if next_billing_amount > 0 else None,
             'payment_methods': payment_methods,

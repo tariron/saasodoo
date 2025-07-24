@@ -19,7 +19,7 @@ export interface Subscription {
   product_name: string;
   product_category: string;
   billing_period: 'MONTHLY' | 'ANNUAL';
-  state: 'ACTIVE' | 'CANCELLED' | 'PENDING' | 'PAUSED';
+  state: 'ACTIVE' | 'CANCELLED' | 'PENDING' | 'PAUSED' | 'COMMITTED';
   start_date: string;
   charged_through_date?: string;
   billing_start_date: string;
@@ -40,7 +40,42 @@ export interface Subscription {
   instance_id?: string;
   instance_name?: string;
   instance_status?: string;
-  instance_billing_status?: 'trial' | 'paid';
+  instance_billing_status?: 'trial' | 'paid' | 'pending_payment';
+  // Payment status
+  awaiting_payment?: boolean;
+}
+
+export interface PendingSubscription {
+  id: string;
+  account_id: string;
+  plan_name: string;
+  product_name: string;
+  billing_period: 'MONTHLY' | 'ANNUAL';
+  state: 'COMMITTED' | 'PENDING';
+  start_date: string;
+  created_at: string;
+  instance_id?: string;
+  instance_name?: string;
+  instance_status?: string;
+  awaiting_payment: boolean;
+}
+
+export interface OutstandingInvoice {
+  id: string;
+  invoice_number: string;
+  invoice_date: string;
+  amount: number;
+  balance: number;
+  currency: string;
+  status: string;
+}
+
+export interface ProvisioningBlockedInstance {
+  instance_id: string;
+  instance_name: string;
+  subscription_id: string;
+  plan_name: string;
+  created_at: string;
 }
 
 export interface Invoice {
@@ -160,7 +195,11 @@ export interface CustomerInstance {
 export interface BillingOverview {
   account: BillingAccount;
   active_subscriptions: Subscription[];
-  recent_invoices: Invoice[];
+  pending_subscriptions: PendingSubscription[];
+  outstanding_invoices: OutstandingInvoice[];
+  total_outstanding: number;
+  provisioning_blocked_instances: ProvisioningBlockedInstance[];
+  recent_invoices?: Invoice[];
   next_billing_date?: string;
   next_billing_amount?: number;
   payment_methods: PaymentMethod[];

@@ -280,6 +280,47 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
+          {/* Payment Required Alert */}
+          {billingData && (billingData.pending_subscriptions.length > 0 || billingData.outstanding_invoices.length > 0 || billingData.total_outstanding > 0) && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-8">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <span className="text-2xl">🚨</span>
+                </div>
+                <div className="ml-3 flex-1">
+                  <h3 className="text-lg font-medium text-red-800">
+                    Payment Required
+                  </h3>
+                  <div className="text-red-700">
+                    {billingData.total_outstanding > 0 && (
+                      <p className="font-medium">
+                        Outstanding balance: {formatCurrency(billingData.total_outstanding)}
+                      </p>
+                    )}
+                    {billingData.pending_subscriptions.length > 0 && (
+                      <p>
+                        {billingData.pending_subscriptions.length} subscription{billingData.pending_subscriptions.length > 1 ? 's' : ''} waiting for payment
+                      </p>
+                    )}
+                    {billingData.provisioning_blocked_instances.length > 0 && (
+                      <p className="font-medium mt-1">
+                        ⚠️ {billingData.provisioning_blocked_instances.length} instance{billingData.provisioning_blocked_instances.length > 1 ? 's' : ''} waiting to be provisioned
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                    <Link
+                      to="/billing"
+                      className="text-red-600 hover:text-red-500 text-sm font-medium"
+                    >
+                      View Details →
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Billing overview */}
           {billingData && !billingLoading && (
             <div className="bg-white shadow rounded-lg mb-8">
@@ -287,7 +328,7 @@ const Dashboard: React.FC = () => {
                 <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
                   Instance Billing Overview
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <div className="text-center p-4 bg-blue-50 rounded-lg">
                     <div className="text-2xl font-bold text-blue-600">
                       {formatCurrency(billingData.account_balance)}
@@ -306,6 +347,14 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div className="text-sm text-gray-600">Trial Instances</div>
                   </div>
+                  {instances.filter(instance => instance.billing_status === 'pending_payment').length > 0 && (
+                    <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
+                      <div className="text-2xl font-bold text-red-600">
+                        {instances.filter(instance => instance.billing_status === 'pending_payment').length}
+                      </div>
+                      <div className="text-sm text-red-600 font-medium">Payment Required</div>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-4 text-center">
                   <Link

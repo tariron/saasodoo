@@ -183,6 +183,176 @@ const Billing: React.FC = () => {
         </div>
       )}
 
+      {/* Payment Required Section */}
+      {(billingData.pending_subscriptions.length > 0 || billingData.outstanding_invoices.length > 0 || billingData.total_outstanding > 0) && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-6 mb-8">
+          <div className="flex items-center mb-4">
+            <div className="flex-shrink-0">
+              <span className="text-2xl">💳</span>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-lg font-medium text-orange-800">
+                Payment Required
+              </h3>
+              <p className="text-orange-700">
+                You have pending subscriptions or outstanding invoices that require payment.
+              </p>
+            </div>
+          </div>
+
+          {/* Outstanding Balance Summary */}
+          {billingData.total_outstanding > 0 && (
+            <div className="bg-white rounded-md p-4 mb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">Total Outstanding Balance</div>
+                  <div className="text-2xl font-bold text-red-600">
+                    {formatCurrency(billingData.total_outstanding)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pending Subscriptions */}
+          {billingData.pending_subscriptions.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-md font-medium text-orange-800 mb-2">
+                Pending Subscriptions ({billingData.pending_subscriptions.length})
+              </h4>
+              <div className="bg-white rounded-md overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Plan
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Instance
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Created
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {billingData.pending_subscriptions.map((subscription) => (
+                      <tr key={subscription.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-sm">
+                          <div className="font-medium text-gray-900">{subscription.plan_name}</div>
+                          <div className="text-gray-500">{subscription.billing_period} billing</div>
+                        </td>
+                        <td className="px-4 py-2 text-sm">
+                          {subscription.instance_name ? (
+                            <div>
+                              <div className="font-medium text-gray-900">{subscription.instance_name}</div>
+                              <div className="text-gray-500">Waiting for payment</div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">No instance linked</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-gray-500">
+                          {formatDate(subscription.created_at)}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-orange-600">
+                          Payment processing not yet implemented
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Outstanding Invoices */}
+          {billingData.outstanding_invoices.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-md font-medium text-orange-800 mb-2">
+                Outstanding Invoices ({billingData.outstanding_invoices.length})
+              </h4>
+              <div className="bg-white rounded-md overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Invoice
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Date
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Amount
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Balance Due
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {billingData.outstanding_invoices.map((invoice) => (
+                      <tr key={invoice.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-sm font-medium text-gray-900">
+                          {invoice.invoice_number}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-gray-500">
+                          {formatDate(invoice.invoice_date)}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-gray-900">
+                          {formatCurrency(invoice.amount)}
+                        </td>
+                        <td className="px-4 py-2 text-sm font-medium text-red-600">
+                          {formatCurrency(invoice.balance)}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-red-600">
+                          Payment processing not yet implemented
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Provisioning Blocked Instances Alert */}
+          {billingData.provisioning_blocked_instances.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-4">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <span className="text-red-500">⚠️</span>
+                </div>
+                <div className="ml-3">
+                  <h4 className="text-sm font-medium text-red-800">
+                    Instances Waiting for Payment
+                  </h4>
+                  <div className="text-sm text-red-700 mt-1">
+                    {billingData.provisioning_blocked_instances.length} instance(s) created but not provisioned due to pending payment:
+                    <ul className="list-disc list-inside mt-2">
+                      {billingData.provisioning_blocked_instances.map((instance) => (
+                        <li key={instance.instance_id}>
+                          <strong>{instance.instance_name}</strong> ({instance.plan_name} plan) - created {formatDate(instance.created_at)}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-2 font-medium">
+                      Complete payment above to provision your instances.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Unified Per-Instance Billing Table */}
       <div className="bg-white shadow rounded-lg mb-8">
         <div className="px-4 py-5 sm:p-6">
@@ -262,9 +432,12 @@ const Billing: React.FC = () => {
                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                   instance.billing_status === 'paid' 
                                     ? 'text-green-700 bg-green-100' 
+                                    : instance.billing_status === 'pending_payment'
+                                    ? 'text-red-700 bg-red-100'
                                     : 'text-yellow-700 bg-yellow-100'
                                 }`}>
-                                  {instance.billing_status === 'paid' ? 'Paid' : 'Trial'}
+                                  {instance.billing_status === 'paid' ? 'Paid' : 
+                                   instance.billing_status === 'pending_payment' ? 'Payment Required' : 'Trial'}
                                 </span>
                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                   linkedSubscription.is_scheduled_for_cancellation ? 'text-orange-700 bg-orange-100' :

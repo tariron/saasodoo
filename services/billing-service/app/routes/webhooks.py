@@ -450,8 +450,18 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
         )
         
         invoice_details = await killbill.get_invoice_by_id(invoice_id)
+        logger.info(f"Fetched invoice details for {invoice_id}: {invoice_details}")
         if not invoice_details or not invoice_details.get('items'):
             logger.warning(f"Could not get invoice details or no items found for invoice {invoice_id}")
+            return
+        # Log the invoice balance and amount for debugging
+        logger.info(f"Invoice {invoice_id} amount: {invoice_details.get('amount')}, balance: {invoice_details.get('balance')}")
+        logger.info(f"Invoice items: {invoice_details.get('items')}")
+        import json
+        logger.info(f"Full invoice details: {json.dumps(invoice_details, indent=2)}")
+        # Ensure invoice is fully paid before proceeding
+        if float(invoice_details.get('balance', 1)) != 0.0:
+            logger.info(f"Invoice {invoice_id} is not fully paid (balance: {invoice_details.get('balance')}). Skipping instance creation.")
             return
             
         # Extract subscription ID from the first invoice item
