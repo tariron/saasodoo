@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { billingAPI, authAPI } from '../utils/api';
 import { Invoice, Payment } from '../types/billing';
+import Navigation from '../components/Navigation';
 
 const BillingInvoices: React.FC = () => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalInvoices, setTotalInvoices] = useState(0);
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
@@ -29,6 +31,7 @@ const BillingInvoices: React.FC = () => {
   const fetchUserProfile = async () => {
     try {
       const response = await authAPI.getProfile();
+      setProfile(response.data);
       setCustomerId(response.data.id);
     } catch (err) {
       setError('Failed to load user profile');
@@ -132,31 +135,39 @@ const BillingInvoices: React.FC = () => {
 
   if (loading && currentPage === 1) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
-      </div>
+      <>
+        <Navigation userProfile={undefined} />
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+        </div>
+      </>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded max-w-md">
-          <strong className="font-bold">Error: </strong>
-          <span>{error}</span>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="ml-4 text-sm underline"
-          >
-            Retry
-          </button>
+      <>
+        <Navigation userProfile={profile || undefined} />
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded max-w-md">
+            <strong className="font-bold">Error: </strong>
+            <span>{error}</span>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="ml-4 text-sm underline"
+            >
+              Retry
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <>
+      <Navigation userProfile={profile || undefined} />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Invoices</h1>
         <p className="mt-2 text-gray-600">View and manage your billing invoices</p>
@@ -422,7 +433,8 @@ const BillingInvoices: React.FC = () => {
           ← Back to Billing Dashboard
         </a>
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 

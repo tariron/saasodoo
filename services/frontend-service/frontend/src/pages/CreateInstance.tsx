@@ -28,6 +28,7 @@ const CreateInstance: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
+  const [adminPasswordStrength, setAdminPasswordStrength] = useState(0);
   const [subdomainStatus, setSubdomainStatus] = useState<{
     checking: boolean;
     available: boolean | null;
@@ -235,6 +236,34 @@ const CreateInstance: React.FC = () => {
     const result = checkAdminPasswordStrength(formData.admin_password);
     const { checks } = result;
     return checks.length && checks.lowercase && checks.uppercase && checks.digit && checks.special;
+  };
+
+  const getAdminPasswordStrengthText = () => {
+    const result = checkAdminPasswordStrength(formData.admin_password);
+    const { checks } = result;
+    
+    if (isAdminPasswordValid()) {
+      return 'Strong - All requirements met';
+    }
+    
+    const missing = [];
+    if (!checks.length) missing.push('8+ characters');
+    if (!checks.uppercase) missing.push('uppercase letter');
+    if (!checks.lowercase) missing.push('lowercase letter');  
+    if (!checks.digit) missing.push('number');
+    if (!checks.special) missing.push('special character');
+    
+    return `Missing: ${missing.join(', ')}`;
+  };
+
+  const getAdminPasswordStrengthColor = () => {
+    if (isAdminPasswordValid()) {
+      return 'bg-green-500';
+    } else if (adminPasswordStrength >= 3) {
+      return 'bg-yellow-500';
+    } else {
+      return 'bg-red-500';
+    }
   };
 
   if (initialLoading) {
@@ -544,7 +573,10 @@ const CreateInstance: React.FC = () => {
                       required
                       value={formData.admin_password || ''}
                       onChange={(e) => {
-                        setFormData({ ...formData, admin_password: e.target.value });
+                        const password = e.target.value;
+                        setFormData({ ...formData, admin_password: password });
+                        const result = checkAdminPasswordStrength(password);
+                        setAdminPasswordStrength(result.strength);
                         // Optionally clear error on change
                         if (error) setError('');
                       }}
@@ -554,10 +586,27 @@ const CreateInstance: React.FC = () => {
                       pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).{8,}$"
                       title="Password must contain at least 8 characters with uppercase, lowercase, number, and special character"
                     />
-                    {formData.admin_password && !isAdminPasswordValid() && (
-                      <p className="mt-1 text-xs text-red-500">
-                        Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
-                      </p>
+                    
+                    {formData.admin_password && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">Password Strength:</span>
+                          <span className={`font-medium ${
+                            isAdminPasswordValid() ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {getAdminPasswordStrengthText()}
+                          </span>
+                        </div>
+                        <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all duration-300 ${getAdminPasswordStrengthColor()}`}
+                            style={{ width: `${(adminPasswordStrength / 5) * 100}%` }}
+                          ></div>
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          Required: 8+ characters, uppercase, lowercase, number & special character
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>

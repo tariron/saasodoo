@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { billingAPI, authAPI } from '../utils/api';
 import { PaymentMethod, CreatePaymentMethodRequest } from '../types/billing';
+import Navigation from '../components/Navigation';
 
 const BillingPayment: React.FC = () => {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [billingAccountId, setBillingAccountId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -40,6 +42,7 @@ const BillingPayment: React.FC = () => {
   const fetchUserProfile = async () => {
     try {
       const response = await authAPI.getProfile();
+      setProfile(response.data);
       setCustomerId(response.data.id);
     } catch (err) {
       setError('Failed to load user profile');
@@ -192,31 +195,39 @@ const BillingPayment: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
-      </div>
+      <>
+        <Navigation userProfile={undefined} />
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+        </div>
+      </>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded max-w-md">
-          <strong className="font-bold">Error: </strong>
-          <span>{error}</span>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="ml-4 text-sm underline"
-          >
-            Retry
-          </button>
+      <>
+        <Navigation userProfile={profile || undefined} />
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded max-w-md">
+            <strong className="font-bold">Error: </strong>
+            <span>{error}</span>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="ml-4 text-sm underline"
+            >
+              Retry
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <>
+      <Navigation userProfile={profile || undefined} />
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Payment Methods</h1>
         <p className="mt-2 text-gray-600">Manage your payment methods for billing</p>
@@ -532,7 +543,8 @@ const BillingPayment: React.FC = () => {
           ← Back to Billing Dashboard
         </a>
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 
