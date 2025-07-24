@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<catalogs>
+    <versions>
+        <version>
+            <effectiveDate>2024-01-01T00:00:00Z</effectiveDate>
+            <catalogName>SaasOdoo</catalogName>
+            <currencies>
+                <currency>USD</currency>
+            </currencies>
+            <units/>
+            <products>
+                <product name="Basic" prettyName="Basic">
+                    <category>BASE</category>
+                    <included/>
+                    <available/>
+                    <limits/>
+                </product>
+                <product name="Premium" prettyName="Premium">
+                    <category>BASE</category>
+                    <included/>
+                    <available/>
+                    <limits/>
+                </product>
+                <product name="Standard" prettyName="Standard">
+                    <category>BASE</category>
+                    <included/>
+                    <available/>
+                    <limits/>
+                </product>
+            </products>
+            <rules>
+                <changePolicy>
+                    <changePolicyCase>
+                        <policy>IMMEDIATE</policy>
+                    </changePolicyCase>
+                </changePolicy>
+                <changeAlignment>
+                    <changeAlignmentCase>
+                        <alignment>START_OF_SUBSCRIPTION</alignment>
+                    </changeAlignmentCase>
+                </changeAlignment>
+                <cancelPolicy>
+                    <cancelPolicyCase>
+                        <policy>IMMEDIATE</policy>
+                    </cancelPolicyCase>
+                </cancelPolicy>
+                <createAlignment>
+                    <createAlignmentCase>
+                        <alignment>START_OF_SUBSCRIPTION</alignment>
+                    </createAlignmentCase>
+                </createAlignment>
+                <billingAlignment>
+                    <billingAlignmentCase>
+                        <alignment>SUBSCRIPTION</alignment>
+                    </billingAlignmentCase>
+                </billingAlignment>
+                <priceList>
+                    <priceListCase>
+                        <toPriceList>DEFAULT</toPriceList>
+                    </priceListCase>
+                </priceList>
+            </rules>
+            <plans>
+                <plan name="basic-immediate" prettyName="basic-immediate">
+                    <product>Basic</product>
+                    <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+                    <initialPhases/>
+                    <finalPhase type="EVERGREEN">
+                        <duration>
+                            <unit>UNLIMITED</unit>
+                            <number>-1</number>
+                        </duration>
+                        <recurring>
+                            <billingPeriod>MONTHLY</billingPeriod>
+                            <recurringPrice>
+<price>
+    <currency>USD</currency>
+    <value>5.00</value>
+</price>
+                            </recurringPrice>
+                        </recurring>
+                        <usages/>
+                    </finalPhase>
+                    <plansAllowedInBundle>-1</plansAllowedInBundle>
+                </plan>
+                <plan name="basic-monthly" prettyName="basic-monthly">
+                    <product>Basic</product>
+                    <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+                    <initialPhases>
+                        <phase type="TRIAL">
+                            <duration>
+<unit>DAYS</unit>
+<number>14</number>
+                            </duration>
+                            <fixed type="ONE_TIME">
+<fixedPrice>
+    <price>
+        <currency>USD</currency>
+        <value>0.00</value>
+    </price>
+</fixedPrice>
+                            </fixed>
+                            <usages/>
+                        </phase>
+                    </initialPhases>
+                    <finalPhase type="EVERGREEN">
+                        <duration>
+                            <unit>UNLIMITED</unit>
+                            <number>-1</number>
+                        </duration>
+                        <recurring>
+                            <billingPeriod>MONTHLY</billingPeriod>
+                            <recurringPrice>
+<price>
+    <currency>USD</currency>
+    <value>5.00</value>
+</price>
+                            </recurringPrice>
+                        </recurring>
+                        <usages/>
+                    </finalPhase>
+                    <plansAllowedInBundle>-1</plansAllowedInBundle>
+                </plan>
+                <plan name="premium-monthly" prettyName="premium-monthly">
+                    <product>Premium</product>
+                    <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+                    <initialPhases>
+                        <phase type="TRIAL">
+                            <duration>
+<unit>DAYS</unit>
+<number>14</number>
+                            </duration>
+                            <fixed type="ONE_TIME">
+<fixedPrice>
+    <price>
+        <currency>USD</currency>
+        <value>0.00</value>
+    </price>
+</fixedPrice>
+                            </fixed>
+                            <usages/>
+                        </phase>
+                    </initialPhases>
+                    <finalPhase type="EVERGREEN">
+                        <duration>
+                            <unit>UNLIMITED</unit>
+                            <number>-1</number>
+                        </duration>
+                        <recurring>
+                            <billingPeriod>MONTHLY</billingPeriod>
+                            <recurringPrice>
+<price>
+    <currency>USD</currency>
+    <value>10.00</value>
+</price>
+                            </recurringPrice>
+                        </recurring>
+                        <usages/>
+                    </finalPhase>
+                    <plansAllowedInBundle>-1</plansAllowedInBundle>
+                </plan>
+                <plan name="standard-monthly" prettyName="standard-monthly">
+                    <product>Standard</product>
+                    <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+                    <initialPhases>
+                        <phase type="TRIAL">
+                            <duration>
+<unit>DAYS</unit>
+<number>14</number>
+                            </duration>
+                            <fixed type="ONE_TIME">
+<fixedPrice>
+    <price>
+        <currency>USD</currency>
+        <value>0.00</value>
+    </price>
+</fixedPrice>
+                            </fixed>
+                            <usages/>
+                        </phase>
+                    </initialPhases>
+                    <finalPhase type="EVERGREEN">
+                        <duration>
+                            <unit>UNLIMITED</unit>
+                            <number>-1</number>
+                        </duration>
+                        <recurring>
+                            <billingPeriod>MONTHLY</billingPeriod>
+                            <recurringPrice>
+<price>
+    <currency>USD</currency>
+    <value>8.00</value>
+</price>
+                            </recurringPrice>
+                        </recurring>
+                        <usages/>
+                    </finalPhase>
+                    <plansAllowedInBundle>-1</plansAllowedInBundle>
+                </plan>
+            </plans>
+            <priceLists>
+                <defaultPriceList name="DEFAULT" prettyName="DEFAULT">
+                    <plans>
+                        <plan>basic-immediate</plan>
+                        <plan>basic-monthly</plan>
+                        <plan>premium-monthly</plan>
+                        <plan>standard-monthly</plan>
+                    </plans>
+                </defaultPriceList>
+            </priceLists>
+        </version>
+    </versions>
+    <catalogName>SaasOdoo</catalogName>
+</catalogs>
