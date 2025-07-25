@@ -125,6 +125,12 @@ async def handle_killbill_webhook(request: Request, response: Response):
             await handle_subscription_cancelled(payload)
         elif event_type == "ENTITLEMENT_CANCEL":
             await handle_entitlement_cancelled(payload)
+        elif event_type == "SUBSCRIPTION_PHASE":
+            await handle_subscription_phase_change(payload)
+        elif event_type == "SUBSCRIPTION_EXPIRED":
+            await handle_subscription_expired(payload)
+        elif event_type == "INVOICE_OVERDUE":
+            await handle_invoice_overdue(payload)
         elif event_type == "INVOICE_CREATION":
             await handle_invoice_created(payload)
         elif event_type == "PING":
@@ -532,7 +538,28 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
         subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
         logger.info(f"Retrieved subscription metadata for {subscription_id}: {subscription_metadata}")
         
-        # Validate required metadata exists
+        # Check if this is for reactivating an existing instance
+        target_instance_id = subscription_metadata.get("target_instance_id")
+        if target_instance_id:
+            logger.info(f"INSTANCE REACTIVATION: Found target_instance_id {target_instance_id} for subscription {subscription_id}")
+            
+            # Restart the existing instance with new subscription
+            result = await instance_client.restart_instance_with_new_subscription(
+                instance_id=target_instance_id,
+                subscription_id=subscription_id,
+                billing_status=billing_status
+            )
+            
+            if result.get("status") == "success":
+                logger.info(f"INSTANCE REACTIVATION: Successfully restarted instance {target_instance_id} with subscription {subscription_id}")
+            else:
+                logger.error(f"INSTANCE REACTIVATION: Failed to restart instance {target_instance_id}: {result}")
+                
+            return  # Exit early - we restarted existing instance
+        
+        logger.info(f"NEW INSTANCE CREATION: No target_instance_id found, creating new instance for subscription {subscription_id}")
+        
+        # Validate required metadata exists for new instance creation
         required_fields = ["instance_name", "instance_admin_email", "instance_admin_password", "instance_database_name"]
         missing_fields = [field for field in required_fields if not subscription_metadata.get(field)]
         
@@ -592,6 +619,201 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
     except Exception as e:
         logger.error(f"Error creating instance for subscription {subscription_id}: {e}")
 
+
+async def handle_subscription_phase_change(payload: Dict[str, Any]):
+    """Handle subscription phase change webhook - manage trial-to-paid transitions"""
+    subscription_id = payload.get('objectId')
+    account_id = payload.get('accountId')
+    
+    logger.info(f"Subscription phase change: {subscription_id} for account: {account_id}")
+    
+    try:
+        # Get customer information from KillBill
+        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+        if not customer_external_key:
+            logger.warning(f"Could not find customer for account {account_id}")
+            return
+        
+        # Get subscription details to understand the phase change
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+        
+        subscription_details = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription_details:
+            logger.warning(f"Could not get subscription details for {subscription_id}")
+            return
+        
+        current_phase = subscription_details.get('phaseType', 'UNKNOWN')
+        plan_name = subscription_details.get('planName', 'unknown')
+        
+        logger.info(f"Subscription {subscription_id} phase changed to: {current_phase} (plan: {plan_name})")
+        
+        # Handle trial-to-paid transition
+        if current_phase == 'EVERGREEN':
+            # Find existing trial instance for this subscription
+            instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+            if not instance:
+                logger.warning(f"No instance found for subscription {subscription_id} during phase change")
+                return
+            
+            instance_id = instance.get('id')
+            current_billing_status = instance.get('billing_status')
+            
+            logger.info(f"Found instance {instance_id} with billing status '{current_billing_status}' for subscription {subscription_id}")
+            
+            # Update instance billing status from trial to pending payment
+            if current_billing_status == 'trial':
+                logger.info(f"Updating instance {instance_id} billing status from 'trial' to 'pending_payment'")
+                
+                # Update instance billing status to indicate payment is expected
+                await instance_client.update_instance_billing_status(
+                    instance_id=instance_id,
+                    billing_status="pending_payment",
+                    reason="Trial expired - transitioning to paid plan"
+                )
+                
+                logger.info(f"Updated instance {instance_id} to pending_payment status for customer {customer_external_key}")
+            else:
+                logger.info(f"Instance {instance_id} already has billing status '{current_billing_status}' - no update needed")
+        
+        # Log phase change for analytics
+        logger.info(f"Processed phase change for subscription {subscription_id}: customer {customer_external_key}, phase {current_phase}")
+        
+    except Exception as e:
+        logger.error(f"Error handling subscription phase change for {subscription_id}: {e}")
+
+async def handle_subscription_expired(payload: Dict[str, Any]):
+    """Handle subscription expiration webhook - terminate instances when subscription expires"""
+    subscription_id = payload.get('objectId')
+    account_id = payload.get('accountId')
+    
+    logger.info(f"Subscription expired: {subscription_id} for account: {account_id}")
+    
+    try:
+        # Get customer information from KillBill
+        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+        if not customer_external_key:
+            logger.warning(f"Could not find customer for account {account_id}")
+            return
+        
+        # Find instance associated with expired subscription
+        instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+        if not instance:
+            logger.warning(f"No instance found for expired subscription {subscription_id}")
+            return
+        
+        instance_id = instance.get('id')
+        current_status = instance.get('status')
+        billing_status = instance.get('billing_status')
+        
+        logger.info(f"Found instance {instance_id} (status: {current_status}, billing: {billing_status}) for expired subscription {subscription_id}")
+        
+        # Terminate instance since subscription has expired
+        if current_status not in ['terminated', 'terminating']:
+            logger.info(f"Terminating instance {instance_id} due to subscription expiration")
+            
+            await instance_client.terminate_instance(
+                instance_id=instance_id,
+                reason="Subscription expired - no payment received"
+            )
+            
+            logger.info(f"Terminated instance {instance_id} for customer {customer_external_key} - subscription {subscription_id} expired")
+        else:
+            logger.info(f"Instance {instance_id} already in terminal state ({current_status}) - no action needed")
+        
+        # TODO: Send expiration notification email to customer
+        # TODO: Log expiration event for analytics and retention analysis
+        
+        logger.info(f"Processed subscription expiration for customer {customer_external_key}")
+        
+    except Exception as e:
+        logger.error(f"Error handling subscription expiration for {subscription_id}: {e}")
+
+async def handle_invoice_overdue(payload: Dict[str, Any]):
+    """Handle overdue invoice webhook - suspend instances with grace period"""
+    invoice_id = payload.get('objectId')
+    account_id = payload.get('accountId')
+    
+    logger.warning(f"Invoice overdue: {invoice_id} for account: {account_id}")
+    
+    try:
+        # Get customer information from KillBill
+        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+        if not customer_external_key:
+            logger.warning(f"Could not find customer for account {account_id}")
+            return
+        
+        # Get invoice details to find associated subscription
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+        
+        invoice_details = await killbill.get_invoice_by_id(invoice_id)
+        if not invoice_details or not invoice_details.get('items'):
+            logger.warning(f"Could not get invoice details for overdue invoice {invoice_id}")
+            return
+        
+        # Extract subscription ID from invoice items
+        subscription_ids = set()
+        for item in invoice_details.get('items', []):
+            if item.get('subscriptionId'):
+                subscription_ids.add(item['subscriptionId'])
+        
+        if not subscription_ids:
+            logger.warning(f"No subscription IDs found in overdue invoice {invoice_id}")
+            return
+        
+        logger.warning(f"Processing overdue invoice {invoice_id} affecting subscriptions: {list(subscription_ids)}")
+        
+        # Suspend instances associated with overdue subscriptions
+        suspended_count = 0
+        for subscription_id in subscription_ids:
+            try:
+                instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+                if not instance:
+                    logger.warning(f"No instance found for subscription {subscription_id} in overdue invoice")
+                    continue
+                
+                instance_id = instance.get('id')
+                current_status = instance.get('status')
+                
+                # Only suspend running instances
+                if current_status in ['running', 'stopped', 'starting', 'stopping']:
+                    logger.warning(f"Suspending instance {instance_id} due to overdue invoice {invoice_id}")
+                    
+                    result = await instance_client.suspend_instance(
+                        instance_id=instance_id,
+                        reason=f"Invoice {invoice_id} is overdue - payment required"
+                    )
+                    
+                    if result.get('status') == 'success':
+                        suspended_count += 1
+                        logger.warning(f"Suspended instance {instance_id} for overdue payment")
+                    else:
+                        logger.error(f"Failed to suspend instance {instance_id}: {result}")
+                else:
+                    logger.info(f"Instance {instance_id} status is {current_status} - no suspension needed")
+                    
+            except Exception as instance_error:
+                logger.error(f"Error processing subscription {subscription_id} for overdue invoice: {instance_error}")
+        
+        logger.warning(f"Processed overdue invoice {invoice_id} for customer {customer_external_key}: suspended {suspended_count} instances")
+        
+        # TODO: Send overdue payment notification email
+        # TODO: Implement configurable grace period before suspension
+        # TODO: Set up automatic retry for payment collection
+        
+    except Exception as e:
+        logger.error(f"Error handling overdue invoice {invoice_id}: {e}")
 
 async def _get_customer_external_key_by_account_id(account_id: str) -> Optional[str]:
     """Get customer external key from KillBill account ID"""

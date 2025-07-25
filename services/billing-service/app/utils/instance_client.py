@@ -260,6 +260,36 @@ class InstanceServiceClient:
         except Exception as e:
             logger.error(f"Failed to create instance with subscription: {e}")
             return None
+    
+    async def restart_instance_with_new_subscription(
+        self, 
+        instance_id: str, 
+        subscription_id: str,
+        billing_status: str = "paid"
+    ) -> Dict[str, Any]:
+        """Restart a terminated instance with a new subscription ID"""
+        endpoint = f"/api/v1/instances/{instance_id}/restart-with-subscription"
+        payload = {
+            "subscription_id": subscription_id,
+            "billing_status": billing_status,
+            "reason": "Instance reactivated with new subscription"
+        }
+        
+        logger.info(f"Restarting terminated instance {instance_id} with new subscription {subscription_id}")
+        
+        try:
+            result = await self._make_request("POST", endpoint, json=payload)
+            
+            if result and result.get("status") == "success":
+                logger.info(f"Successfully restarted instance {instance_id} with subscription {subscription_id}")
+            else:
+                logger.error(f"Failed to restart instance {instance_id}: {result}")
+                
+            return result or {}
+            
+        except Exception as e:
+            logger.error(f"Failed to restart instance {instance_id} with new subscription: {e}")
+            return {"status": "error", "message": str(e)}
 
 # Global instance of the client
 instance_client = InstanceServiceClient()

@@ -462,9 +462,13 @@ class AuthService:
             email: Customer email
             first_name: Customer first name
         """
-        # This would integrate with the notification service
-        # For now, just log the action
-        logger.info(f"Welcome email sent to: {email} ({first_name})")
+        try:
+            from app.utils.notification_client import send_welcome_email
+            result = await send_welcome_email(email, first_name)
+            logger.info(f"✅ Welcome email sent to: {email} ({first_name}) - ID: {result.get('email_id')}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send welcome email to {email}: {e}")
+            # Don't raise the exception to avoid blocking user registration
     
     @staticmethod
     async def send_password_reset_email(email: str, reset_token: str):
@@ -475,6 +479,14 @@ class AuthService:
             email: Customer email
             reset_token: Password reset token
         """
-        # This would integrate with the notification service
-        # For now, just log the action
-        logger.info(f"Password reset email sent to: {email} (token: {reset_token[:8]}...)") 
+        try:
+            from app.utils.notification_client import send_password_reset_email
+            # We need to get the user's first name for the email
+            # For now, we'll extract it from the email or use a default
+            first_name = email.split('@')[0].title()  # Simple fallback
+            
+            result = await send_password_reset_email(email, first_name, reset_token)
+            logger.info(f"✅ Password reset email sent to: {email} - ID: {result.get('email_id')}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send password reset email to {email}: {e}")
+            # Don't raise the exception to avoid blocking password reset process 

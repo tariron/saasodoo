@@ -1089,3 +1089,73 @@ async def _unsuspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             "message": f"Failed to unsuspend instance: {str(e)}",
             "timestamp": datetime.utcnow().isoformat()
         }
+
+
+@router.post("/{instance_id}/restart-with-subscription")
+async def restart_instance_with_new_subscription(
+    instance_id: UUID,
+    restart_data: dict,
+    db: InstanceDatabase = Depends(get_database)
+):
+    """Restart a terminated instance with a new subscription ID - for per-instance billing recovery"""
+    try:
+        logger.info("Restarting terminated instance with new subscription", 
+                   instance_id=str(instance_id),
+                   new_subscription_id=restart_data.get("subscription_id"))
+        
+        # Get instance from database
+        instance = await db.get_instance(instance_id)
+        if not instance:
+            raise HTTPException(status_code=404, detail="Instance not found")
+        
+        # Validate that instance is terminated (can be restarted)
+        if instance.status != InstanceStatus.TERMINATED:
+            logger.warning("Instance not in terminated state", 
+                         instance_id=str(instance_id),
+                         current_status=instance.status)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Instance must be terminated to restart with new subscription (current: {instance.status})"
+            )
+        
+        # Get new subscription details
+        new_subscription_id = restart_data.get("subscription_id")
+        billing_status = restart_data.get("billing_status", "paid")
+        reason = restart_data.get("reason", "Instance reactivated with new subscription")
+        
+        if not new_subscription_id:
+            raise HTTPException(status_code=400, detail="subscription_id is required")
+        
+        # Update instance with new subscription and billing status
+        await db.update_instance_subscription(str(instance_id), new_subscription_id)
+        await db.update_instance_billing_status(
+            str(instance_id), 
+            BillingStatus(billing_status),
+            ProvisioningStatus.PENDING
+        )
+        
+        # Change status from TERMINATED to STOPPED (ready to be started)
+        await db.update_instance_status(instance_id, InstanceStatus.STOPPED, reason)
+        
+        logger.info("Instance restarted with new subscription successfully", 
+                   instance_id=str(instance_id),
+                   new_subscription_id=new_subscription_id,
+                   billing_status=billing_status)
+        
+        return {
+            "status": "success",
+            "message": f"Instance reactivated with new subscription {new_subscription_id}",
+            "instance_id": str(instance_id),
+            "subscription_id": new_subscription_id,
+            "billing_status": billing_status,
+            "instance_status": "stopped",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to restart instance with new subscription", 
+                   instance_id=str(instance_id), 
+                   error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to restart instance: {str(e)}")

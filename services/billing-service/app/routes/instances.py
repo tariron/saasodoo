@@ -20,6 +20,9 @@ class CreateInstanceWithSubscriptionRequest(BaseModel):
     customer_id: str = Field(..., description="Customer UUID")
     plan_name: str = Field(default="basic-immediate", description="Billing plan (basic-immediate, standard-immediate, etc.)")
     
+    # Instance identification for reactivation
+    instance_id: Optional[str] = Field(None, description="Existing instance ID to reactivate (for terminated instance recovery)")
+    
     # Instance configuration
     name: str = Field(..., min_length=1, max_length=100, description="Instance display name")
     description: Optional[str] = Field(None, max_length=500, description="Instance description")
@@ -154,7 +157,7 @@ async def create_instance_with_subscription(
         
         # Store instance configuration in subscription custom fields
         try:
-            await killbill._add_subscription_metadata(subscription_id, {
+            metadata = {
                 "instance_admin_email": instance_data.admin_email,
                 "instance_admin_password": instance_data.admin_password,
                 "instance_subdomain": instance_data.subdomain or "",
@@ -168,7 +171,14 @@ async def create_instance_with_subscription(
                 "instance_memory_limit": instance_data.memory_limit,
                 "instance_storage_limit": instance_data.storage_limit,
                 "instance_custom_addons": ",".join(instance_data.custom_addons) if instance_data.custom_addons else ""
-            })
+            }
+            
+            # Add target instance ID if this is for reactivating an existing instance
+            if instance_data.instance_id:
+                metadata["target_instance_id"] = instance_data.instance_id
+                logger.info(f"Storing target_instance_id {instance_data.instance_id} for subscription {subscription_id}")
+            
+            await killbill._add_subscription_metadata(subscription_id, metadata)
             logger.info(f"Successfully stored instance configuration in subscription {subscription_id} metadata")
         except Exception as meta_error:
             logger.error(f"Failed to store instance metadata: {meta_error}")

@@ -275,6 +275,9 @@ services:
       # HTTP Client Configuration - Disable HTTP/2
       KILLBILL_SERVER_HTTP_CLIENT_ENABLE_HTTP2: false
       KILLBILL_HTTP_CLIENT_DISABLE_HTTP2: true
+      
+      # Test Mode Configuration - Enable clock manipulation
+      KILLBILL_SERVER_TEST_MODE: true
     networks:
       - saasodoo-network
     depends_on:
@@ -586,6 +589,67 @@ services:
       - "traefik.http.services.frontend.loadbalancer.healthcheck.path=/health"
     networks:
       - saasodoo-network
+
+  # Notification Service - Email and Notification Management
+  notification-service:
+    build:
+      context: ../../services/notification-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-notification-service
+    restart: unless-stopped
+    environment:
+      # SMTP Configuration (Development - MailHog)
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: false
+      SMTP_USE_SSL: false
+      SMTP_TIMEOUT: 30
+      
+      # SMTP Authentication (empty for MailHog)
+      SMTP_USERNAME: 
+      SMTP_PASSWORD: 
+      
+      # Email Defaults
+      DEFAULT_FROM_EMAIL: noreply@saasodoo.local
+      DEFAULT_FROM_NAME: SaaS Odoo Platform
+      
+      # Rate Limiting
+      MAX_EMAILS_PER_MINUTE: 60
+      MAX_EMAILS_PER_HOUR: 1000
+      
+      # Database Configuration
+      DB_DATABASE_URL: postgresql://notification_service:notification_service_secure_pass_change_me@postgres:5432/communication
+      DB_POOL_SIZE: 10
+      DB_MAX_OVERFLOW: 20
+      
+      # Application Configuration
+      APP_DEBUG: ${DEBUG:-true}
+      APP_SERVICE_NAME: notification-service
+      APP_SERVICE_VERSION: 1.0.0
+      APP_API_PREFIX: /api/v1
+      APP_TEMPLATES_DIR: app/templates
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+      - mailhog
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notification.rule=Host(`notification.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.notification.service=notification"
+      - "traefik.http.services.notification.loadbalancer.server.port=5000"
+      - "traefik.http.services.notification.loadbalancer.healthcheck.path=/health"
 
 networks:
   saasodoo-network:

@@ -197,6 +197,44 @@
                     </finalPhase>
                     <plansAllowedInBundle>-1</plansAllowedInBundle>
                 </plan>
+                <plan name="basic-test-trial" prettyName="basic-test-trial">
+                    <product>Basic</product>
+                    <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+                    <initialPhases>
+                        <phase type="TRIAL">
+                            <duration>
+                                <unit>HOURS</unit>
+                                <number>1</number>
+                            </duration>
+                            <fixed type="ONE_TIME">
+                                <fixedPrice>
+                                    <price>
+                                        <currency>USD</currency>
+                                        <value>0.00</value>
+                                    </price>
+                                </fixedPrice>
+                            </fixed>
+                            <usages/>
+                        </phase>
+                    </initialPhases>
+                    <finalPhase type="EVERGREEN">
+                        <duration>
+                            <unit>UNLIMITED</unit>
+                            <number>-1</number>
+                        </duration>
+                        <recurring>
+                            <billingPeriod>MONTHLY</billingPeriod>
+                            <recurringPrice>
+                                <price>
+                                    <currency>USD</currency>
+                                    <value>5.00</value>
+                                </price>
+                            </recurringPrice>
+                        </recurring>
+                        <usages/>
+                    </finalPhase>
+                    <plansAllowedInBundle>-1</plansAllowedInBundle>
+                </plan>
             </plans>
             <priceLists>
                 <defaultPriceList name="DEFAULT" prettyName="DEFAULT">
@@ -205,6 +243,7 @@
                         <plan>basic-monthly</plan>
                         <plan>premium-monthly</plan>
                         <plan>standard-monthly</plan>
+                        <plan>basic-test-trial</plan>
                     </plans>
                 </defaultPriceList>
             </priceLists>

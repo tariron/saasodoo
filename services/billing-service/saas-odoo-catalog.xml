@@ -176,6 +176,41 @@
                 </recurring>
             </finalPhase>
         </plan>
+
+        <plan name="basic-test-trial">
+            <product>Basic</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>MINUTES</unit>
+                        <number>10</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0.00</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>MONTHLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>5.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
     </plans>
 
     <priceLists>
@@ -185,6 +220,7 @@
                 <plan>standard-monthly</plan>
                 <plan>premium-monthly</plan>
                 <plan>basic-immediate</plan>
+                <plan>basic-test-trial</plan>
             </plans>
         </defaultPriceList>
     </priceLists>
