@@ -1126,6 +1126,7 @@ async def restart_instance_with_new_subscription(
         new_subscription_id = restart_data.get("subscription_id")
         billing_status = restart_data.get("billing_status", "paid")
         reason = restart_data.get("reason", "Instance reactivated with new subscription")
+        skip_status_change = restart_data.get("skip_status_change", False)
         
         if not new_subscription_id:
             raise HTTPException(status_code=400, detail="subscription_id is required")
@@ -1138,8 +1139,12 @@ async def restart_instance_with_new_subscription(
             ProvisioningStatus.PENDING
         )
         
-        # Change status from TERMINATED to STOPPED (ready to be started)
-        await db.update_instance_status(instance_id, InstanceStatus.STOPPED, reason)
+        # Conditionally change instance status based on skip_status_change parameter
+        if not skip_status_change:
+            await db.update_instance_status(instance_id, InstanceStatus.STOPPED, reason)
+            final_status = "stopped"
+        else:
+            final_status = instance.status.value  # Keep current status
         
         logger.info("Instance restarted with new subscription successfully", 
                    instance_id=str(instance_id),
@@ -1148,11 +1153,11 @@ async def restart_instance_with_new_subscription(
         
         return {
             "status": "success",
-            "message": f"Instance reactivated with new subscription {new_subscription_id}",
+            "message": f"Instance updated with subscription {new_subscription_id} - status: {final_status}",
             "instance_id": str(instance_id),
             "subscription_id": new_subscription_id,
             "billing_status": billing_status,
-            "instance_status": "stopped",
+            "instance_status": final_status,
             "timestamp": datetime.utcnow().isoformat()
         }
         

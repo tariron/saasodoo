@@ -319,20 +319,20 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         if is_reactivation and target_instance_id:
             logger.info(f"Reactivation subscription {subscription_id} created for instance {target_instance_id}")
             
-            # For reactivation, call the restart function which will update billing status to "payment_required"
-            # This was working before - restore the original behavior
+            # Call restart function to update billing status - skip status change to keep TERMINATED
             try:
                 result = await instance_client.restart_instance_with_new_subscription(
                     instance_id=target_instance_id,
                     subscription_id=subscription_id,
-                    billing_status="payment_required"
+                    billing_status="payment_required",
+                    skip_status_change=True
                 )
-                logger.info(f"Updated instance {target_instance_id} for reactivation subscription {subscription_id}")
+                logger.info(f"Updated instance {target_instance_id} billing status for reactivation - remains TERMINATED until payment")
                 
             except Exception as e:
-                logger.error(f"Failed to update instance for reactivation: {e}")
+                logger.error(f"Failed to update instance billing status for reactivation: {e}")
             
-            return  # Exit early - reactivation subscription recorded
+            return  # Exit early - reactivation subscription recorded, waiting for payment
         
         # Check if this is a trial subscription
         is_trial = phase_type == 'TRIAL'
@@ -540,11 +540,13 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             except Exception as e:
                 logger.error(f"Error reactivating instance {target_instance_id}: {e}")
                 
-            return  # Exit early - reactivation handled
+            # ALWAYS return for reactivations - don't continue to existing_instance logic
+            return  # Exit early - reactivation handled regardless of success/failure
         
         # SAFETY CHECK: Prevent duplicate instance creation for the same subscription
+        # Skip this check for reactivations as they're handled above
         existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
-        if existing_instance:
+        if existing_instance and not is_reactivation:
             logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
             
             # ALWAYS update billing status to "paid" when payment succeeds

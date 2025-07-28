@@ -265,14 +265,16 @@ class InstanceServiceClient:
         self, 
         instance_id: str, 
         subscription_id: str,
-        billing_status: str = "payment_required"
+        billing_status: str = "payment_required",
+        skip_status_change: bool = False
     ) -> Dict[str, Any]:
         """Restart a terminated instance with a new subscription ID"""
         endpoint = f"/api/v1/instances/{instance_id}/restart-with-subscription"
         payload = {
             "subscription_id": subscription_id,
             "billing_status": billing_status,
-            "reason": "Instance reactivated with new subscription"
+            "reason": "Instance reactivated with new subscription",
+            "skip_status_change": skip_status_change
         }
         
         logger.info(f"Restarting terminated instance {instance_id} with new subscription {subscription_id}")
