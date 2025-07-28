@@ -935,9 +935,13 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
         if not instance:
             raise Exception("Instance not found")
         
-        # If instance is running, stop the actual Docker container first
-        if instance.status == InstanceStatus.RUNNING:
-            logger.info("Stopping running instance container before termination", instance_id=str(instance_id))
+        # If instance has a Docker container that might exist, stop it first
+        container_states = [InstanceStatus.RUNNING, InstanceStatus.STOPPED, InstanceStatus.STARTING, 
+                          InstanceStatus.STOPPING, InstanceStatus.PAUSED, InstanceStatus.RESTARTING]
+        
+        if instance.status in container_states:
+            logger.info("Stopping instance container before termination", 
+                       instance_id=str(instance_id), current_status=instance.status)
             
             # Use the same Docker stopping logic as the lifecycle module
             await _stop_container_for_suspension(instance)

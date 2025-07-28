@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { billingAPI, instanceAPI, authAPI, UserProfile, Instance } from '../utils/api';
+import { billingAPI, instanceAPI, authAPI, UserProfile, Instance, CreateInstanceWithSubscriptionRequest } from '../utils/api';
 import Navigation from '../components/Navigation';
 
 interface SubscriptionData {
@@ -22,6 +22,13 @@ const BillingInstanceManage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reactivationLoading, setReactivationLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string>('');
+  const [availablePlans] = useState([
+    { name: 'basic-monthly', display: 'Basic Plan', price: 5.00, description: 'Perfect for small teams' },
+    { name: 'standard-monthly', display: 'Standard Plan', price: 8.00, description: 'Great for growing businesses' },
+    { name: 'premium-monthly', display: 'Premium Plan', price: 10.00, description: 'For enterprise needs' }
+  ]);
 
   useEffect(() => {
     if (instanceId) {
@@ -57,21 +64,28 @@ const BillingInstanceManage: React.FC = () => {
       setInstance(instanceData);
       console.log('Instance data:', instanceData);
 
-      // Check if instance has subscription_id
-      if (!instanceData.subscription_id) {
+      // Check if instance has subscription_id (unless it's terminated)
+      if (!instanceData.subscription_id && instanceData.status !== 'terminated') {
         setError('No subscription found for this instance');
+        return;
+      }
+
+      // For terminated instances, we might not have subscription data
+      if (instanceData.status === 'terminated') {
+        console.log('Instance is terminated, may not have active subscription');
+        // Skip subscription data fetching for terminated instances
         return;
       }
 
       // Get subscription details
       console.log('Fetching subscription:', instanceData.subscription_id);
-      const subscriptionResponse = await billingAPI.getSubscription(instanceData.subscription_id);
+      const subscriptionResponse = await billingAPI.getSubscription(instanceData.subscription_id!);
       setSubscriptionData(subscriptionResponse.data);
       console.log('Subscription data:', subscriptionResponse.data);
 
       // Get subscription invoices
       console.log('Fetching invoices for subscription:', instanceData.subscription_id);
-      const invoicesResponse = await billingAPI.getSubscriptionInvoices(instanceData.subscription_id, 1, 20);
+      const invoicesResponse = await billingAPI.getSubscriptionInvoices(instanceData.subscription_id!, 1, 20);
       setInvoices(invoicesResponse.data);
       console.log('Invoices data:', invoicesResponse.data);
 
@@ -142,6 +156,59 @@ const BillingInstanceManage: React.FC = () => {
     }
   };
 
+  const handleReactivateInstance = async () => {
+    if (!instance || !profile || !selectedPlan) return;
+
+    const planInfo = availablePlans.find(p => p.name === selectedPlan);
+    if (!planInfo) return;
+
+    if (!window.confirm(`Reactivate "${instance.name}" with ${planInfo.display} ($${planInfo.price}/month)? Your instance will be restored and billing will begin.`)) {
+      return;
+    }
+
+    try {
+      setReactivationLoading(true);
+
+      const reactivationRequest = {
+        customer_id: profile.id,
+        plan_name: selectedPlan,
+        instance_id: instance.id
+      };
+
+      const response = await billingAPI.reactivateInstance(reactivationRequest);
+      
+      if (response.data.success) {
+        alert(`Instance reactivation initiated! New subscription: ${response.data.subscription_id}. Please complete payment to fully reactivate your instance.`);
+        await fetchInstanceBillingData(); // Refresh data
+      } else {
+        throw new Error(response.data.message || 'Unknown error');
+      }
+    } catch (err: any) {
+      console.error('Reactivation error:', err);
+      let errorMessage = 'Unknown error occurred';
+      
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.detail) {
+          errorMessage = err.response.data.detail;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else {
+          errorMessage = JSON.stringify(err.response.data);
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      } else {
+        errorMessage = JSON.stringify(err);
+      }
+      
+      alert(`Failed to reactivate instance: ${errorMessage}`);
+    } finally {
+      setReactivationLoading(false);
+    }
+  };
+
   const formatCurrency = (amount: number, currency: string = 'USD') => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -180,6 +247,8 @@ const BillingInstanceManage: React.FC = () => {
         return 'text-yellow-600 bg-yellow-100';
       case 'error':
         return 'text-red-600 bg-red-100';
+      case 'terminated':
+        return 'text-red-800 bg-red-200 border border-red-300';
       default:
         return 'text-blue-600 bg-blue-100';
     }
@@ -315,8 +384,93 @@ const BillingInstanceManage: React.FC = () => {
           )}
         </div>
 
+        {/* Terminated Instance Reactivation */}
+        {instance && instance.status === 'terminated' && (
+          <div className="bg-red-50 border border-red-200 shadow rounded-lg p-6 mb-8">
+            <div className="flex items-center mb-4">
+              <div className="flex-shrink-0">
+                <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h2 className="text-xl font-semibold text-red-800">Instance Terminated</h2>
+                <p className="text-red-700 mt-1">Your instance has been terminated. Select a plan below to reactivate it.</p>
+              </div>
+            </div>
+
+            {instance.error_message && (
+              <div className="bg-red-100 border border-red-300 rounded-md p-3 mb-6">
+                <div className="text-sm text-red-800">
+                  <strong>Reason:</strong> {instance.error_message}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-lg p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Choose a Plan to Reactivate</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                {availablePlans.map((plan) => (
+                  <div
+                    key={plan.name}
+                    className={`relative border rounded-lg p-4 cursor-pointer transition-all ${
+                      selectedPlan === plan.name
+                        ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                        : 'border-gray-300 bg-white hover:border-gray-400'
+                    }`}
+                    onClick={() => setSelectedPlan(plan.name)}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="plan"
+                        value={plan.name}
+                        checked={selectedPlan === plan.name}
+                        onChange={() => setSelectedPlan(plan.name)}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                      />
+                      <div className="ml-3 flex-1">
+                        <div className="text-lg font-semibold text-gray-900">{plan.display}</div>
+                        <div className="text-2xl font-bold text-blue-600">${plan.price.toFixed(2)}<span className="text-sm text-gray-500">/month</span></div>
+                        <div className="text-sm text-gray-600 mt-1">{plan.description}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  <p>✓ Your data and configuration will be preserved</p>
+                  <p>✓ Instance will be restored to stopped state</p>
+                  <p>✓ You can start it manually after reactivation</p>
+                </div>
+                <button
+                  onClick={handleReactivateInstance}
+                  disabled={!selectedPlan || reactivationLoading}
+                  className={`px-6 py-3 rounded-md font-medium text-white transition-colors ${
+                    !selectedPlan || reactivationLoading
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {reactivationLoading ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Reactivating...
+                    </div>
+                  ) : (
+                    `Reactivate Instance${selectedPlan ? ` - $${availablePlans.find(p => p.name === selectedPlan)?.price.toFixed(2)}/month` : ''}`
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Subscription Billing Context */}
-        {subscriptionData && (
+        {subscriptionData && instance?.status !== 'terminated' && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Subscription Billing Context</h2>
             
@@ -444,7 +598,7 @@ const BillingInstanceManage: React.FC = () => {
         )}
 
         {/* Subscription Management Actions */}
-        {subscriptionData && (
+        {subscriptionData && instance?.status !== 'terminated' && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Subscription Management</h2>
             

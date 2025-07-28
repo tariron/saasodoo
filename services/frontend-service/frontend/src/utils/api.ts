@@ -100,6 +100,7 @@ export interface Instance {
   admin_email: string;
   demo_data: boolean;
   subscription_id?: string;
+  error_message?: string;
 }
 
 export interface CreateInstanceRequest {
@@ -136,6 +137,8 @@ export interface CreateInstanceWithSubscriptionRequest {
   storage_limit?: string;
   custom_addons?: string[];
   phase_type?: string;
+  // For reactivating terminated instances
+  instance_id?: string;
 }
 
 export interface CreateInstanceWithSubscriptionResponse {
@@ -411,6 +414,10 @@ export const billingAPI = {
   
   cancelSubscriptionById: (subscriptionId: string, reason?: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
     api.delete(`/billing/api/billing/subscriptions/subscription/${subscriptionId}`, { data: { reason } }),
+  
+  // Instance reactivation
+  reactivateInstance: (data: {customer_id: string, plan_name: string, instance_id: string}): Promise<AxiosResponse<CreateInstanceWithSubscriptionResponse>> =>
+    api.post('/billing/api/billing/instances/reactivate', data),
 };
 
 export { TokenManager };

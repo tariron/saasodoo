@@ -215,3 +215,85 @@ async def create_instance_with_subscription(
     except Exception as e:
         logger.error(f"Failed to create instance+subscription for customer {instance_data.customer_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create instance subscription: {str(e)}")
+
+class ReactivateInstanceRequest(BaseModel):
+    """Request to reactivate a terminated instance"""
+    customer_id: str = Field(..., description="Customer UUID")
+    plan_name: str = Field(..., description="Billing plan to reactivate with")
+    instance_id: str = Field(..., description="Terminated instance ID to reactivate")
+
+@router.post("/reactivate", response_model=CreateInstanceWithSubscriptionResponse)
+async def reactivate_terminated_instance(
+    reactivation_data: ReactivateInstanceRequest,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """Reactivate a terminated instance with a new subscription"""
+    try:
+        logger.info(f"Reactivating instance {reactivation_data.instance_id} for customer {reactivation_data.customer_id}")
+        
+        # Validate customer has KillBill account
+        account = await killbill.get_account_by_external_key(reactivation_data.customer_id)
+        if not account:
+            raise HTTPException(status_code=404, detail="Customer billing account not found")
+        
+        account_id = account.get("accountId")
+        
+        logger.info(f"Creating KillBill subscription with plan {reactivation_data.plan_name} for instance reactivation")
+        
+        # Create KillBill subscription for reactivation (no trial for reactivations)
+        subscription = await killbill.create_subscription(
+            account_id=account_id,
+            plan_name=reactivation_data.plan_name,
+            billing_period="MONTHLY",
+            phase_type="EVERGREEN"  # Skip trial for reactivations
+        )
+        
+        subscription_id = subscription.get("subscriptionId")
+        if not subscription_id:
+            raise HTTPException(status_code=500, detail="Failed to create subscription - no ID returned")
+        
+        logger.info(f"Created subscription {subscription_id}, adding target instance metadata")
+        
+        # Store target instance ID in subscription metadata for reactivation
+        try:
+            metadata = {
+                "target_instance_id": reactivation_data.instance_id,
+                "reactivation": "true"
+            }
+            
+            await killbill._add_subscription_metadata(subscription_id, metadata)
+            logger.info(f"Successfully stored target_instance_id {reactivation_data.instance_id} for subscription {subscription_id}")
+        except Exception as meta_error:
+            logger.error(f"Failed to store reactivation metadata: {meta_error}")
+            # Don't fail the entire operation for metadata issues
+        
+        # Get the generated invoice for payment
+        invoice = None
+        try:
+            account_invoices = await killbill._make_request("GET", f"/1.0/kb/accounts/{account_id}/invoices")
+            if account_invoices:
+                latest_invoice = account_invoices[-1]
+                invoice_id = latest_invoice.get("invoiceId")
+                if invoice_id:
+                    invoice = await killbill.get_invoice_by_id(invoice_id)
+                    logger.info(f"Retrieved invoice {invoice_id} for reactivation subscription {subscription_id}")
+        except Exception as invoice_error:
+            logger.warning(f"Could not retrieve invoice for subscription {subscription_id}: {invoice_error}")
+        
+        response_data = {
+            "success": True,
+            "subscription_id": subscription_id,
+            "subscription": subscription,
+            "invoice": invoice,
+            "message": f"Reactivation subscription created for {reactivation_data.plan_name} plan. Pay the invoice to reactivate your instance.",
+            "instance_config": {"instance_id": reactivation_data.instance_id}
+        }
+        
+        logger.info(f"Successfully created reactivation subscription {subscription_id} for instance {reactivation_data.instance_id}")
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reactivate instance {reactivation_data.instance_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reactivate instance: {str(e)}")
