@@ -190,7 +190,7 @@ class InstanceServiceClient:
         self, 
         instance_id: str, 
         subscription_id: str = None, 
-        billing_status: str = "paid",
+        billing_status: str = "payment_required",
         provisioning_trigger: str = "webhook"
     ) -> Dict[str, Any]:
         """Trigger instance provisioning from billing webhook"""
@@ -241,7 +241,7 @@ class InstanceServiceClient:
             "custom_addons": instance_data.get("custom_addons", []),
             "customer_id": instance_data["customer_id"],
             "subscription_id": instance_data["subscription_id"],
-            "billing_status": instance_data.get("billing_status", "paid"),
+            "billing_status": instance_data.get("billing_status", "payment_required"),
             "provisioning_status": instance_data.get("provisioning_status", "pending")
         }
         
@@ -265,7 +265,7 @@ class InstanceServiceClient:
         self, 
         instance_id: str, 
         subscription_id: str,
-        billing_status: str = "paid"
+        billing_status: str = "payment_required"
     ) -> Dict[str, Any]:
         """Restart a terminated instance with a new subscription ID"""
         endpoint = f"/api/v1/instances/{instance_id}/restart-with-subscription"

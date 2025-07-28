@@ -40,7 +40,7 @@ export interface Subscription {
   instance_id?: string;
   instance_name?: string;
   instance_status?: string;
-  instance_billing_status?: 'trial' | 'paid' | 'pending_payment';
+  instance_billing_status?: 'trial' | 'paid' | 'payment_required';
   // Payment status
   awaiting_payment?: boolean;
 }

@@ -483,6 +483,14 @@ async def _reconcile_instance_statuses() -> Dict[str, Any]:
                     
                     # Check for mismatch
                     if db_status != expected_db_status:
+                        # Never override TERMINATED status - it's intentionally set
+                        if db_status == InstanceStatus.TERMINATED.value:
+                            logger.info("Skipping status update for terminated instance", 
+                                      instance_id=str(instance_id),
+                                      db_status=db_status,
+                                      docker_status=docker_status)
+                            continue
+                            
                         logger.info("Status mismatch detected", 
                                   instance_id=str(instance_id),
                                   db_status=db_status,

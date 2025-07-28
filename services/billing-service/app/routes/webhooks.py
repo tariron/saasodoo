@@ -185,7 +185,7 @@ async def handle_payment_success(payload: Dict[str, Any]):
             billing_status = instance.get('billing_status')
             
             # Only provision paid instances here (not trial instances)
-            if billing_status == 'pending_payment':
+            if billing_status == 'payment_required':
                 logger.info(f"Provisioning paid instance {instance_id} for customer {customer_external_key}")
                 
                 # Update instance billing status and trigger provisioning
@@ -310,11 +310,35 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         plan_name = subscription_details.get('planName', 'unknown')
         phase_type = subscription_details.get('phaseType', 'UNKNOWN')
         
+        # Get subscription metadata to check for reactivation
+        subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
+        target_instance_id = subscription_metadata.get("target_instance_id")
+        is_reactivation = subscription_metadata.get("reactivation") == "true"
+        
+        # Handle reactivation subscriptions
+        if is_reactivation and target_instance_id:
+            logger.info(f"Reactivation subscription {subscription_id} created for instance {target_instance_id}")
+            
+            # For reactivation, call the restart function which will update billing status to "payment_required"
+            # This was working before - restore the original behavior
+            try:
+                result = await instance_client.restart_instance_with_new_subscription(
+                    instance_id=target_instance_id,
+                    subscription_id=subscription_id,
+                    billing_status="payment_required"
+                )
+                logger.info(f"Updated instance {target_instance_id} for reactivation subscription {subscription_id}")
+                
+            except Exception as e:
+                logger.error(f"Failed to update instance for reactivation: {e}")
+            
+            return  # Exit early - reactivation subscription recorded
+        
         # Check if this is a trial subscription
         is_trial = phase_type == 'TRIAL'
         
         if not is_trial:
-            logger.info(f"Subscription {subscription_id} is not a trial ({plan_name}, {phase_type}). Skipping instance creation.")
+            logger.info(f"Subscription {subscription_id} is not a trial or reactivation ({plan_name}, {phase_type}). Skipping instance creation.")
             return
         
         logger.info(f"Processing trial subscription {subscription_id} (plan: {plan_name}, phase: {phase_type})")
@@ -492,21 +516,63 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             logger.info(f"Subscription {subscription_id} is trial - not creating instance on payment")
             return
 
+        # Check if this is a reactivation subscription
+        subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
+        target_instance_id = subscription_metadata.get("target_instance_id")
+        is_reactivation = subscription_metadata.get("reactivation") == "true"
+        
+        # Handle reactivation payment
+        if is_reactivation and target_instance_id:
+            logger.info(f"Payment received for reactivation subscription {subscription_id}, restarting instance {target_instance_id}")
+            
+            try:
+                result = await instance_client.restart_instance_with_new_subscription(
+                    instance_id=target_instance_id,
+                    subscription_id=subscription_id,
+                    billing_status="paid"
+                )
+                
+                if result.get("status") == "success":
+                    logger.info(f"Successfully reactivated instance {target_instance_id} after payment for subscription {subscription_id}")
+                else:
+                    logger.error(f"Failed to reactivate instance {target_instance_id}: {result}")
+                    
+            except Exception as e:
+                logger.error(f"Error reactivating instance {target_instance_id}: {e}")
+                
+            return  # Exit early - reactivation handled
+        
         # SAFETY CHECK: Prevent duplicate instance creation for the same subscription
         existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
         if existing_instance:
             logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
-            # Trigger provisioning if it's in a pending state
-            if existing_instance.get('provisioning_status') in ['pending_payment', 'pending']:
-                logger.info(f"Triggering provisioning for existing instance {existing_instance.get('id')}")
+            
+            # ALWAYS update billing status to "paid" when payment succeeds
+            try:
                 await instance_client.provision_instance(
                     instance_id=existing_instance['id'],
                     subscription_id=subscription_id,
                     billing_status="paid",
-                    provisioning_trigger="invoice_payment_success_existing"
+                    provisioning_trigger="invoice_payment_success_billing_update"
                 )
+                logger.info(f"Updated billing status to 'paid' for instance {existing_instance['id']} after payment success")
+            except Exception as e:
+                logger.error(f"Failed to update billing status to 'paid' for instance {existing_instance['id']}: {e}")
+            
+            # Additional provisioning if needed
+            if existing_instance.get('provisioning_status') in ['pending']:
+                logger.info(f"Triggering additional provisioning for existing instance {existing_instance.get('id')}")
+                try:
+                    await instance_client.provision_instance(
+                        instance_id=existing_instance['id'],
+                        subscription_id=subscription_id,
+                        billing_status="paid",
+                        provisioning_trigger="invoice_payment_success_provision"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to trigger additional provisioning: {e}")
             else:
-                logger.info(f"Existing instance {existing_instance.get('id')} is in status {existing_instance.get('provisioning_status')} - no action needed")
+                logger.info(f"Existing instance {existing_instance.get('id')} is in status {existing_instance.get('provisioning_status')} - billing status updated, no additional provisioning needed")
             return
         
         # Create instance for this customer and subscription
@@ -668,16 +734,16 @@ async def handle_subscription_phase_change(payload: Dict[str, Any]):
             
             # Update instance billing status from trial to pending payment
             if current_billing_status == 'trial':
-                logger.info(f"Updating instance {instance_id} billing status from 'trial' to 'pending_payment'")
+                logger.info(f"Updating instance {instance_id} billing status from 'trial' to 'payment_required'")
                 
                 # Update instance billing status to indicate payment is expected
                 await instance_client.update_instance_billing_status(
                     instance_id=instance_id,
-                    billing_status="pending_payment",
+                    billing_status="payment_required",
                     reason="Trial expired - transitioning to paid plan"
                 )
                 
-                logger.info(f"Updated instance {instance_id} to pending_payment status for customer {customer_external_key}")
+                logger.info(f"Updated instance {instance_id} to payment_required status for customer {customer_external_key}")
             else:
                 logger.info(f"Instance {instance_id} already has billing status '{current_billing_status}' - no update needed")
         

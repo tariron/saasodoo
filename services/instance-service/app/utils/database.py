@@ -62,7 +62,7 @@ class InstanceDatabase:
     async def create_instance(
         self, 
         instance_data: InstanceCreate, 
-        billing_status: BillingStatus = BillingStatus.PENDING_PAYMENT,
+        billing_status: BillingStatus = BillingStatus.PAYMENT_REQUIRED,
         provisioning_status: ProvisioningStatus = ProvisioningStatus.PENDING
     ) -> Instance:
         """Create a new instance"""

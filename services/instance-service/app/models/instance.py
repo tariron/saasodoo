@@ -27,10 +27,9 @@ class InstanceStatus(str, Enum):
 
 class BillingStatus(str, Enum):
     """Billing status enumeration"""
-    PENDING_PAYMENT = "pending_payment"
-    TRIAL = "trial"
-    PAID = "paid"
-    PAYMENT_REQUIRED = "payment_required"
+    PAYMENT_REQUIRED = "payment_required"  # Instance requires payment to activate/continue
+    TRIAL = "trial"                        # Instance is in trial period
+    PAID = "paid"                         # Instance is paid and active
 
 
 class ProvisioningStatus(str, Enum):
@@ -144,7 +143,7 @@ class InstanceCreate(InstanceBase):
     """Schema for creating a new instance"""
     customer_id: UUID = Field(..., description="Customer ID that owns this instance")
     subscription_id: Optional[UUID] = Field(None, description="Pre-existing billing subscription ID")
-    billing_status: BillingStatus = Field(default=BillingStatus.PENDING_PAYMENT, description="Billing status provided by the billing service")
+    billing_status: BillingStatus = Field(default=BillingStatus.PAYMENT_REQUIRED, description="Billing status provided by the billing service")
     provisioning_status: ProvisioningStatus = Field(default=ProvisioningStatus.PENDING, description="Provisioning status provided by the billing service")
 
 
@@ -198,7 +197,7 @@ class Instance(InstanceBase):
     status: InstanceStatus = Field(default=InstanceStatus.CREATING, description="Current instance status")
     
     # Billing and provisioning status
-    billing_status: BillingStatus = Field(default=BillingStatus.PENDING_PAYMENT, description="Billing status")
+    billing_status: BillingStatus = Field(default=BillingStatus.PAYMENT_REQUIRED, description="Billing status")
     provisioning_status: ProvisioningStatus = Field(default=ProvisioningStatus.PENDING, description="Provisioning status")
     
     # Container information

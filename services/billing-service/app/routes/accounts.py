@@ -316,7 +316,7 @@ async def get_billing_overview(
                     linked_instance = instance_lookup[instance_id]
                     
                     # Track instances blocked by pending payment
-                    if linked_instance.get('billing_status') == 'pending_payment':
+                    if linked_instance.get('billing_status') == 'payment_required':
                         provisioning_blocked_instances.append({
                             'instance_id': instance_id,
                             'instance_name': linked_instance.get('name'),

@@ -432,12 +432,12 @@ const Billing: React.FC = () => {
                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                   instance.billing_status === 'paid' 
                                     ? 'text-green-700 bg-green-100' 
-                                    : instance.billing_status === 'pending_payment'
+                                    : instance.billing_status === 'payment_required'
                                     ? 'text-red-700 bg-red-100'
                                     : 'text-yellow-700 bg-yellow-100'
                                 }`}>
                                   {instance.billing_status === 'paid' ? 'Paid' : 
-                                   instance.billing_status === 'pending_payment' ? 'Payment Required' : 'Trial'}
+                                   instance.billing_status === 'payment_required' ? 'Payment Required' : 'Trial'}
                                 </span>
                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                   linkedSubscription.is_scheduled_for_cancellation ? 'text-orange-700 bg-orange-100' :

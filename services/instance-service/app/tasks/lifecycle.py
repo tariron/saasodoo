@@ -285,8 +285,29 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
         }
         
     except docker.errors.NotFound:
-        # Container doesn't exist - this shouldn't happen for existing instances
-        raise ValueError(f"Container {container_name} not found. Instance may need reprovisioning.")
+        # Container doesn't exist - this can happen after termination/reactivation
+        # Fall back to provisioning a new container
+        logger.info("Container not found, falling back to provisioning", container_name=container_name)
+        from app.tasks.provisioning import _deploy_odoo_container, _create_odoo_database
+        
+        # Create database if it doesn't exist
+        try:
+            db_info = await _create_odoo_database(instance)
+            logger.info("Database created/verified", database=instance['database_name'])
+        except Exception as db_e:
+            logger.warning("Database creation failed, assuming it exists", error=str(db_e))
+            db_info = {
+                'host': os.getenv('POSTGRES_HOST', 'postgres'),
+                'port': 5432,
+                'database': instance['database_name'],
+                'user': instance['database_name'],
+                'password': instance.get('database_password', 'odoo_pass')
+            }
+        
+        # Deploy new container
+        container_result = await _deploy_odoo_container(instance, db_info)
+        logger.info("New container deployed after missing container", container_id=container_result['container_id'])
+        return container_result
     except Exception as e:
         logger.error("Failed to start container", container_name=container_name, error=str(e))
         raise

@@ -347,10 +347,10 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div className="text-sm text-gray-600">Trial Instances</div>
                   </div>
-                  {instances.filter(instance => instance.billing_status === 'pending_payment').length > 0 && (
+                  {instances.filter(instance => instance.billing_status === 'payment_required').length > 0 && (
                     <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
                       <div className="text-2xl font-bold text-red-600">
-                        {instances.filter(instance => instance.billing_status === 'pending_payment').length}
+                        {instances.filter(instance => instance.billing_status === 'payment_required').length}
                       </div>
                       <div className="text-sm text-red-600 font-medium">Payment Required</div>
                     </div>
