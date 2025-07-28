@@ -186,6 +186,17 @@ async def handle_payment_success(payload: Dict[str, Any]):
             
             # Only provision paid instances here (not trial instances)
             if billing_status == 'payment_required':
+                # Skip reactivation instances - they are handled by INVOICE_PAYMENT_SUCCESS webhook
+                subscription_id = instance.get('subscription_id')
+                if subscription_id:
+                    # Check if this is a reactivation subscription
+                    subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
+                    is_reactivation = subscription_metadata.get("reactivation") == "true"
+                    
+                    if is_reactivation:
+                        logger.info(f"Skipping reactivation instance {instance_id} in PAYMENT_SUCCESS - handled by INVOICE_PAYMENT_SUCCESS")
+                        continue
+                
                 logger.info(f"Provisioning paid instance {instance_id} for customer {customer_external_key}")
                 
                 # Update instance billing status and trigger provisioning
@@ -544,9 +555,13 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             return  # Exit early - reactivation handled regardless of success/failure
         
         # SAFETY CHECK: Prevent duplicate instance creation for the same subscription
-        # Skip this check for reactivations as they're handled above
+        # SKIP ENTIRELY for reactivations - they are handled above with restart_instance_with_new_subscription
+        if is_reactivation:
+            logger.info(f"Skipping existing instance logic for reactivation subscription {subscription_id}")
+            return
+            
         existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
-        if existing_instance and not is_reactivation:
+        if existing_instance:
             logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
             
             # ALWAYS update billing status to "paid" when payment succeeds
