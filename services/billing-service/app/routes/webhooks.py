@@ -266,7 +266,24 @@ async def handle_payment_failed(payload: Dict[str, Any]):
         
         logger.warning(f"Suspended {suspended_count} instances for customer {customer_external_key}")
         
-        # TODO: Send notification email to customer about failed payment
+        # Send payment failure notification email
+        try:
+            from ..utils.notification_client import send_payment_failure_email
+            
+            # Get customer info for the email
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            if customer_info:
+                await send_payment_failure_email(
+                    email=customer_info.get('email', ''),
+                    first_name=customer_info.get('first_name', ''),
+                    amount_due=str(payment_amount or 0),
+                    payment_method_url=f"https://billing.saasodoo.local/payment-methods/{customer_external_key}"
+                )
+                logger.info(f"✅ Sent payment failure email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send payment failure email - customer info not found for {customer_external_key}")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send payment failure email: {email_error}")
         
     except Exception as e:
         logger.error(f"Error handling payment failure: {e}")
@@ -389,8 +406,28 @@ async def handle_subscription_cancelled(payload: Dict[str, Any]):
         
         # TODO: Update subscription status in our database if we have one
         # TODO: Log cancellation event for analytics
-        # TODO: Send cancellation confirmation email to customer
         # TODO: Update billing dashboard/UI status
+        
+        # Send subscription cancellation confirmation email
+        try:
+            from ..utils.notification_client import send_subscription_cancelled_email
+            
+            # Get customer info and subscription details
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            subscription_info = await _get_subscription_info(subscription_id)
+            
+            if customer_info and subscription_info:
+                await send_subscription_cancelled_email(
+                    email=customer_info.get('email', ''),
+                    first_name=customer_info.get('first_name', ''),
+                    subscription_name=subscription_info.get('planName', f'Subscription {subscription_id}'),
+                    end_date=subscription_info.get('chargedThroughDate', 'end of current billing period')
+                )
+                logger.info(f"✅ Sent subscription cancellation email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send cancellation email - missing customer or subscription info")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send subscription cancellation email: {email_error}")
         
         # NOTE: We DO NOT terminate instances here - that happens in ENTITLEMENT_CANCEL webhook
         # at the end of the billing period when the user's access actually ends
@@ -430,7 +467,25 @@ async def handle_entitlement_cancelled(payload: Dict[str, Any]):
             logger.error(f"Failed to terminate instance {instance_id} for subscription {subscription_id}: {instance_error}")
             # Don't raise - we want to continue processing other webhooks
         
-        # TODO: Send service termination notification email
+        # Send service termination notification email
+        try:
+            from ..utils.notification_client import send_service_terminated_email
+            
+            # Get customer info for the email
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            if customer_info:
+                await send_service_terminated_email(
+                    email=customer_info.get('email', ''),
+                    first_name=customer_info.get('first_name', ''),
+                    service_name=f'Odoo Instance {instance_id}',
+                    backup_info="Your data has been backed up and will be available for 30 days. Contact support to restore your data."
+                )
+                logger.info(f"✅ Sent service termination email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send termination email - customer info not found for {customer_external_key}")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send service termination email: {email_error}")
+        
         # TODO: Trigger data backup before final cleanup
         # TODO: Clean up any additional resources
         
@@ -456,9 +511,28 @@ async def handle_invoice_created(payload: Dict[str, Any]):
         # TODO: Store invoice metadata in our database if needed
         # This could include custom fields, instance associations, etc.
         
-        # TODO: Send invoice notification email to customer
-        # This would integrate with an email service to notify customers
-        # about new invoices with links to view/pay
+        # Send invoice notification email to customer
+        try:
+            from ..utils.notification_client import send_invoice_created_email
+            
+            # Get customer info and invoice details
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            invoice_info = await _get_invoice_info(invoice_id)
+            
+            if customer_info and invoice_info:
+                await send_invoice_created_email(
+                    email=customer_info.get('email', ''),
+                    first_name=customer_info.get('first_name', ''),
+                    invoice_number=invoice_info.get('invoiceNumber', invoice_id),
+                    amount_due=str(invoice_info.get('balance', 0)),
+                    due_date=invoice_info.get('targetDate', 'upon receipt'),
+                    payment_url=f"https://billing.saasodoo.local/invoices/{invoice_id}/pay"
+                )
+                logger.info(f"✅ Sent invoice notification email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send invoice email - missing customer or invoice info")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send invoice notification email: {email_error}")
         
         # TODO: For overdue invoices, could trigger collection workflows
         
@@ -809,7 +883,32 @@ async def handle_subscription_expired(payload: Dict[str, Any]):
         else:
             logger.info(f"Instance {instance_id} already in terminal state ({current_status}) - no action needed")
         
-        # TODO: Send expiration notification email to customer
+        # Send subscription expiration notification email
+        try:
+            from ..utils.notification_client import get_notification_client
+            
+            # Get customer info and subscription details
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            subscription_info = await _get_subscription_info(subscription_id)
+            
+            if customer_info and subscription_info:
+                client = get_notification_client()
+                await client.send_template_email(
+                    to_emails=[customer_info.get('email', '')],
+                    template_name="subscription_expired",
+                    template_variables={
+                        "first_name": customer_info.get('first_name', ''),
+                        "subscription_name": subscription_info.get('planName', f'Subscription {subscription_id}'),
+                        "service_name": f'Odoo Instance {instance_id}'
+                    },
+                    tags=["billing", "subscription", "expiration"]
+                )
+                logger.info(f"✅ Sent subscription expiration email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send expiration email - missing customer or subscription info")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send subscription expiration email: {email_error}")
+        
         # TODO: Log expiration event for analytics and retention analysis
         
         logger.info(f"Processed subscription expiration for customer {customer_external_key}")
@@ -891,7 +990,47 @@ async def handle_invoice_overdue(payload: Dict[str, Any]):
         
         logger.warning(f"Processed overdue invoice {invoice_id} for customer {customer_external_key}: suspended {suspended_count} instances")
         
-        # TODO: Send overdue payment notification email
+        # Send overdue payment notification email
+        try:
+            from ..utils.notification_client import get_notification_client
+            
+            # Get customer info and invoice details
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            invoice_info = await _get_invoice_info(invoice_id)
+            
+            if customer_info and invoice_info:
+                # Calculate days overdue (simplified calculation)
+                from datetime import datetime, timedelta
+                target_date = invoice_info.get('targetDate')
+                days_overdue = 7  # Default fallback
+                
+                if target_date:
+                    try:
+                        # Assume ISO format date string
+                        target_dt = datetime.fromisoformat(target_date.replace('Z', '+00:00'))
+                        days_overdue = max(0, (datetime.now() - target_dt).days)
+                    except:
+                        pass  # Use default
+                
+                client = get_notification_client()
+                await client.send_template_email(
+                    to_emails=[customer_info.get('email', '')],
+                    template_name="overdue_payment",
+                    template_variables={
+                        "first_name": customer_info.get('first_name', ''),
+                        "invoice_number": invoice_info.get('invoiceNumber', invoice_id),
+                        "amount_due": str(invoice_info.get('balance', 0)),
+                        "days_overdue": str(days_overdue),
+                        "payment_url": f"https://billing.saasodoo.local/invoices/{invoice_id}/pay"
+                    },
+                    tags=["billing", "overdue", "urgent", "suspension"]
+                )
+                logger.info(f"✅ Sent overdue payment email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send overdue payment email - missing customer or invoice info")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send overdue payment email: {email_error}")
+        
         # TODO: Implement configurable grace period before suspension
         # TODO: Set up automatic retry for payment collection
         
@@ -922,4 +1061,62 @@ async def _get_customer_external_key_by_account_id(account_id: str) -> Optional[
         
     except Exception as e:
         logger.error(f"Error getting customer external key for account {account_id}: {e}")
+        return None
+
+async def _get_customer_info_by_external_key(external_key: str) -> Optional[Dict[str, Any]]:
+    """Get customer information from user service by external key"""
+    import httpx
+    import os
+    
+    try:
+        user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{user_service_url}/api/v1/users/external/{external_key}")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"User not found for external key {external_key}: {response.status_code}")
+                return None
+    except Exception as e:
+        logger.error(f"Error getting customer info for external key {external_key}: {e}")
+        return None
+
+async def _get_subscription_info(subscription_id: str) -> Optional[Dict[str, Any]]:
+    """Get subscription information from KillBill"""
+    import os
+    
+    try:
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+        
+        subscription = await killbill.get_subscription_by_id(subscription_id)
+        return subscription
+        
+    except Exception as e:
+        logger.error(f"Error getting subscription info for {subscription_id}: {e}")
+        return None
+
+async def _get_invoice_info(invoice_id: str) -> Optional[Dict[str, Any]]:
+    """Get invoice information from KillBill"""
+    import os
+    
+    try:
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+        
+        invoice = await killbill.get_invoice_by_id(invoice_id)
+        return invoice
+        
+    except Exception as e:
+        logger.error(f"Error getting invoice info for {invoice_id}: {e}")
         return None

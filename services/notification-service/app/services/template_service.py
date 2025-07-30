@@ -61,6 +61,60 @@ class TemplateService:
                 "from_name": "SaaS Odoo Billing",
                 "variables": ["first_name", "instance_name", "amount", "due_date", "payment_url"],
                 "created_at": datetime.utcnow()
+            },
+            "payment_failure": {
+                "name": "payment_failure",
+                "subject": "Payment Failed - Action Required",
+                "description": "Notification for failed payment processing",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "amount_due", "payment_method_url"],
+                "created_at": datetime.utcnow()
+            },
+            "subscription_cancelled": {
+                "name": "subscription_cancelled",
+                "subject": "Subscription Cancelled - {{ subscription_name }}",
+                "description": "Confirmation email for subscription cancellation",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "subscription_name", "end_date"],
+                "created_at": datetime.utcnow()
+            },
+            "service_terminated": {
+                "name": "service_terminated",
+                "subject": "Service Terminated - {{ service_name }}",
+                "description": "Notification for service termination",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "service_name", "backup_info"],
+                "created_at": datetime.utcnow()
+            },
+            "invoice_created": {
+                "name": "invoice_created",
+                "subject": "New Invoice - {{ invoice_number }}",
+                "description": "Notification for new invoice creation",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "invoice_number", "amount_due", "due_date", "payment_url"],
+                "created_at": datetime.utcnow()
+            },
+            "subscription_expired": {
+                "name": "subscription_expired",
+                "subject": "Subscription Expired - {{ subscription_name }}",
+                "description": "Notification for subscription expiration",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "subscription_name", "service_name"],
+                "created_at": datetime.utcnow()
+            },
+            "overdue_payment": {
+                "name": "overdue_payment",
+                "subject": "Overdue Payment - Immediate Action Required",
+                "description": "Notification for overdue payment with suspension warning",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "invoice_number", "amount_due", "days_overdue", "payment_url"],
+                "created_at": datetime.utcnow()
             }
         }
     
@@ -191,6 +245,137 @@ class TemplateService:
             </body>
             </html>
             """
+        elif template_name == "payment_failure":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e74c3c; text-align: center; margin-bottom: 30px;">⚠️ Payment Failed</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>We were unable to process your payment of <strong>${variables.get('amount_due', 'N/A')}</strong>. Your services may be suspended if payment is not received within 48 hours.</p>
+                    <div style="background-color: #fdf2f2; padding: 20px; border-radius: 5px; border-left: 4px solid #e74c3c; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #e74c3c;">Action Required</h3>
+                        <p>Please update your payment method or retry your payment to avoid service interruption.</p>
+                    </div>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('payment_method_url', '#')}" style="background-color: #e74c3c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Update Payment Method</a>
+                    </div>
+                    <p>If you need assistance, please contact our billing support team.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "subscription_cancelled":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #f39c12; text-align: center; margin-bottom: 30px;">Subscription Cancelled</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>We've received your request to cancel your subscription: <strong>{variables.get('subscription_name', 'N/A')}</strong></p>
+                    <div style="background-color: #fef9e7; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Cancellation Details</h3>
+                        <p><strong>Subscription:</strong> {variables.get('subscription_name', 'N/A')}</p>
+                        <p><strong>End Date:</strong> {variables.get('end_date', 'N/A')}</p>
+                        <p>Your subscription will remain active until the end date above.</p>
+                    </div>
+                    <p>We're sorry to see you go! If you have feedback about your experience, we'd love to hear from you.</p>
+                    <p>You can reactivate your subscription at any time before the end date.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "service_terminated":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #c0392b; text-align: center; margin-bottom: 30px;">Service Terminated</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Your service <strong>{variables.get('service_name', 'N/A')}</strong> has been terminated due to subscription expiration.</p>
+                    <div style="background-color: #fdedec; padding: 20px; border-radius: 5px; border-left: 4px solid #c0392b; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #c0392b;">Data Backup Information</h3>
+                        <p>{variables.get('backup_info', 'Your data has been backed up and will be available for 30 days.')}</p>
+                    </div>
+                    <p>If you'd like to restore your service, please contact our support team or create a new subscription.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "invoice_created":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #2980b9; text-align: center; margin-bottom: 30px;">📄 New Invoice</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>A new invoice has been generated for your account.</p>
+                    <div style="background-color: #ebf3fd; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Invoice Details</h3>
+                        <p><strong>Invoice Number:</strong> {variables.get('invoice_number', 'N/A')}</p>
+                        <p><strong>Amount Due:</strong> ${variables.get('amount_due', 'N/A')}</p>
+                        <p><strong>Due Date:</strong> {variables.get('due_date', 'N/A')}</p>
+                    </div>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('payment_url', '#')}" style="background-color: #2980b9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Pay Invoice</a>
+                    </div>
+                    <p>Please ensure payment is made by the due date to avoid any service interruption.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "subscription_expired":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e67e22; text-align: center; margin-bottom: 30px;">⏰ Subscription Expired</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Your subscription <strong>{variables.get('subscription_name', 'N/A')}</strong> has expired.</p>
+                    <div style="background-color: #fdf6e3; padding: 20px; border-radius: 5px; border-left: 4px solid #e67e22; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #e67e22;">Service Impact</h3>
+                        <p>Your service <strong>{variables.get('service_name', 'N/A')}</strong> has been terminated due to subscription expiration.</p>
+                        <p>To restore access, please renew your subscription or contact our support team.</p>
+                    </div>
+                    <p>We'd love to have you back! Contact us to discuss renewal options that work for your needs.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "overdue_payment":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #c0392b; text-align: center; margin-bottom: 30px;">🚨 Overdue Payment - Urgent</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p><strong>URGENT:</strong> Your payment is now <strong>{variables.get('days_overdue', 'N/A')} days overdue</strong>. Your services have been suspended to prevent further charges.</p>
+                    <div style="background-color: #fdedec; padding: 20px; border-radius: 5px; border-left: 4px solid #c0392b; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #c0392b;">Payment Details</h3>
+                        <p><strong>Invoice Number:</strong> {variables.get('invoice_number', 'N/A')}</p>
+                        <p><strong>Amount Due:</strong> ${variables.get('amount_due', 'N/A')}</p>
+                        <p><strong>Days Overdue:</strong> {variables.get('days_overdue', 'N/A')} days</p>
+                    </div>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('payment_url', '#')}" style="background-color: #c0392b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Pay Now to Restore Service</a>
+                    </div>
+                    <p><strong>Important:</strong> Pay immediately to restore your services. Continued non-payment may result in account termination and data loss.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
         else:
             return f"""
             <html>
@@ -252,6 +437,113 @@ Instance Details:
 Access your instance: {variables.get('instance_url', '#')}
 
 You can now log in to your Odoo instance and start configuring your business processes.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "payment_failure":
+            return f"""
+Payment Failed - Action Required
+
+Hello {variables.get('first_name', 'there')},
+
+We were unable to process your payment of ${variables.get('amount_due', 'N/A')}. Your services may be suspended if payment is not received within 48 hours.
+
+ACTION REQUIRED:
+Please update your payment method or retry your payment to avoid service interruption.
+
+Update Payment Method: {variables.get('payment_method_url', '#')}
+
+If you need assistance, please contact our billing support team.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "subscription_cancelled":
+            return f"""
+Subscription Cancelled
+
+Hello {variables.get('first_name', 'there')},
+
+We've received your request to cancel your subscription: {variables.get('subscription_name', 'N/A')}
+
+Cancellation Details:
+- Subscription: {variables.get('subscription_name', 'N/A')}
+- End Date: {variables.get('end_date', 'N/A')}
+
+Your subscription will remain active until the end date above.
+
+We're sorry to see you go! If you have feedback about your experience, we'd love to hear from you.
+
+You can reactivate your subscription at any time before the end date.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "service_terminated":
+            return f"""
+Service Terminated
+
+Hello {variables.get('first_name', 'there')},
+
+Your service {variables.get('service_name', 'N/A')} has been terminated due to subscription expiration.
+
+Data Backup Information:
+{variables.get('backup_info', 'Your data has been backed up and will be available for 30 days.')}
+
+If you'd like to restore your service, please contact our support team or create a new subscription.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "invoice_created":
+            return f"""
+New Invoice - {variables.get('invoice_number', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+A new invoice has been generated for your account.
+
+Invoice Details:
+- Invoice Number: {variables.get('invoice_number', 'N/A')}
+- Amount Due: ${variables.get('amount_due', 'N/A')}
+- Due Date: {variables.get('due_date', 'N/A')}
+
+Pay Invoice: {variables.get('payment_url', '#')}
+
+Please ensure payment is made by the due date to avoid any service interruption.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "subscription_expired":
+            return f"""
+Subscription Expired
+
+Hello {variables.get('first_name', 'there')},
+
+Your subscription {variables.get('subscription_name', 'N/A')} has expired.
+
+Service Impact:
+Your service {variables.get('service_name', 'N/A')} has been terminated due to subscription expiration.
+
+To restore access, please renew your subscription or contact our support team.
+
+We'd love to have you back! Contact us to discuss renewal options that work for your needs.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "overdue_payment":
+            return f"""
+URGENT: Overdue Payment - Immediate Action Required
+
+Hello {variables.get('first_name', 'there')},
+
+URGENT: Your payment is now {variables.get('days_overdue', 'N/A')} days overdue. Your services have been suspended to prevent further charges.
+
+Payment Details:
+- Invoice Number: {variables.get('invoice_number', 'N/A')}
+- Amount Due: ${variables.get('amount_due', 'N/A')}
+- Days Overdue: {variables.get('days_overdue', 'N/A')} days
+
+Pay Now to Restore Service: {variables.get('payment_url', '#')}
+
+IMPORTANT: Pay immediately to restore your services. Continued non-payment may result in account termination and data loss.
 
 © {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
             """
