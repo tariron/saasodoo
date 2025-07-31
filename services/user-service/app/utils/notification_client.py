@@ -195,38 +195,6 @@ class NotificationClient:
             tags=["password_reset", "security"]
         )
     
-    async def send_instance_ready_email(
-        self, 
-        email: str, 
-        first_name: str, 
-        instance_name: str, 
-        instance_url: str,
-        admin_email: str
-    ) -> Dict[str, Any]:
-        """
-        Send instance ready notification email
-        
-        Args:
-            email: User's email address
-            first_name: User's first name
-            instance_name: Name of the Odoo instance
-            instance_url: URL to access the instance
-            admin_email: Admin email for the instance
-            
-        Returns:
-            Response from notification service
-        """
-        return await self.send_template_email(
-            to_emails=[email],
-            template_name="instance_ready",
-            template_variables={
-                "first_name": first_name,
-                "instance_name": instance_name,
-                "instance_url": instance_url,
-                "admin_email": admin_email
-            },
-            tags=["instance", "provisioning", "ready"]
-        )
     
     async def test_connection(self) -> Dict[str, Any]:
         """

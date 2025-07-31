@@ -229,6 +229,42 @@ async def handle_payment_success(payload: Dict[str, Any]):
         logger.info(f"Payment success processed for customer {customer_external_key}: "
                    f"provisioned {provisioned_count} instances, unsuspended {unsuspended_count} instances")
         
+        # Send payment success notification email
+        try:
+            from ..utils.notification_client import get_notification_client
+            
+            # Get payment details
+            payment_amount = "0.00"  # Default fallback
+            payment_method = "Credit Card"  # Default fallback
+            try:
+                payment_details = await killbill.get_payment_by_id(payment_id)
+                if payment_details:
+                    payment_amount = str(payment_details.get('amount', '0.00'))
+                    payment_method = payment_details.get('paymentMethodType', 'Credit Card')
+            except Exception as payment_error:
+                logger.warning(f"Could not get payment details for {payment_id}: {payment_error}")
+            
+            # Get customer info for the email
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            if customer_info:
+                client = get_notification_client()
+                await client.send_template_email(
+                    to_emails=[customer_info.get('email', '')],
+                    template_name="payment_received",
+                    template_variables={
+                        "first_name": customer_info.get('first_name', ''),
+                        "amount": payment_amount,
+                        "payment_method": payment_method,
+                        "transaction_id": payment_id
+                    },
+                    tags=["billing", "payment", "success"]
+                )
+                logger.info(f"✅ Sent payment success email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send payment success email - customer info not found for {customer_external_key}")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send payment success email: {email_error}")
+        
     except Exception as e:
         logger.error(f"Error handling payment success: {e}")
 
@@ -270,13 +306,30 @@ async def handle_payment_failed(payload: Dict[str, Any]):
         try:
             from ..utils.notification_client import send_payment_failure_email
             
+            # Get payment details to determine amount
+            killbill = KillBillClient(
+                base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+                api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+                api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+                username=os.getenv('KILLBILL_USERNAME', 'admin'),
+                password=os.getenv('KILLBILL_PASSWORD', 'password')
+            )
+            
+            payment_amount = "0.00"  # Default fallback
+            try:
+                payment_details = await killbill.get_payment_by_id(payment_id)
+                if payment_details and payment_details.get('amount'):
+                    payment_amount = str(payment_details['amount'])
+            except Exception as payment_error:
+                logger.warning(f"Could not get payment amount for {payment_id}: {payment_error}")
+            
             # Get customer info for the email
             customer_info = await _get_customer_info_by_external_key(customer_external_key)
             if customer_info:
                 await send_payment_failure_email(
                     email=customer_info.get('email', ''),
                     first_name=customer_info.get('first_name', ''),
-                    amount_due=str(payment_amount or 0),
+                    amount_due=payment_amount,
                     payment_method_url=f"https://billing.saasodoo.local/payment-methods/{customer_external_key}"
                 )
                 logger.info(f"✅ Sent payment failure email to {customer_info.get('email')}")
@@ -625,6 +678,31 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             except Exception as e:
                 logger.error(f"Error reactivating instance {target_instance_id}: {e}")
                 
+            # Send invoice paid email for reactivation
+            try:
+                from ..utils.notification_client import get_notification_client
+                
+                customer_info = await _get_customer_info_by_external_key(customer_external_key)
+                if customer_info:
+                    from datetime import datetime
+                    payment_date = datetime.utcnow().strftime("%B %d, %Y")
+                    
+                    client = get_notification_client()
+                    await client.send_template_email(
+                        to_emails=[customer_info.get('email', '')],
+                        template_name="invoice_paid",
+                        template_variables={
+                            "first_name": customer_info.get('first_name', ''),
+                            "invoice_number": invoice_details.get('invoiceNumber', invoice_id),
+                            "amount_paid": str(invoice_details.get('amount', '0.00')),
+                            "payment_date": payment_date
+                        },
+                        tags=["billing", "invoice", "paid", "reactivation"]
+                    )
+                    logger.info(f"✅ Sent reactivation invoice paid email to {customer_info.get('email')}")
+            except Exception as email_error:
+                logger.error(f"❌ Failed to send reactivation invoice paid email: {email_error}")
+                
             # ALWAYS return for reactivations - don't continue to existing_instance logic
             return  # Exit early - reactivation handled regardless of success/failure
         
@@ -664,12 +742,67 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                     logger.error(f"Failed to trigger additional provisioning: {e}")
             else:
                 logger.info(f"Existing instance {existing_instance.get('id')} is in status {existing_instance.get('provisioning_status')} - billing status updated, no additional provisioning needed")
+            
+            # Send invoice paid email for existing instance
+            try:
+                from ..utils.notification_client import get_notification_client
+                
+                customer_info = await _get_customer_info_by_external_key(customer_external_key)
+                if customer_info:
+                    from datetime import datetime
+                    payment_date = datetime.utcnow().strftime("%B %d, %Y")
+                    
+                    client = get_notification_client()
+                    await client.send_template_email(
+                        to_emails=[customer_info.get('email', '')],
+                        template_name="invoice_paid",
+                        template_variables={
+                            "first_name": customer_info.get('first_name', ''),
+                            "invoice_number": invoice_details.get('invoiceNumber', invoice_id),
+                            "amount_paid": str(invoice_details.get('amount', '0.00')),
+                            "payment_date": payment_date
+                        },
+                        tags=["billing", "invoice", "paid", "existing_instance"]
+                    )
+                    logger.info(f"✅ Sent existing instance invoice paid email to {customer_info.get('email')}")
+            except Exception as email_error:
+                logger.error(f"❌ Failed to send existing instance invoice paid email: {email_error}")
+            
             return
         
         # Create instance for this customer and subscription
         await _create_instance_for_subscription(customer_external_key, subscription_id, plan_name, billing_status="paid")
         
         logger.info(f"Processed invoice payment success for customer {customer_external_key}")
+        
+        # Send invoice paid notification email
+        try:
+            from ..utils.notification_client import get_notification_client
+            
+            # Get customer info for the email
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+            if customer_info:
+                # Format payment date
+                from datetime import datetime
+                payment_date = datetime.utcnow().strftime("%B %d, %Y")
+                
+                client = get_notification_client()
+                await client.send_template_email(
+                    to_emails=[customer_info.get('email', '')],
+                    template_name="invoice_paid",
+                    template_variables={
+                        "first_name": customer_info.get('first_name', ''),
+                        "invoice_number": invoice_details.get('invoiceNumber', invoice_id),
+                        "amount_paid": str(invoice_details.get('amount', '0.00')),
+                        "payment_date": payment_date
+                    },
+                    tags=["billing", "invoice", "paid"]
+                )
+                logger.info(f"✅ Sent invoice paid email to {customer_info.get('email')}")
+            else:
+                logger.warning(f"Could not send invoice paid email - customer info not found for {customer_external_key}")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send invoice paid email: {email_error}")
         
     except Exception as e:
         logger.error(f"Error handling invoice payment success: {e}")
@@ -1071,7 +1204,7 @@ async def _get_customer_info_by_external_key(external_key: str) -> Optional[Dict
     try:
         user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{user_service_url}/api/v1/users/external/{external_key}")
+            response = await client.get(f"{user_service_url}/users/internal/{external_key}")
             if response.status_code == 200:
                 return response.json()
             else:

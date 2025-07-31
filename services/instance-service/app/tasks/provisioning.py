@@ -13,6 +13,7 @@ from uuid import UUID
 from celery import current_task
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
+from app.utils.notification_client import send_instance_provisioning_started_email, send_instance_ready_email, send_instance_provisioning_failed_email
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -52,27 +53,57 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
     
     logger.info("Provisioning workflow started", instance_name=instance['name'])
     
+    # Get user information for email notifications
+    user_info = await _get_user_info(instance['customer_id'])
+    
     try:
-        # Step 2: Update status to STARTING
+        # Step 2: Send provisioning started email
+        if user_info:
+            try:
+                await send_instance_provisioning_started_email(
+                    email=user_info['email'],
+                    first_name=user_info['first_name'],
+                    instance_name=instance['name'],
+                    estimated_time="10-15 minutes"
+                )
+                logger.info("Provisioning started email sent", email=user_info['email'])
+            except Exception as e:
+                logger.warning("Failed to send provisioning started email", error=str(e))
+        
+        # Step 3: Update status to STARTING
         await _update_instance_status(instance_id, InstanceStatus.STARTING)
         
-        # Step 3: Create dedicated Odoo database
+        # Step 4: Create dedicated Odoo database
         db_info = await _create_odoo_database(instance)
         logger.info("Database created", database=instance['database_name'])
         
-        # Step 4: Deploy Bitnami Odoo container
+        # Step 5: Deploy Bitnami Odoo container
         container_info = await _deploy_odoo_container(instance, db_info)
         logger.info("Container deployed", container_id=container_info['container_id'])
         
-        # Step 5: Wait for Odoo to start up
+        # Step 6: Wait for Odoo to start up
         await _wait_for_odoo_startup(container_info, timeout=300)  # 5 minutes
         logger.info("Odoo startup confirmed")
         
-        # Step 6: Update instance with connection details
+        # Step 7: Update instance with connection details
         await _update_instance_network_info(instance_id, container_info)
         
-        # Step 7: Mark as RUNNING
+        # Step 8: Mark as RUNNING
         await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        
+        # Step 9: Send instance ready email
+        if user_info:
+            try:
+                await send_instance_ready_email(
+                    email=user_info['email'],
+                    first_name=user_info['first_name'],
+                    instance_name=instance['name'],
+                    instance_url=container_info['external_url'],
+                    admin_email=instance['admin_email']
+                )
+                logger.info("Instance ready email sent", email=user_info['email'])
+            except Exception as e:
+                logger.warning("Failed to send instance ready email", error=str(e))
         
         return {
             "status": "success",
@@ -84,6 +115,21 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
     except Exception as e:
         # Cleanup on failure
         logger.error("Provisioning failed, starting cleanup", error=str(e))
+        
+        # Send provisioning failed email
+        if user_info:
+            try:
+                await send_instance_provisioning_failed_email(
+                    email=user_info['email'],
+                    first_name=user_info['first_name'],
+                    instance_name=instance['name'],
+                    error_reason=str(e)[:200],  # Truncate long error messages
+                    support_url=f"{os.getenv('FRONTEND_URL', 'http://app.saasodoo.local')}/support"
+                )
+                logger.info("Provisioning failed email sent", email=user_info['email'])
+            except Exception as email_error:
+                logger.warning("Failed to send provisioning failed email", error=str(email_error))
+        
         await _cleanup_failed_provisioning(instance_id, instance)
         raise
 
@@ -405,3 +451,30 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
             
     except Exception as e:
         logger.error("Cleanup failed", error=str(e))
+
+
+async def _get_user_info(customer_id: str) -> Dict[str, Any]:
+    """Get user information from user-service for email notifications"""
+    try:
+        import httpx
+        
+        # Use the user-service API to get customer details
+        user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{user_service_url}/users/internal/{customer_id}")
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                return {
+                    'email': user_data.get('email', ''),
+                    'first_name': user_data.get('first_name', 'there')
+                }
+            else:
+                logger.warning("Failed to get user info from user-service", 
+                              customer_id=customer_id, status_code=response.status_code)
+                return None
+                
+    except Exception as e:
+        logger.error("Error getting user info", customer_id=customer_id, error=str(e))
+        return None

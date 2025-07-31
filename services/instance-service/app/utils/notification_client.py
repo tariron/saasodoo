@@ -186,6 +186,147 @@ class NotificationClient:
             tags=["instance", "provisioning", "failed", "support"]
         )
     
+    async def send_backup_completed_email(
+        self, 
+        email: str, 
+        first_name: str,
+        instance_name: str,
+        backup_name: str,
+        backup_size: str,
+        backup_date: str
+    ) -> Dict[str, Any]:
+        """
+        Send backup completed notification email
+        
+        Args:
+            email: User's email address
+            first_name: User's first name
+            instance_name: Name of the instance that was backed up
+            backup_name: Name of the backup
+            backup_size: Size of the backup
+            backup_date: Date when backup was created
+            
+        Returns:
+            Response from notification service
+        """
+        return await self.send_template_email(
+            to_emails=[email],
+            template_name="backup_completed",
+            template_variables={
+                "first_name": first_name,
+                "instance_name": instance_name,
+                "backup_name": backup_name,
+                "backup_size": backup_size,
+                "backup_date": backup_date
+            },
+            tags=["instance", "backup", "completed"]
+        )
+    
+    async def send_backup_failed_email(
+        self, 
+        email: str, 
+        first_name: str,
+        instance_name: str,
+        error_message: str,
+        support_url: str = None
+    ) -> Dict[str, Any]:
+        """
+        Send backup failed notification email
+        
+        Args:
+            email: User's email address
+            first_name: User's first name
+            instance_name: Name of the instance that failed to backup
+            error_message: Error message describing the failure
+            support_url: URL to contact support
+            
+        Returns:
+            Response from notification service
+        """
+        return await self.send_template_email(
+            to_emails=[email],
+            template_name="backup_failed",
+            template_variables={
+                "first_name": first_name,
+                "instance_name": instance_name,
+                "error_message": error_message,
+                "support_url": support_url or f"{os.getenv('FRONTEND_URL', 'http://app.saasodoo.local')}/support"
+            },
+            tags=["instance", "backup", "failed", "support"]
+        )
+    
+    async def send_restore_completed_email(
+        self, 
+        email: str, 
+        first_name: str,
+        instance_name: str,
+        backup_name: str,
+        restore_date: str,
+        instance_url: str
+    ) -> Dict[str, Any]:
+        """
+        Send restore completed notification email
+        
+        Args:
+            email: User's email address
+            first_name: User's first name
+            instance_name: Name of the instance that was restored
+            backup_name: Name of the backup used for restore
+            restore_date: Date when restore was completed
+            instance_url: URL to access the restored instance
+            
+        Returns:
+            Response from notification service
+        """
+        return await self.send_template_email(
+            to_emails=[email],
+            template_name="restore_completed",
+            template_variables={
+                "first_name": first_name,
+                "instance_name": instance_name,
+                "backup_name": backup_name,
+                "restore_date": restore_date,
+                "instance_url": instance_url
+            },
+            tags=["instance", "restore", "completed"]
+        )
+    
+    async def send_restore_failed_email(
+        self, 
+        email: str, 
+        first_name: str,
+        instance_name: str,
+        backup_name: str,
+        error_message: str,
+        support_url: str = None
+    ) -> Dict[str, Any]:
+        """
+        Send restore failed notification email
+        
+        Args:
+            email: User's email address
+            first_name: User's first name
+            instance_name: Name of the instance that failed to restore
+            backup_name: Name of the backup that failed to restore
+            error_message: Error message describing the failure
+            support_url: URL to contact support
+            
+        Returns:
+            Response from notification service
+        """
+        return await self.send_template_email(
+            to_emails=[email],
+            template_name="restore_failed",
+            template_variables={
+                "first_name": first_name,
+                "instance_name": instance_name,
+                "backup_name": backup_name,
+                "error_message": error_message,
+                "support_url": support_url or f"{os.getenv('FRONTEND_URL', 'http://app.saasodoo.local')}/support"
+            },
+            tags=["instance", "restore", "failed", "support"]
+        )
+    
     async def test_connection(self) -> Dict[str, Any]:
         """
         Test connection to notification service
@@ -234,3 +375,23 @@ async def send_instance_provisioning_failed_email(email: str, first_name: str, i
     """Send instance provisioning failed email (convenience function)"""
     client = get_notification_client()
     return await client.send_instance_provisioning_failed_email(email, first_name, instance_name, error_reason, support_url)
+
+async def send_backup_completed_email(email: str, first_name: str, instance_name: str, backup_name: str, backup_size: str, backup_date: str) -> Dict[str, Any]:
+    """Send backup completed email (convenience function)"""
+    client = get_notification_client()
+    return await client.send_backup_completed_email(email, first_name, instance_name, backup_name, backup_size, backup_date)
+
+async def send_backup_failed_email(email: str, first_name: str, instance_name: str, error_message: str, support_url: str = None) -> Dict[str, Any]:
+    """Send backup failed email (convenience function)"""
+    client = get_notification_client()
+    return await client.send_backup_failed_email(email, first_name, instance_name, error_message, support_url)
+
+async def send_restore_completed_email(email: str, first_name: str, instance_name: str, backup_name: str, restore_date: str, instance_url: str) -> Dict[str, Any]:
+    """Send restore completed email (convenience function)"""
+    client = get_notification_client()
+    return await client.send_restore_completed_email(email, first_name, instance_name, backup_name, restore_date, instance_url)
+
+async def send_restore_failed_email(email: str, first_name: str, instance_name: str, backup_name: str, error_message: str, support_url: str = None) -> Dict[str, Any]:
+    """Send restore failed email (convenience function)"""
+    client = get_notification_client()
+    return await client.send_restore_failed_email(email, first_name, instance_name, backup_name, error_message, support_url)

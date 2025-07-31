@@ -9,6 +9,7 @@ import asyncpg
 import docker
 import tarfile
 import shutil
+import httpx
 from datetime import datetime
 from typing import Dict, Any, Optional
 from uuid import UUID
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
+from app.utils.notification_client import send_backup_completed_email, send_backup_failed_email, send_restore_completed_email, send_restore_failed_email
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -129,6 +131,23 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
             # Instance was stopped, keep it stopped
             await _update_instance_status(instance_id, InstanceStatus.STOPPED)
         
+        # Step 8: Send backup completed email
+        try:
+            user_info = await _get_user_info(instance['customer_id'])
+            if user_info and user_info.get('email'):
+                backup_date = datetime.utcnow().strftime("%B %d, %Y at %I:%M %p UTC")
+                await send_backup_completed_email(
+                    email=user_info['email'],
+                    first_name=user_info.get('first_name', 'there'),
+                    instance_name=instance['name'],
+                    backup_name=backup_name,
+                    backup_size=backup_metadata["total_size"],
+                    backup_date=backup_date
+                )
+                logger.info("✅ Backup completed email sent", email=user_info['email'])
+        except Exception as email_error:
+            logger.error("❌ Failed to send backup completed email", error=str(email_error))
+        
         return {
             "status": "success",
             "backup_id": backup_id,
@@ -154,6 +173,21 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
                 await _update_instance_status(instance_id, InstanceStatus.ERROR, f"Backup failed and could not restart: {str(e)}")
         else:
             await _update_instance_status(instance_id, InstanceStatus.ERROR, str(e))
+        
+        # Send backup failed email
+        try:
+            user_info = await _get_user_info(instance['customer_id'])
+            if user_info and user_info.get('email'):
+                await send_backup_failed_email(
+                    email=user_info['email'],
+                    first_name=user_info.get('first_name', 'there'),
+                    instance_name=instance['name'],
+                    error_message=str(e)
+                )
+                logger.info("✅ Backup failed email sent", email=user_info['email'])
+        except Exception as email_error:
+            logger.error("❌ Failed to send backup failed email", error=str(email_error))
+        
         raise
 
 
@@ -217,6 +251,24 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         # Step 7: Update status
         await _update_instance_status(instance_id, target_status)
         
+        # Step 8: Send restore completed email
+        try:
+            user_info = await _get_user_info(instance['customer_id'])
+            if user_info and user_info.get('email'):
+                restore_date = datetime.utcnow().strftime("%B %d, %Y at %I:%M %p UTC")
+                instance_url = f"http://{instance['database_name']}.saasodoo.local"
+                await send_restore_completed_email(
+                    email=user_info['email'],
+                    first_name=user_info.get('first_name', 'there'),
+                    instance_name=instance['name'],
+                    backup_name=backup_info['backup_name'],
+                    restore_date=restore_date,
+                    instance_url=instance_url
+                )
+                logger.info("✅ Restore completed email sent", email=user_info['email'])
+        except Exception as email_error:
+            logger.error("❌ Failed to send restore completed email", error=str(email_error))
+        
         return {
             "status": "success",
             "backup_id": backup_id,
@@ -228,6 +280,22 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
     except Exception as e:
         logger.error("Restore workflow failed", error=str(e))
         await _update_instance_status(instance_id, InstanceStatus.ERROR, str(e))
+        
+        # Send restore failed email
+        try:
+            user_info = await _get_user_info(instance['customer_id'])
+            if user_info and user_info.get('email'):
+                await send_restore_failed_email(
+                    email=user_info['email'],
+                    first_name=user_info.get('first_name', 'there'),
+                    instance_name=instance['name'],
+                    backup_name=backup_info['backup_name'] if backup_info else 'Unknown',
+                    error_message=str(e)
+                )
+                logger.info("✅ Restore failed email sent", email=user_info['email'])
+        except Exception as email_error:
+            logger.error("❌ Failed to send restore failed email", error=str(email_error))
+        
         raise
 
 
@@ -1155,3 +1223,29 @@ async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[
     except Exception as e:
         logger.error("Failed to start optimized container for restore", container_name=container_name, error=str(e))
         raise
+
+
+async def _get_user_info(customer_id: str) -> Dict[str, Any]:
+    """Get user information from user-service for email notifications"""
+    try:
+        # Use the user-service API to get customer details
+        user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{user_service_url}/users/internal/{customer_id}")
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                return {
+                    'email': user_data.get('email', ''),
+                    'first_name': user_data.get('first_name', ''),
+                    'last_name': user_data.get('last_name', '')
+                }
+            else:
+                logger.warning("Failed to get user info from user-service", 
+                              customer_id=customer_id, status_code=response.status_code)
+                return None
+                
+    except Exception as e:
+        logger.error("Error getting user info", customer_id=customer_id, error=str(e))
+        return None

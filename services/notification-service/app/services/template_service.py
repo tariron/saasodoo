@@ -115,6 +115,132 @@ class TemplateService:
                 "from_name": "SaaS Odoo Billing",
                 "variables": ["first_name", "invoice_number", "amount_due", "days_overdue", "payment_url"],
                 "created_at": datetime.utcnow()
+            },
+            "instance_provisioning_started": {
+                "name": "instance_provisioning_started",
+                "subject": "Your Odoo instance is being prepared",
+                "description": "Notification when instance provisioning begins",
+                "from_email": "noreply@saasodoo.local",  
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "estimated_time"],
+                "created_at": datetime.utcnow()
+            },
+            "instance_provisioning_failed": {
+                "name": "instance_provisioning_failed",
+                "subject": "Instance provisioning failed",
+                "description": "Notification when instance provisioning fails",
+                "from_email": "support@saasodoo.local",
+                "from_name": "SaaS Odoo Support",
+                "variables": ["first_name", "instance_name", "error_reason", "support_url"],
+                "created_at": datetime.utcnow()
+            },
+            "instance_stopped": {
+                "name": "instance_stopped",
+                "subject": "Instance stopped - {{ instance_name }}",
+                "description": "Notification when instance is stopped",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "reason"],
+                "created_at": datetime.utcnow()
+            },
+            "instance_started": {
+                "name": "instance_started",
+                "subject": "Instance started - {{ instance_name }}",
+                "description": "Notification when instance is started",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "instance_url"],
+                "created_at": datetime.utcnow()
+            },
+            "instance_suspended": {
+                "name": "instance_suspended",
+                "subject": "Instance suspended - {{ instance_name }}",
+                "description": "Notification when instance is suspended due to billing issues",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "instance_name", "reason", "payment_url"],
+                "created_at": datetime.utcnow()
+            },
+            "instance_resumed": {
+                "name": "instance_resumed",
+                "subject": "Instance restored - {{ instance_name }}",
+                "description": "Notification when instance is restored after suspension",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "instance_url"],
+                "created_at": datetime.utcnow()
+            },
+            "instance_deleted": {
+                "name": "instance_deleted",
+                "subject": "Instance permanently deleted - {{ instance_name }}",
+                "description": "Notification when instance is permanently deleted",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform", 
+                "variables": ["first_name", "instance_name", "backup_info"],
+                "created_at": datetime.utcnow()
+            },
+            "maintenance_notification": {
+                "name": "maintenance_notification",
+                "subject": "Scheduled maintenance - {{ instance_name }}",
+                "description": "Notification for scheduled maintenance window",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "maintenance_start", "maintenance_end", "expected_downtime"],
+                "created_at": datetime.utcnow()
+            },
+            "payment_received": {
+                "name": "payment_received",
+                "subject": "Payment received - {{ amount }}",
+                "description": "Notification when payment is successfully processed",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "amount", "payment_method", "transaction_id"],
+                "created_at": datetime.utcnow()
+            },
+            "invoice_paid": {
+                "name": "invoice_paid",
+                "subject": "Invoice paid - {{ invoice_number }}",
+                "description": "Notification when invoice is paid in full",
+                "from_email": "billing@saasodoo.local",
+                "from_name": "SaaS Odoo Billing",
+                "variables": ["first_name", "invoice_number", "amount_paid", "payment_date"],
+                "created_at": datetime.utcnow()
+            },
+            "backup_completed": {
+                "name": "backup_completed",
+                "subject": "Backup completed - {{ instance_name }}",
+                "description": "Notification when instance backup completes successfully",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "backup_name", "backup_size", "backup_date"],
+                "created_at": datetime.utcnow()
+            },
+            "backup_failed": {
+                "name": "backup_failed",
+                "subject": "Backup failed - {{ instance_name }}",
+                "description": "Notification when instance backup fails",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "error_message", "support_url"],
+                "created_at": datetime.utcnow()
+            },
+            "restore_completed": {
+                "name": "restore_completed",
+                "subject": "Restore completed - {{ instance_name }}",
+                "description": "Notification when instance restore completes successfully",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "backup_name", "restore_date", "instance_url"],
+                "created_at": datetime.utcnow()
+            },
+            "restore_failed": {
+                "name": "restore_failed",
+                "subject": "Restore failed - {{ instance_name }}",
+                "description": "Notification when instance restore fails",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "instance_name", "backup_name", "error_message", "support_url"],
+                "created_at": datetime.utcnow()
             }
         }
     
@@ -332,6 +458,138 @@ class TemplateService:
             </body>
             </html>
             """
+        elif template_name == "payment_received":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #27ae60; text-align: center; margin-bottom: 30px;">✅ Payment Received</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Thank you! We have successfully received your payment.</p>
+                    <div style="background-color: #eafaf1; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Payment Details</h3>
+                        <p><strong>Amount:</strong> ${variables.get('amount', 'N/A')}</p>
+                        <p><strong>Payment Method:</strong> {variables.get('payment_method', 'N/A')}</p>
+                        <p><strong>Transaction ID:</strong> {variables.get('transaction_id', 'N/A')}</p>
+                    </div>
+                    <p>Your account has been updated and your services will continue without interruption.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© 2025 SaaS Odoo Platform. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "invoice_paid":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #27ae60; text-align: center; margin-bottom: 30px;">✅ Invoice Paid</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Great news! Your invoice has been paid in full.</p>
+                    <div style="background-color: #eafaf1; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Payment Details</h3>
+                        <p><strong>Invoice Number:</strong> {variables.get('invoice_number', 'N/A')}</p>
+                        <p><strong>Amount Paid:</strong> ${variables.get('amount_paid', 'N/A')}</p>
+                        <p><strong>Payment Date:</strong> {variables.get('payment_date', 'N/A')}</p>
+                    </div>
+                    <p>Thank you for your payment. Your services will continue uninterrupted.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© 2025 SaaS Odoo Platform. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "backup_completed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #27ae60; text-align: center; margin-bottom: 30px;">✅ Backup Completed</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Great news! Your instance backup has been completed successfully.</p>
+                    <div style="background-color: #eafaf1; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Backup Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Backup Name:</strong> {variables.get('backup_name', 'N/A')}</p>
+                        <p><strong>Backup Size:</strong> {variables.get('backup_size', 'N/A')}</p>
+                        <p><strong>Created:</strong> {variables.get('backup_date', 'N/A')}</p>
+                    </div>
+                    <p>Your data has been safely backed up and can be restored at any time through your dashboard.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© 2025 SaaS Odoo Platform. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "backup_failed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e74c3c; text-align: center; margin-bottom: 30px;">❌ Backup Failed</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>We encountered an issue while creating a backup of your instance <strong>{variables.get('instance_name', 'N/A')}</strong>.</p>
+                    <div style="background-color: #fdedec; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #e74c3c;">
+                        <h3 style="margin-top: 0; color: #c0392b;">Error Details</h3>
+                        <p><strong>Error:</strong> {variables.get('error_message', 'Unknown error occurred')}</p>
+                    </div>
+                    <p>Please try again later or contact our support team if the problem persists.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('support_url', '#')}" style="background-color: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Contact Support</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© 2025 SaaS Odoo Platform. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "restore_completed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #27ae60; text-align: center; margin-bottom: 30px;">✅ Restore Completed</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Excellent! Your instance has been successfully restored from backup.</p>
+                    <div style="background-color: #eafaf1; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Restore Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Backup Used:</strong> {variables.get('backup_name', 'N/A')}</p>
+                        <p><strong>Restored:</strong> {variables.get('restore_date', 'N/A')}</p>
+                    </div>
+                    <p>Your instance is now running with the restored data and ready to use.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('instance_url', '#')}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Access Instance</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© 2025 SaaS Odoo Platform. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "restore_failed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e74c3c; text-align: center; margin-bottom: 30px;">❌ Restore Failed</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>We encountered an issue while restoring your instance <strong>{variables.get('instance_name', 'N/A')}</strong> from backup <strong>{variables.get('backup_name', 'N/A')}</strong>.</p>
+                    <div style="background-color: #fdedec; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #e74c3c;">
+                        <h3 style="margin-top: 0; color: #c0392b;">Error Details</h3>
+                        <p><strong>Error:</strong> {variables.get('error_message', 'Unknown error occurred')}</p>
+                    </div>
+                    <p>Your instance remains in its previous state. Please try again later or contact our support team for assistance.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('support_url', '#')}" style="background-color: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Contact Support</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© 2025 SaaS Odoo Platform. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
         elif template_name == "subscription_expired":
             return f"""
             <html>
@@ -370,6 +628,184 @@ class TemplateService:
                         <a href="{variables.get('payment_url', '#')}" style="background-color: #c0392b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Pay Now to Restore Service</a>
                     </div>
                     <p><strong>Important:</strong> Pay immediately to restore your services. Continued non-payment may result in account termination and data loss.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_provisioning_started":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #3498db; text-align: center; margin-bottom: 30px;">🚀 Instance Provisioning Started</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Great news! We've started provisioning your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong>.</p>
+                    <div style="background-color: #ebf3fd; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Provisioning Details</h3>
+                        <p><strong>Instance Name:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Estimated Time:</strong> {variables.get('estimated_time', '10-15 minutes')}</p>
+                        <p>We're setting up your database, configuring your Odoo instance, and preparing everything for you.</p>
+                    </div>
+                    <p>You'll receive another email once your instance is ready to use. You can also check the status in your dashboard.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_provisioning_failed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e74c3c; text-align: center; margin-bottom: 30px;">❌ Instance Provisioning Failed</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>We're sorry, but the provisioning of your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has failed.</p>
+                    <div style="background-color: #fdf2f2; padding: 20px; border-radius: 5px; border-left: 4px solid #e74c3c; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #e74c3c;">Error Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Error:</strong> {variables.get('error_reason', 'Unknown error occurred during provisioning')}</p>
+                    </div>
+                    <p>Our technical team has been automatically notified and will investigate this issue. You can try provisioning again or contact our support team for assistance.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('support_url', '#')}" style="background-color: #e74c3c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Contact Support</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_stopped":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #f39c12; text-align: center; margin-bottom: 30px;">⏸️ Instance Stopped</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has been stopped.</p>
+                    <div style="background-color: #fef9e7; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Instance Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Reason:</strong> {variables.get('reason', 'Instance stopped by user request')}</p>
+                    </div>
+                    <p>Your data is safely stored and you can restart your instance at any time from your dashboard.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_started":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #27ae60; text-align: center; margin-bottom: 30px;">▶️ Instance Started</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has been successfully started and is now accessible.</p>
+                    <div style="background-color: #eafaf1; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Instance Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Status:</strong> Running</p>
+                        <p><strong>URL:</strong> <a href="{variables.get('instance_url', '#')}">{variables.get('instance_url', 'N/A')}</a></p>
+                    </div>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('instance_url', '#')}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Access Your Instance</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_suspended":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e67e22; text-align: center; margin-bottom: 30px;">⚠️ Instance Suspended</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has been suspended.</p>
+                    <div style="background-color: #fdf6e3; padding: 20px; border-radius: 5px; border-left: 4px solid #e67e22; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #e67e22;">Suspension Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Reason:</strong> {variables.get('reason', 'Billing issue - payment required')}</p>
+                    </div>
+                    <p>To restore access to your instance, please resolve the billing issue by updating your payment method.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('payment_url', '#')}" style="background-color: #e67e22; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Update Payment Method</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_resumed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #27ae60; text-align: center; margin-bottom: 30px;">✅ Instance Restored</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Great news! Your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has been restored and is now accessible again.</p>
+                    <div style="background-color: #eafaf1; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Instance Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Status:</strong> Active and Running</p>
+                        <p><strong>URL:</strong> <a href="{variables.get('instance_url', '#')}">{variables.get('instance_url', 'N/A')}</a></p>
+                    </div>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('instance_url', '#')}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Access Your Instance</a>
+                    </div>
+                    <p>Thank you for resolving the billing issue. Your instance is now fully operational.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "instance_deleted":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #c0392b; text-align: center; margin-bottom: 30px;">🗑️ Instance Permanently Deleted</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has been permanently deleted as requested.</p>
+                    <div style="background-color: #fdedec; padding: 20px; border-radius: 5px; border-left: 4px solid #c0392b; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #c0392b;">Deletion Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Data Backup:</strong> {variables.get('backup_info', 'All data has been permanently removed')}</p>
+                    </div>
+                    <p><strong>Important:</strong> This action cannot be undone. All data, configurations, and customizations have been permanently removed.</p>
+                    <p>If you need to create a new instance, you can do so from your dashboard at any time.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "maintenance_notification":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #2980b9; text-align: center; margin-bottom: 30px;">🔧 Scheduled Maintenance</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>We have scheduled maintenance for your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong>.</p>
+                    <div style="background-color: #ebf3fd; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                        <h3 style="margin-top: 0;">Maintenance Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Start Time:</strong> {variables.get('maintenance_start', 'N/A')}</p>
+                        <p><strong>End Time:</strong> {variables.get('maintenance_end', 'N/A')}</p>
+                        <p><strong>Expected Downtime:</strong> {variables.get('expected_downtime', 'Minimal')}</p>
+                    </div>
+                    <p>During this maintenance window, your instance may be temporarily unavailable. We apologize for any inconvenience and will work to minimize downtime.</p>
+                    <p>No action is required from you. Your instance will be automatically restored after maintenance is complete.</p>
                     <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
                     <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
                 </div>
@@ -511,6 +947,111 @@ Please ensure payment is made by the due date to avoid any service interruption.
 
 © {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
             """
+        elif template_name == "payment_received":
+            return f"""
+Payment Received - ${variables.get('amount', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+Thank you! We have successfully received your payment.
+
+Payment Details:
+- Amount: ${variables.get('amount', 'N/A')}
+- Payment Method: {variables.get('payment_method', 'N/A')}
+- Transaction ID: {variables.get('transaction_id', 'N/A')}
+
+Your account has been updated and your services will continue without interruption.
+
+© 2025 SaaS Odoo Platform. All rights reserved.
+            """
+        elif template_name == "invoice_paid":
+            return f"""
+Invoice Paid - {variables.get('invoice_number', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+Great news! Your invoice has been paid in full.
+
+Payment Details:
+- Invoice Number: {variables.get('invoice_number', 'N/A')}
+- Amount Paid: ${variables.get('amount_paid', 'N/A')}
+- Payment Date: {variables.get('payment_date', 'N/A')}
+
+Thank you for your payment. Your services will continue uninterrupted.
+
+© 2025 SaaS Odoo Platform. All rights reserved.
+            """
+        elif template_name == "backup_completed":
+            return f"""
+Backup Completed - {variables.get('instance_name', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+Great news! Your instance backup has been completed successfully.
+
+Backup Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Backup Name: {variables.get('backup_name', 'N/A')}
+- Backup Size: {variables.get('backup_size', 'N/A')}
+- Created: {variables.get('backup_date', 'N/A')}
+
+Your data has been safely backed up and can be restored at any time through your dashboard.
+
+© 2025 SaaS Odoo Platform. All rights reserved.
+            """
+        elif template_name == "backup_failed":
+            return f"""
+Backup Failed - {variables.get('instance_name', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+We encountered an issue while creating a backup of your instance "{variables.get('instance_name', 'N/A')}".
+
+Error Details:
+- Error: {variables.get('error_message', 'Unknown error occurred')}
+
+Please try again later or contact our support team if the problem persists.
+
+Support: {variables.get('support_url', 'Contact support through your dashboard')}
+
+© 2025 SaaS Odoo Platform. All rights reserved.
+            """
+        elif template_name == "restore_completed":
+            return f"""
+Restore Completed - {variables.get('instance_name', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+Excellent! Your instance has been successfully restored from backup.
+
+Restore Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Backup Used: {variables.get('backup_name', 'N/A')}
+- Restored: {variables.get('restore_date', 'N/A')}
+
+Your instance is now running with the restored data and ready to use.
+
+Access your instance: {variables.get('instance_url', 'Check your dashboard for access details')}
+
+© 2025 SaaS Odoo Platform. All rights reserved.
+            """
+        elif template_name == "restore_failed":
+            return f"""
+Restore Failed - {variables.get('instance_name', 'N/A')}
+
+Hello {variables.get('first_name', 'there')},
+
+We encountered an issue while restoring your instance "{variables.get('instance_name', 'N/A')}" from backup "{variables.get('backup_name', 'N/A')}".
+
+Error Details:
+- Error: {variables.get('error_message', 'Unknown error occurred')}
+
+Your instance remains in its previous state. Please try again later or contact our support team for assistance.
+
+Support: {variables.get('support_url', 'Contact support through your dashboard')}
+
+© 2025 SaaS Odoo Platform. All rights reserved.
+            """
         elif template_name == "subscription_expired":
             return f"""
 Subscription Expired
@@ -544,6 +1085,150 @@ Payment Details:
 Pay Now to Restore Service: {variables.get('payment_url', '#')}
 
 IMPORTANT: Pay immediately to restore your services. Continued non-payment may result in account termination and data loss.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_provisioning_started":
+            return f"""
+Instance Provisioning Started
+
+Hello {variables.get('first_name', 'there')},
+
+Great news! We've started provisioning your Odoo instance "{variables.get('instance_name', 'your instance')}".
+
+Provisioning Details:
+- Instance Name: {variables.get('instance_name', 'N/A')}
+- Estimated Time: {variables.get('estimated_time', '10-15 minutes')}
+
+We're setting up your database, configuring your Odoo instance, and preparing everything for you.
+
+You'll receive another email once your instance is ready to use. You can also check the status in your dashboard.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_provisioning_failed":
+            return f"""
+Instance Provisioning Failed
+
+Hello {variables.get('first_name', 'there')},
+
+We're sorry, but the provisioning of your Odoo instance "{variables.get('instance_name', 'your instance')}" has failed.
+
+Error Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Error: {variables.get('error_reason', 'Unknown error occurred during provisioning')}
+
+Our technical team has been automatically notified and will investigate this issue. You can try provisioning again or contact our support team for assistance.
+
+Contact Support: {variables.get('support_url', '#')}
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_stopped":
+            return f"""
+Instance Stopped
+
+Hello {variables.get('first_name', 'there')},
+
+Your Odoo instance "{variables.get('instance_name', 'your instance')}" has been stopped.
+
+Instance Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Reason: {variables.get('reason', 'Instance stopped by user request')}
+
+Your data is safely stored and you can restart your instance at any time from your dashboard.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_started":
+            return f"""
+Instance Started
+
+Hello {variables.get('first_name', 'there')},
+
+Your Odoo instance "{variables.get('instance_name', 'your instance')}" has been successfully started and is now accessible.
+
+Instance Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Status: Running
+- URL: {variables.get('instance_url', 'N/A')}
+
+Access your instance: {variables.get('instance_url', '#')}
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_suspended":
+            return f"""
+Instance Suspended
+
+Hello {variables.get('first_name', 'there')},
+
+Your Odoo instance "{variables.get('instance_name', 'your instance')}" has been suspended.
+
+Suspension Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Reason: {variables.get('reason', 'Billing issue - payment required')}
+
+To restore access to your instance, please resolve the billing issue by updating your payment method.
+
+Update Payment Method: {variables.get('payment_url', '#')}
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_resumed":
+            return f"""
+Instance Restored
+
+Hello {variables.get('first_name', 'there')},
+
+Great news! Your Odoo instance "{variables.get('instance_name', 'your instance')}" has been restored and is now accessible again.
+
+Instance Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Status: Active and Running
+- URL: {variables.get('instance_url', 'N/A')}
+
+Access your instance: {variables.get('instance_url', '#')}
+
+Thank you for resolving the billing issue. Your instance is now fully operational.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_deleted":
+            return f"""
+Instance Permanently Deleted
+
+Hello {variables.get('first_name', 'there')},
+
+Your Odoo instance "{variables.get('instance_name', 'your instance')}" has been permanently deleted as requested.
+
+Deletion Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Data Backup: {variables.get('backup_info', 'All data has been permanently removed')}
+
+IMPORTANT: This action cannot be undone. All data, configurations, and customizations have been permanently removed.
+
+If you need to create a new instance, you can do so from your dashboard at any time.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "maintenance_notification":
+            return f"""
+Scheduled Maintenance
+
+Hello {variables.get('first_name', 'there')},
+
+We have scheduled maintenance for your Odoo instance "{variables.get('instance_name', 'your instance')}".
+
+Maintenance Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Start Time: {variables.get('maintenance_start', 'N/A')}
+- End Time: {variables.get('maintenance_end', 'N/A')}
+- Expected Downtime: {variables.get('expected_downtime', 'Minimal')}
+
+During this maintenance window, your instance may be temporarily unavailable. We apologize for any inconvenience and will work to minimize downtime.
+
+No action is required from you. Your instance will be automatically restored after maintenance is complete.
 
 © {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
             """

@@ -295,4 +295,41 @@ async def get_customer_billing(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve customer billing information"
+        )
+
+@router.get("/internal/{customer_id}")
+async def get_customer_for_internal_use(
+    customer_id: str,
+    db: DatabaseDep
+):
+    """
+    Internal API endpoint for other services to get customer info
+    
+    This endpoint is for internal service-to-service communication
+    and should not be exposed publicly
+    """
+    try:
+        customer = await UserService.get_customer_by_id(customer_id)
+        
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer not found"
+            )
+        
+        return {
+            "id": customer.get('id'),
+            "email": customer.get('email'),
+            "first_name": customer.get('first_name'),
+            "last_name": customer.get('last_name'),
+            "status": customer.get('status')
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get customer for internal use error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve customer information"
         ) 

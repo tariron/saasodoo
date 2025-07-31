@@ -12,6 +12,7 @@ from uuid import UUID
 
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
+from app.utils.notification_client import get_notification_client
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -82,6 +83,10 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
     
     logger.info("Starting start workflow", instance_name=instance['name'])
     
+    # Get user information for email notifications
+    user_info = await _get_user_info(instance['customer_id'])
+    logger.info("User info for start workflow", customer_id=instance['customer_id'], user_info=user_info)
+    
     try:
         # Step 1: Update status to STARTING
         await _update_instance_status(instance_id, InstanceStatus.STARTING)
@@ -99,6 +104,29 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
         
         # Step 5: Mark as RUNNING
         await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        
+        # Step 6: Send instance started email
+        logger.info("Attempting to send instance started email", user_info=user_info)
+        if user_info:
+            try:
+                logger.info("Getting notification client")
+                client = get_notification_client()
+                logger.info("Sending template email", email=user_info['email'], template_name="instance_started")
+                await client.send_template_email(
+                    to_emails=[user_info['email']],
+                    template_name="instance_started",
+                    template_variables={
+                        "first_name": user_info['first_name'],
+                        "instance_name": instance['name'],
+                        "instance_url": container_result['external_url']
+                    },
+                    tags=["instance", "lifecycle", "started"]
+                )
+                logger.info("Instance started email sent successfully", email=user_info['email'])
+            except Exception as e:
+                logger.error("Failed to send instance started email", error=str(e), exc_info=True)
+        else:
+            logger.warning("No user info available, skipping email notification")
         
         return {
             "status": "success",
@@ -122,6 +150,10 @@ async def _stop_instance_workflow(instance_id: str) -> Dict[str, Any]:
     
     logger.info("Starting stop workflow", instance_name=instance['name'])
     
+    # Get user information for email notifications
+    user_info = await _get_user_info(instance['customer_id'])
+    logger.info("User info for stop workflow", customer_id=instance['customer_id'], user_info=user_info)
+    
     try:
         # Step 1: Update status to STOPPING
         await _update_instance_status(instance_id, InstanceStatus.STOPPING)
@@ -132,6 +164,29 @@ async def _stop_instance_workflow(instance_id: str) -> Dict[str, Any]:
         
         # Step 3: Mark as STOPPED
         await _update_instance_status(instance_id, InstanceStatus.STOPPED)
+        
+        # Step 4: Send instance stopped email
+        logger.info("Attempting to send instance stopped email", user_info=user_info)
+        if user_info:
+            try:
+                logger.info("Getting notification client")
+                client = get_notification_client()
+                logger.info("Sending template email", email=user_info['email'], template_name="instance_stopped")
+                await client.send_template_email(
+                    to_emails=[user_info['email']],
+                    template_name="instance_stopped",
+                    template_variables={
+                        "first_name": user_info['first_name'],
+                        "instance_name": instance['name'],
+                        "reason": "Instance stopped by user request"
+                    },
+                    tags=["instance", "lifecycle", "stopped"]
+                )
+                logger.info("Instance stopped email sent successfully", email=user_info['email'])
+            except Exception as e:
+                logger.error("Failed to send instance stopped email", error=str(e), exc_info=True)
+        else:
+            logger.warning("No user info available, skipping email notification")
         
         return {
             "status": "success",
@@ -517,3 +572,30 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
         logger.info("Instance network info updated", instance_id=instance_id)
     finally:
         await conn.close()
+
+
+async def _get_user_info(customer_id: str) -> Dict[str, Any]:
+    """Get user information from user-service for email notifications"""
+    try:
+        import httpx
+        
+        # Use the user-service API to get customer details
+        user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{user_service_url}/users/internal/{customer_id}")
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                return {
+                    'email': user_data.get('email', ''),
+                    'first_name': user_data.get('first_name', 'there')
+                }
+            else:
+                logger.warning("Failed to get user info from user-service", 
+                              customer_id=customer_id, status_code=response.status_code)
+                return None
+                
+    except Exception as e:
+        logger.error("Error getting user info", customer_id=customer_id, error=str(e))
+        return None
