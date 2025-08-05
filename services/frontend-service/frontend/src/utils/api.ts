@@ -307,6 +307,12 @@ export const authAPI = {
   
   register: (data: RegisterRequest): Promise<AxiosResponse<RegisterResponse>> => 
     api.post('/user/auth/register', data),
+  
+  verifyEmail: (token: string): Promise<AxiosResponse<{success: boolean, message: string, customer?: any}>> => 
+    api.post('/user/auth/verify-email', { token }),
+  
+  resendVerification: (email: string): Promise<AxiosResponse<{success: boolean, message: string}>> => 
+    api.post('/user/auth/resend-verification', { email }),
 };
 
 

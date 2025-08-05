@@ -71,6 +71,9 @@ class AuthService:
             # Create customer in local database
             customer_id = await CustomerDatabase.create_customer(db_customer_data)
             
+            # Generate email verification token
+            verification_token = await AuthService.generate_verification_token(customer_id)
+            
             # Try to create customer in Supabase for enhanced features
             supabase_result = None
             if supabase_client.is_available():
@@ -134,7 +137,8 @@ class AuthService:
                 },
                 'supabase_user': supabase_result,
                 'billing_account': billing_result,
-                'billing_account_id': billing_account_id
+                'billing_account_id': billing_account_id,
+                'verification_token': verification_token
             }
             
         except Exception as e:
@@ -178,6 +182,14 @@ class AuthService:
                 return {
                     'success': False,
                     'error': 'Account is deactivated'
+                }
+            
+            # Check if customer email is verified
+            if not customer['is_verified']:
+                return {
+                    'success': False,
+                    'error': 'Email verification required. Please check your email and verify your account, or request a new verification email.',
+                    'verification_required': True
                 }
             
             # Try Supabase authentication first
@@ -393,16 +405,42 @@ class AuthService:
             dict: Verification result
         """
         try:
-            # For now, just mark email as verified
-            # In production, you would validate the token against stored verification tokens
+            # Get and validate verification token
+            token_data = await CustomerDatabase.get_verification_token(verification_token)
+            if not token_data:
+                return {
+                    'success': False,
+                    'error': 'Invalid or expired verification token'
+                }
             
-            # This is a simplified implementation
-            # You would need to implement proper token validation
+            customer_id = str(token_data['user_id'])
+            
+            # Mark email as verified in users table
+            verification_success = await CustomerDatabase.verify_customer_email(customer_id)
+            if not verification_success:
+                return {
+                    'success': False,
+                    'error': 'Failed to verify email'
+                }
+            
+            # Mark verification token as used
+            await CustomerDatabase.mark_verification_token_used(verification_token)
+            
+            # Get updated customer data
+            customer = await CustomerDatabase.get_customer_by_id(customer_id)
+            
+            logger.info(f"Email verified successfully for customer: {customer_id}")
             
             return {
                 'success': True,
-                'customer_id': 'placeholder',
-                'customer': 'placeholder'
+                'customer_id': customer_id,
+                'customer': {
+                    'id': customer['id'],
+                    'email': customer['email'],
+                    'first_name': customer['first_name'],
+                    'last_name': customer['last_name'],
+                    'is_verified': customer['is_verified']
+                }
             }
             
         except Exception as e:
@@ -489,4 +527,52 @@ class AuthService:
             logger.info(f"✅ Password reset email sent to: {email} - ID: {result.get('email_id')}")
         except Exception as e:
             logger.error(f"❌ Failed to send password reset email to {email}: {e}")
-            # Don't raise the exception to avoid blocking password reset process 
+            # Don't raise the exception to avoid blocking password reset process
+    
+    @staticmethod
+    async def generate_verification_token(customer_id: str) -> str:
+        """
+        Generate email verification token for customer
+        
+        Args:
+            customer_id: Customer ID
+            
+        Returns:
+            str: Verification token
+        """
+        try:
+            # Generate secure verification token
+            verification_token = secrets.token_urlsafe(32)
+            
+            # Set expiration time (24 hours from now)
+            expires_at = datetime.utcnow() + timedelta(hours=24)
+            
+            # Store token in database
+            await CustomerDatabase.create_verification_token(
+                customer_id, verification_token, expires_at
+            )
+            
+            logger.info(f"Verification token generated for customer: {customer_id}")
+            return verification_token
+            
+        except Exception as e:
+            logger.error(f"Failed to generate verification token: {e}")
+            raise
+    
+    @staticmethod
+    async def send_verification_email(email: str, first_name: str, verification_token: str):
+        """
+        Send email verification email
+        
+        Args:
+            email: Customer email
+            first_name: Customer first name
+            verification_token: Email verification token
+        """
+        try:
+            from app.utils.notification_client import send_verification_email
+            result = await send_verification_email(email, first_name, verification_token)
+            logger.info(f"✅ Verification email sent to: {email} ({first_name}) - ID: {result.get('email_id')}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send verification email to {email}: {e}")
+            # Don't raise the exception to avoid blocking user registration 

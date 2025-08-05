@@ -18,7 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from shared.schemas.user import (
     UserCreateSchema, UserLoginSchema, UserPasswordResetSchema,
     UserPasswordChangeSchema, UserEmailVerificationSchema, UserResponseSchema,
-    UserProfileSchema
+    UserProfileSchema, UserResendVerificationSchema
 )
 
 from app.services.auth_service import AuthService
@@ -68,6 +68,14 @@ async def register_customer(
             AuthService.send_welcome_email,
             customer_result['customer']['email'],
             customer_result['customer']['first_name']
+        )
+        
+        # Send verification email (background task)
+        background_tasks.add_task(
+            AuthService.send_verification_email,
+            customer_result['customer']['email'],
+            customer_result['customer']['first_name'],
+            customer_result['verification_token']
         )
         
         logger.info(f"Customer registered successfully: {customer_data.email}")
@@ -300,6 +308,59 @@ async def verify_email(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email verification failed"
+        )
+
+@router.post("/resend-verification", response_model=dict)
+async def resend_verification_email(
+    verification_data: UserResendVerificationSchema,
+    background_tasks: BackgroundTasks,
+    db: DatabaseDep
+):
+    """
+    Resend email verification email
+    
+    Generates a new verification token and sends verification email
+    """
+    try:
+        # Check if customer exists
+        customer = await UserService.get_customer_by_email(verification_data.email)
+        if not customer:
+            # Don't reveal if email exists for security
+            return {
+                "success": True,
+                "message": "If the email exists and is unverified, a verification email has been sent"
+            }
+        
+        # Check if customer is already verified
+        if customer['is_verified']:
+            return {
+                "success": True,
+                "message": "Email is already verified"
+            }
+        
+        # Generate new verification token
+        verification_token = await AuthService.generate_verification_token(customer['id'])
+        
+        # Send verification email (background task)
+        background_tasks.add_task(
+            AuthService.send_verification_email,
+            customer['email'],
+            customer['first_name'],
+            verification_token
+        )
+        
+        logger.info(f"Verification email resent for: {verification_data.email}")
+        
+        return {
+            "success": True,
+            "message": "If the email exists and is unverified, a verification email has been sent"
+        }
+        
+    except Exception as e:
+        logger.error(f"Resend verification email error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resend verification email"
         )
 
 @router.post("/refresh-token", response_model=dict)

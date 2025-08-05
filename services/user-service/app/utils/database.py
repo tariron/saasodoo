@@ -318,4 +318,95 @@ class CustomerDatabase:
         """
         
         result = await db_manager.execute_command(query, session_token)
-        return result == "DELETE 1" 
+        return result == "DELETE 1"
+    
+    @staticmethod
+    async def create_verification_token(customer_id: str, verification_token: str, expires_at) -> str:
+        """
+        Create email verification token
+        
+        Args:
+            customer_id: Customer ID
+            verification_token: Verification token
+            expires_at: Token expiration time
+            
+        Returns:
+            str: Token ID
+        """
+        query = """
+        INSERT INTO email_verification_tokens (user_id, verification_token, expires_at, created_at)
+        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+        RETURNING id
+        """
+        
+        token_id = await db_manager.execute_value(
+            query, customer_id, verification_token, expires_at
+        )
+        
+        return str(token_id)
+    
+    @staticmethod
+    async def get_verification_token(verification_token: str) -> Optional[dict]:
+        """
+        Get verification token data
+        
+        Args:
+            verification_token: Verification token
+            
+        Returns:
+            dict: Token data or None if not found or expired
+        """
+        query = """
+        SELECT evt.id, evt.user_id, evt.verification_token, evt.expires_at, 
+               evt.used, evt.created_at, u.email, u.first_name, u.last_name
+        FROM email_verification_tokens evt
+        JOIN users u ON evt.user_id = u.id
+        WHERE evt.verification_token = $1 
+        AND evt.expires_at > CURRENT_TIMESTAMP 
+        AND evt.used = false
+        """
+        
+        result = await db_manager.execute_single(query, verification_token)
+        
+        if result:
+            return dict(result)
+        return None
+    
+    @staticmethod
+    async def mark_verification_token_used(verification_token: str) -> bool:
+        """
+        Mark verification token as used
+        
+        Args:
+            verification_token: Verification token
+            
+        Returns:
+            bool: Success status
+        """
+        query = """
+        UPDATE email_verification_tokens 
+        SET used = true
+        WHERE verification_token = $1 AND used = false
+        """
+        
+        result = await db_manager.execute_command(query, verification_token)
+        return result == "UPDATE 1"
+    
+    @staticmethod
+    async def cleanup_expired_verification_tokens() -> int:
+        """
+        Clean up expired verification tokens
+        
+        Returns:
+            int: Number of tokens cleaned up
+        """
+        query = """
+        DELETE FROM email_verification_tokens 
+        WHERE expires_at <= CURRENT_TIMESTAMP OR used = true
+        """
+        
+        result = await db_manager.execute_command(query)
+        # Extract number from result like "DELETE 5"
+        if result and result.startswith("DELETE "):
+            return int(result.split(" ")[1])
+        return 0 

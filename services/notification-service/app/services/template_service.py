@@ -44,6 +44,15 @@ class TemplateService:
                 "variables": ["first_name", "reset_url", "expires_in"],
                 "created_at": datetime.utcnow()
             },
+            "email_verification": {
+                "name": "email_verification",
+                "subject": "Verify your email address",
+                "description": "Email verification for new user accounts",
+                "from_email": "noreply@saasodoo.local",
+                "from_name": "SaaS Odoo Platform",
+                "variables": ["first_name", "verification_url", "expires_in"],
+                "created_at": datetime.utcnow()
+            },
             "instance_ready": {
                 "name": "instance_ready",
                 "subject": "Your Odoo instance is ready!",
@@ -342,6 +351,27 @@ class TemplateService:
                     <p>This link will expire in {variables.get('expires_in', '24 hours')}.</p>
                     <p>If you didn't request this password reset, you can safely ignore this email.</p>
                     <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
+        elif template_name == "email_verification":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #2c3e50; text-align: center; margin-bottom: 30px;">Verify Your Email Address</h1>
+                    <p>Hello {variables.get('first_name', 'there')},</p>
+                    <p>Thank you for registering with {variables.get('platform_name', 'SaaS Odoo Platform')}! To complete your account setup, please verify your email address.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('verification_url', '#')}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Verify Email Address</a>
+                    </div>
+                    <p>This verification link will expire in {variables.get('expires_in', '24 hours')}.</p>
+                    <p>If you didn't create an account with us, you can safely ignore this email.</p>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">If you're having trouble clicking the button, copy and paste this URL into your browser:<br>
+                    <a href="{variables.get('verification_url', '#')}" style="color: #3498db;">{variables.get('verification_url', '#')}</a></p>
                     <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
                 </div>
             </body>
@@ -854,6 +884,22 @@ We received a request to reset your password. Use the link below to set a new pa
 This link will expire in {variables.get('expires_in', '24 hours')}.
 
 If you didn't request this password reset, you can safely ignore this email.
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "email_verification":
+            return f"""
+Verify Your Email Address
+
+Hello {variables.get('first_name', 'there')},
+
+Thank you for registering with {variables.get('platform_name', 'SaaS Odoo Platform')}! To complete your account setup, please verify your email address.
+
+Click here to verify your email: {variables.get('verification_url', '#')}
+
+This verification link will expire in {variables.get('expires_in', '24 hours')}.
+
+If you didn't create an account with us, you can safely ignore this email.
 
 © {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
             """

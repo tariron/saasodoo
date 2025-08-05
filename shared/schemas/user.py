@@ -253,6 +253,16 @@ class UserEmailVerificationSchema(BaseModel):
     token: str = Field(..., min_length=1)
 
 
+class UserResendVerificationSchema(BaseModel):
+    """Schema for resend email verification"""
+    email: EmailStr
+
+    @validator('email')
+    def validate_email(cls, v):
+        """Validate email format"""
+        return v.lower()
+
+
 class UserProfileSchema(BaseModel):
     """Schema for user profile information"""
     id: str

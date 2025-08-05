@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail';
 import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
 import CreateInstance from './pages/CreateInstance';
@@ -36,6 +37,11 @@ function App() {
                 <Navigate to="/dashboard" replace /> : 
                 <Register />
             } 
+          />
+          
+          <Route 
+            path="/verify-email" 
+            element={<VerifyEmail />} 
           />
           
           {/* Protected routes */}

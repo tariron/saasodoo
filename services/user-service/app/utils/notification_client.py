@@ -195,6 +195,32 @@ class NotificationClient:
             tags=["password_reset", "security"]
         )
     
+    async def send_verification_email(self, email: str, first_name: str, verification_token: str) -> Dict[str, Any]:
+        """
+        Send email verification email
+        
+        Args:
+            email: User's email address
+            first_name: User's first name
+            verification_token: Email verification token
+            
+        Returns:
+            Response from notification service
+        """
+        frontend_url = os.getenv('FRONTEND_URL', 'http://app.saasodoo.local')
+        verification_url = f"{frontend_url}/verify-email?token={verification_token}"
+        
+        return await self.send_template_email(
+            to_emails=[email],
+            template_name="email_verification",
+            template_variables={
+                "first_name": first_name,
+                "verification_url": verification_url,
+                "expires_in": "24 hours"
+            },
+            tags=["email_verification", "registration"]
+        )
+    
     
     async def test_connection(self) -> Dict[str, Any]:
         """
@@ -239,3 +265,8 @@ async def send_password_reset_email(email: str, first_name: str, reset_token: st
     """Send password reset email (convenience function)"""
     client = get_notification_client()
     return await client.send_password_reset_email(email, first_name, reset_token)
+
+async def send_verification_email(email: str, first_name: str, verification_token: str) -> Dict[str, Any]:
+    """Send email verification email (convenience function)"""
+    client = get_notification_client()
+    return await client.send_verification_email(email, first_name, verification_token)
