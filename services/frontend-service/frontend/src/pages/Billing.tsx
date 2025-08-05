@@ -521,45 +521,6 @@ const Billing: React.FC = () => {
         </div>
       </div>
 
-      {/* Orphaned Subscriptions */}
-      {billingData.active_subscriptions && billingData.active_subscriptions.some((sub: any) => !sub.instance_id) && (
-        <div className="bg-white shadow rounded-lg mb-8">
-          <div className="px-4 py-5 sm:p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Other Subscriptions</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Subscriptions not linked to specific instances
-            </p>
-            <div className="space-y-3">
-              {billingData.active_subscriptions
-                .filter((sub: any) => !sub.instance_id)
-                .map((subscription: any) => (
-                  <div key={subscription.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium text-gray-900">{subscription.plan_name}</h3>
-                        <p className="text-sm text-gray-600">
-                          {subscription.billing_period} • {subscription.state}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">
-                          Next: {subscription.charged_through_date ? formatDate(subscription.charged_through_date) : 'N/A'}
-                        </p>
-                        <a
-                          href="/billing/subscription"
-                          className="text-blue-600 hover:text-blue-800 text-xs"
-                        >
-                          Manage →
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Payment Methods */}
       <div className="bg-white shadow rounded-lg p-6 mt-8">
         <div className="flex items-center justify-between mb-4">
