@@ -228,7 +228,7 @@ class InstanceServiceClient:
         payload = {
             "name": instance_data["name"],
             "description": instance_data.get("description", "Instance created via billing webhook"),
-            "odoo_version": instance_data.get("odoo_version", "17.0"),
+            "odoo_version": instance_data.get("odoo_version", "17"),
             "instance_type": instance_data.get("instance_type", "production"),
             "admin_email": instance_data["admin_email"],
             "admin_password": instance_data["admin_password"],

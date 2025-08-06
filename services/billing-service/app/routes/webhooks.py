@@ -649,10 +649,6 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             logger.warning(f"Could not get subscription details for {subscription_id}")
             return
         
-        # Only create instances for non-trial subscriptions
-        if 'trial' in plan_name.lower():
-            logger.info(f"Subscription {subscription_id} is trial - not creating instance on payment")
-            return
 
         # Check if this is a reactivation subscription
         subscription_metadata = await killbill.get_subscription_metadata(subscription_id)

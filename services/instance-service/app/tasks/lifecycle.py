@@ -96,7 +96,7 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
         logger.info("Container started", container_id=container_result['container_id'])
         
         # Step 3: Wait for Odoo to be accessible
-        await _wait_for_odoo_startup(container_result, timeout=120)
+        await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
         logger.info("Odoo startup confirmed after start")
         
         # Step 4: Update instance with current network info
@@ -217,7 +217,7 @@ async def _restart_instance_workflow(instance_id: str) -> Dict[str, Any]:
         logger.info("Container restarted", container_id=container_result['container_id'])
         
         # Step 3: Wait for Odoo to be accessible
-        await _wait_for_odoo_startup(container_result, timeout=120)
+        await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
         logger.info("Odoo startup confirmed after restart")
         
         # Step 4: Update instance with current network info
@@ -520,7 +520,7 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
         await conn.close()
 
 
-async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 120):
+async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 300): #120 seconds
     """Wait for Odoo to start up and be accessible"""
     import httpx
     

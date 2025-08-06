@@ -32,7 +32,7 @@ class CreateInstanceWithSubscriptionRequest(BaseModel):
     database_name: str = Field(..., min_length=1, max_length=50, description="Database name")
     
     # Instance settings
-    odoo_version: str = Field(default="17.0", description="Odoo version")
+    odoo_version: str = Field(default="17", description="Odoo version")
     instance_type: str = Field(default="production", description="Instance type (development, staging, production)")
     demo_data: bool = Field(default=False, description="Install demo data")
     

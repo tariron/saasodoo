@@ -42,9 +42,9 @@ class ProvisioningStatus(str, Enum):
 
 class OdooVersion(str, Enum):
     """Supported Odoo versions"""
-    V16 = "16.0"
-    V17 = "17.0"
-    V18 = "18.0"
+    V16 = "16"
+    V17 = "17"
+    V18 = "18"
     # Add more versions as needed
 
 

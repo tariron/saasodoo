@@ -13,7 +13,7 @@ const CreateInstance: React.FC = () => {
     customer_id: '',
     name: '',
     description: '',
-    odoo_version: '17.0',
+    odoo_version: '17',
     instance_type: 'development',
     cpu_limit: 1.0,
     memory_limit: '2G',
@@ -527,9 +527,10 @@ const CreateInstance: React.FC = () => {
                       onChange={(e) => handleInputChange('odoo_version', e.target.value)}
                       className="input-field"
                     >
-                      <option value="17.0">Odoo 17.0 (Latest)</option>
-                      <option value="16.0">Odoo 16.0</option>
-                      <option value="15.0">Odoo 15.0</option>
+                      <option value="18">Odoo 18 (Latest)</option>
+                      <option value="17">Odoo 17</option>
+                      <option value="16">Odoo 16</option>
+                      <option value="15">Odoo 15</option>
                     </select>
                   </div>
 

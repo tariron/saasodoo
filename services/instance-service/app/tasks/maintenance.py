@@ -124,7 +124,7 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         if was_running:
             logger.info("Restarting instance after backup")
             container_result = await _start_docker_container(instance)
-            await _wait_for_odoo_startup(container_result, timeout=120)
+            await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
             await _update_instance_network_info(instance_id, container_result)
             await _update_instance_status(instance_id, InstanceStatus.RUNNING)
         else:
@@ -236,7 +236,7 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         
         # Step 6: Start the container if instance was running before, otherwise leave it stopped
         if was_running:
-            await _wait_for_odoo_startup(container_result, timeout=120)
+            await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
             await _update_instance_network_info(instance_id, container_result)
             logger.info("Instance restarted after restore with optimized startup")
             target_status = InstanceStatus.RUNNING
@@ -1065,7 +1065,7 @@ def _get_container_ip(container) -> str:
     return 'localhost'  # Final fallback
 
 
-async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 120):
+async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 300): #120 seconds
     """Wait for Odoo to start up and be accessible"""
     import httpx
     
