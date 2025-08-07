@@ -9,6 +9,7 @@ const CreateInstance: React.FC = () => {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [phaseType, setPhaseType] = useState<string>('TRIAL');
+  const [trialEligible, setTrialEligible] = useState<boolean>(true);
   const [formData, setFormData] = useState<CreateInstanceRequest>({
     customer_id: '',
     name: '',
@@ -57,6 +58,19 @@ const CreateInstance: React.FC = () => {
           admin_email: profileResponse.data.email
         }));
 
+        // Check trial eligibility
+        try {
+          const subscriptionsResponse = await billingAPI.getSubscriptions(profileResponse.data.id);
+          const hasHadTrial = subscriptionsResponse.data.subscriptions.some(sub => 
+            sub.events?.some(event => event.phase?.includes('trial'))
+          );
+          setTrialEligible(!hasHadTrial);
+        } catch (subscriptionError) {
+          console.error('Failed to check trial eligibility:', subscriptionError);
+          // Default to allowing trials if subscription check fails
+          setTrialEligible(true);
+        }
+
         if (plansResponse.data.success) {
           setPlans(plansResponse.data.plans);
           // Auto-select first trial plan if available
@@ -77,6 +91,13 @@ const CreateInstance: React.FC = () => {
 
     fetchInitialData();
   }, []);
+
+  // Auto-set phase type when user is not trial eligible
+  useEffect(() => {
+    if (!trialEligible && selectedPlan && selectedPlan.trial_length > 0) {
+      setPhaseType('EVERGREEN');
+    }
+  }, [trialEligible, selectedPlan]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,7 +397,7 @@ const CreateInstance: React.FC = () => {
                 )}
                 
                 {/* Trial/Payment Choice */}
-                {selectedPlan && selectedPlan.trial_length > 0 && (
+                {selectedPlan && selectedPlan.trial_length > 0 && trialEligible && (
                   <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                     <h4 className="text-sm font-medium text-gray-900 mb-2">Billing Options</h4>
                     <div className="space-y-2">
@@ -411,6 +432,27 @@ const CreateInstance: React.FC = () => {
                             You'll be charged ${selectedPlan.price} immediately to activate your instance.
                           </span>
                         </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Trial Not Available Message */}
+                {selectedPlan && selectedPlan.trial_length > 0 && !trialEligible && (
+                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-yellow-800">
+                          Trial not available
+                        </h3>
+                        <div className="mt-2 text-sm text-yellow-700">
+                          <p>You have already used your free trial. You can still create an instance with immediate billing.</p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -729,11 +771,11 @@ const CreateInstance: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        {selectedPlan && selectedPlan.trial_length > 0 && phaseType === 'TRIAL' ? 'Creating Trial...' : 'Creating Subscription...'}
+                {selectedPlan && selectedPlan.trial_length > 0 && phaseType === 'TRIAL' && trialEligible ? 'Creating Trial...' : 'Creating Subscription...'}
                       </span>
                     ) : (
                       selectedPlan
-                        ? selectedPlan.trial_length > 0 && phaseType === 'TRIAL'
+                        ? selectedPlan.trial_length > 0 && phaseType === 'TRIAL' && trialEligible
                           ? `Start ${selectedPlan.trial_length}-Day Trial`
                           : `Create Instance - $${selectedPlan.price}/${selectedPlan.billing_period.toLowerCase()}`
                         : 'Select a Plan'

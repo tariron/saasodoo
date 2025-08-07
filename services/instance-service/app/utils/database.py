@@ -458,4 +458,4 @@ class InstanceDatabase:
                 logger.error("Failed to check subdomain availability", 
                            subdomain=subdomain, 
                            error=str(e))
-                raise 
+                raise

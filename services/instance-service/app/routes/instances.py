@@ -984,7 +984,57 @@ async def provision_instance_from_webhook(
         if not instance:
             raise HTTPException(status_code=404, detail="Instance not found")
         
-        # Validate that instance is in pending state
+        # Check if this is a trial expiration billing update
+        provisioning_trigger = provision_data.get("provisioning_trigger", "")
+        billing_status = provision_data.get("billing_status", "paid")
+        
+        if provisioning_trigger == "trial_expired_billing_update":
+            # For trial expiration, just update billing status without full provisioning
+            logger.info("Trial expiration billing update", 
+                       instance_id=str(instance_id),
+                       current_status=instance.provisioning_status)
+            
+            await db.update_instance_billing_status(
+                str(instance_id), 
+                BillingStatus(billing_status),
+                instance.provisioning_status  # Keep current provisioning status
+            )
+            
+            logger.info("Updated billing status for trial expiration", 
+                       instance_id=str(instance_id),
+                       billing_status=billing_status)
+            
+            return {
+                "status": "success",
+                "message": f"Billing status updated to {billing_status}",
+                "billing_status": billing_status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        if provisioning_trigger == "invoice_payment_success_billing_update":
+            # For payment success, just update billing status without full provisioning
+            logger.info("Payment success billing update", 
+                       instance_id=str(instance_id),
+                       current_status=instance.provisioning_status)
+            
+            await db.update_instance_billing_status(
+                str(instance_id), 
+                BillingStatus(billing_status),
+                instance.provisioning_status  # Keep current provisioning status
+            )
+            
+            logger.info("Updated billing status for payment success", 
+                       instance_id=str(instance_id),
+                       billing_status=billing_status)
+            
+            return {
+                "status": "success",
+                "message": f"Billing status updated to {billing_status}",
+                "billing_status": billing_status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # Validate that instance is in pending state for regular provisioning
         if instance.provisioning_status != ProvisioningStatus.PENDING:
             logger.warning("Instance not in pending state", 
                          instance_id=str(instance_id),
@@ -995,8 +1045,7 @@ async def provision_instance_from_webhook(
                 "timestamp": datetime.utcnow().isoformat()
             }
         
-        # Update billing and provisioning status
-        billing_status = provision_data.get("billing_status", "paid")
+        # Update billing and provisioning status  
         subscription_id = provision_data.get("subscription_id")
         
         # Update instance status to provisioning

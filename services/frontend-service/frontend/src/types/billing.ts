@@ -43,6 +43,14 @@ export interface Subscription {
   instance_billing_status?: 'trial' | 'paid' | 'payment_required';
   // Payment status
   awaiting_payment?: boolean;
+  // KillBill subscription events
+  events?: Array<{
+    eventId: string;
+    effectiveDate: string;
+    phase: string;
+    eventType: string;
+    [key: string]: any;
+  }>;
 }
 
 export interface PendingSubscription {

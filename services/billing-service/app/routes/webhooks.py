@@ -957,10 +957,11 @@ async def handle_subscription_phase_change(payload: Dict[str, Any]):
                 logger.info(f"Updating instance {instance_id} billing status from 'trial' to 'payment_required'")
                 
                 # Update instance billing status to indicate payment is expected
-                await instance_client.update_instance_billing_status(
+                await instance_client.provision_instance(
                     instance_id=instance_id,
+                    subscription_id=subscription_id,
                     billing_status="payment_required",
-                    reason="Trial expired - transitioning to paid plan"
+                    provisioning_trigger="trial_expired_billing_update"
                 )
                 
                 logger.info(f"Updated instance {instance_id} to payment_required status for customer {customer_external_key}")
