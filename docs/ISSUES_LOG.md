@@ -376,6 +376,27 @@ Current instance provisioning flow does not follow webhook-driven best practices
 
 ---
 
+## Issue #018 - Billing Status Update Function Needed
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: instance-service  
+**Date**: 2025-08-07  
+**Reporter**: Webhook Processing  
+
+### Description
+Need dedicated function to update instance billing status regardless of provisioning state. Currently requires special-case handling in provision endpoint.
+
+### Problem
+- Payment webhooks need to update billing status when instances aren't in PENDING state
+- Trial expiration webhooks need same functionality
+- Special cases added to provision endpoint create code duplication
+
+### Solution Needed
+Create utility function that can update billing status independently of provisioning logic.
+
+---
+
 ## Resolution Categories
 
 - 🚫 **Critical Security**: Issues that compromise system security
