@@ -437,6 +437,9 @@ services:
       INSTANCE_MEMORY_LIMIT: ${INSTANCE_MEMORY_LIMIT:-2G}
       INSTANCE_STORAGE_LIMIT: ${INSTANCE_STORAGE_LIMIT:-10G}
       
+      # Monitoring Configuration
+      AUTO_START_MONITORING: ${AUTO_START_MONITORING:-true}
+      
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}

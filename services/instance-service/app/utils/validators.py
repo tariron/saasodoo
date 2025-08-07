@@ -9,83 +9,43 @@ from app.models.instance import InstanceType
 def validate_instance_resources(instance_type: InstanceType, cpu_limit: float, 
                                memory_limit: str, storage_limit: str) -> List[str]:
     """
-    Validate instance resource allocation based on instance type
+    Validate instance resource format (no limits enforced)
     Returns list of validation errors
     """
     errors = []
     
-    # Define resource limits by instance type
-    type_limits = {
-        InstanceType.DEVELOPMENT: {
-            'max_cpu': 2.0,
-            'max_memory_gb': 4,
-            'max_storage_gb': 20
-        },
-        InstanceType.STAGING: {
-            'max_cpu': 4.0,
-            'max_memory_gb': 8,
-            'max_storage_gb': 50
-        },
-        InstanceType.PRODUCTION: {
-            'max_cpu': 8.0,
-            'max_memory_gb': 16,
-            'max_storage_gb': 100
-        }
-    }
-    
-    limits = type_limits.get(instance_type)
-    if not limits:
+    # Validate instance type exists
+    if instance_type not in [InstanceType.DEVELOPMENT, InstanceType.STAGING, InstanceType.PRODUCTION]:
         errors.append(f"Invalid instance type: {instance_type}")
         return errors
     
-    # Validate CPU
-    if cpu_limit > limits['max_cpu']:
-        errors.append(
-            f"Instance type {instance_type} allows maximum {limits['max_cpu']} CPU cores, "
-            f"but {cpu_limit} requested"
-        )
-    
-    # Validate memory
+    # Validate memory format only
     try:
         memory_value = int(memory_limit[:-1])
         memory_unit = memory_limit[-1].upper()
         
-        if memory_unit == 'G':
-            memory_gb = memory_value
-        elif memory_unit == 'M':
-            memory_gb = memory_value / 1024
-        else:
+        if memory_unit not in ['G', 'M']:
             errors.append(f"Invalid memory format: {memory_limit}")
-            return errors
-        
-        if memory_gb > limits['max_memory_gb']:
-            errors.append(
-                f"Instance type {instance_type} allows maximum {limits['max_memory_gb']}GB memory, "
-                f"but {memory_gb}GB requested"
-            )
+        elif memory_value <= 0:
+            errors.append(f"Memory value must be positive: {memory_limit}")
     except (ValueError, IndexError):
         errors.append(f"Invalid memory format: {memory_limit}")
     
-    # Validate storage
+    # Validate storage format only
     try:
         storage_value = int(storage_limit[:-1])
         storage_unit = storage_limit[-1].upper()
         
-        if storage_unit == 'G':
-            storage_gb = storage_value
-        elif storage_unit == 'M':
-            storage_gb = storage_value / 1024
-        else:
+        if storage_unit not in ['G', 'M']:
             errors.append(f"Invalid storage format: {storage_limit}")
-            return errors
-        
-        if storage_gb > limits['max_storage_gb']:
-            errors.append(
-                f"Instance type {instance_type} allows maximum {limits['max_storage_gb']}GB storage, "
-                f"but {storage_gb}GB requested"
-            )
+        elif storage_value <= 0:
+            errors.append(f"Storage value must be positive: {storage_limit}")
     except (ValueError, IndexError):
         errors.append(f"Invalid storage format: {storage_limit}")
+    
+    # Validate CPU is positive
+    if cpu_limit <= 0:
+        errors.append(f"CPU limit must be positive: {cpu_limit}")
     
     return errors
 

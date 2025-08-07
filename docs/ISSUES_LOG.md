@@ -1198,3 +1198,86 @@ Original issue description was incorrect or the problem has been resolved in pre
 ### Files Investigated
 - `services/frontend-service/frontend/src/pages/Register.tsx` - Password validation logic confirmed correct
 - `shared/schemas/user.py` - Backend password validation requirements confirmed identical
+
+---
+
+## Issue #016 - Status Architecture Conflict
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: instance-service  
+**Date**: 2025-08-06  
+**Reporter**: Monitoring System Analysis  
+
+### Description
+The `status` field serves dual purposes causing conflicts between Docker container states and operational states. Monitoring system overwrites maintenance status during backup operations.
+
+### Problem
+- `InstanceStatus` enum mixes Docker states (`running`, `stopped`) with operational states (`maintenance`, `updating`)
+- monitoring.py updates status based on Docker events, overriding business logic
+- Users see "stopped" instead of "under maintenance" during backups
+
+### Impact
+- Poor user experience during maintenance operations
+- Status inconsistency between business logic and infrastructure monitoring
+- Cannot distinguish between intentional stops and operational maintenance
+
+### Root Cause
+Single status field handling both container state and business operations without conflict resolution.
+
+### Solution
+Separate into `container_status` (Docker states) and `status` (operational states) with monitoring.py updating only container_status.
+
+### Files Affected
+- `services/instance-service/app/models/instance.py` - Status enum definitions
+- `services/instance-service/app/tasks/monitoring.py` - Status update logic  
+- Database schema - Add container_status field
+
+---
+
+## Issue #017 - Missing Instance Reprovisioning Module
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: instance-service  
+**Date**: 2025-08-06  
+**Reporter**: Provisioning Failure Resolution  
+
+### Description
+No automated reprovisioning functionality exists for handling failed instance provisioning. Manual database cleanup and status reset required when instances fail during deployment.
+
+### Problem
+- Failed instances stuck in error state with no recovery mechanism
+- Manual SQL commands needed to reset status and clean artifacts
+- Database conflicts prevent retry attempts (user/database already exists)
+- No user-facing retry functionality in frontend
+
+### Current Manual Process
+1. Identify failed instance and root cause
+2. Reset instance status in database manually
+3. Clean up database artifacts (DROP DATABASE, DROP USER)
+4. Trigger reprovisioning via existing webhook endpoint
+5. Monitor progress manually
+
+### Proposed Solution
+Create dedicated reprovisioning module with automated cleanup and retry functionality.
+
+### Required Features
+- Automated detection of failed provisioning states
+- Smart cleanup of partial provisioning artifacts
+- Preserve billing relationships and customer data
+- User-facing "Retry Provisioning" button in frontend
+- API endpoint for manual reprovisioning triggers
+- Detailed logging and progress tracking
+
+### Files to Create/Modify
+- `services/instance-service/app/services/reprovisioning.py` - Core reprovisioning logic
+- `services/instance-service/app/routes/instances.py` - Add retry endpoint
+- Frontend instance management page - Add retry button
+- Database cleanup utilities for safe artifact removal
+
+### Impact
+- Improved user experience for provisioning failures
+- Reduced manual intervention requirements
+- Better error recovery capabilities
+- Preservation of billing continuity during retries

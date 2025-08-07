@@ -283,7 +283,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             name=container_name,
             environment=environment,
             mem_limit=mem_limit,
-            cpu_count=int(cpu_limit),
+            nano_cpus=int(cpu_limit * 1_000_000_000),  # Convert cores to nanocpus (1 core = 1 billion nanocpu)
             detach=True,
             restart_policy={"Name": "unless-stopped"},
             volumes={
