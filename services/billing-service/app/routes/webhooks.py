@@ -631,154 +631,91 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
         if float(invoice_details.get('balance', 1)) != 0.0:
             logger.info(f"Invoice {invoice_id} is not fully paid (balance: {invoice_details.get('balance')}). Skipping instance creation.")
             return
-            
-        # Extract subscription ID from the first invoice item
-        first_item = invoice_details['items'][0]
-        subscription_id = first_item.get('subscriptionId')
-        plan_name = first_item.get('planName', 'unknown')
-        
-        if not subscription_id:
-            logger.warning(f"No subscription ID found in invoice {invoice_id}")
-            return
-            
-        logger.info(f"Processing invoice for subscription {subscription_id} (plan: {plan_name})")
-        
-        # Get subscription details
-        subscription_details = await killbill.get_subscription_by_id(subscription_id)
-        if not subscription_details:
-            logger.warning(f"Could not get subscription details for {subscription_id}")
-            return
-        
 
-        # Check if this is a reactivation subscription
-        subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
-        target_instance_id = subscription_metadata.get("target_instance_id")
-        is_reactivation = subscription_metadata.get("reactivation") == "true"
-        
-        # Handle reactivation payment
-        if is_reactivation and target_instance_id:
-            logger.info(f"Payment received for reactivation subscription {subscription_id}, restarting instance {target_instance_id}")
-            
-            try:
-                result = await instance_client.restart_instance_with_new_subscription(
-                    instance_id=target_instance_id,
-                    subscription_id=subscription_id,
-                    billing_status="paid"
-                )
-                
-                if result.get("status") == "success":
-                    logger.info(f"Successfully reactivated instance {target_instance_id} after payment for subscription {subscription_id}")
-                else:
-                    logger.error(f"Failed to reactivate instance {target_instance_id}: {result}")
-                    
-            except Exception as e:
-                logger.error(f"Error reactivating instance {target_instance_id}: {e}")
-                
-            # Send invoice paid email for reactivation
-            try:
-                from ..utils.notification_client import get_notification_client
-                
-                customer_info = await _get_customer_info_by_external_key(customer_external_key)
-                if customer_info:
-                    from datetime import datetime
-                    payment_date = datetime.utcnow().strftime("%B %d, %Y")
-                    
-                    client = get_notification_client()
-                    await client.send_template_email(
-                        to_emails=[customer_info.get('email', '')],
-                        template_name="invoice_paid",
-                        template_variables={
-                            "first_name": customer_info.get('first_name', ''),
-                            "invoice_number": invoice_details.get('invoiceNumber', invoice_id),
-                            "amount_paid": str(invoice_details.get('amount', '0.00')),
-                            "payment_date": payment_date
-                        },
-                        tags=["billing", "invoice", "paid", "reactivation"]
+        # Loop through each item in the invoice
+        for item in invoice_details['items']:
+            subscription_id = item.get('subscriptionId')
+            plan_name = item.get('planName', 'unknown')
+
+            if not subscription_id:
+                logger.warning(f"No subscription ID found in an item for invoice {invoice_id}. Item: {item}")
+                continue  # Skip to the next item
+
+            logger.info(f"Processing invoice item for subscription {subscription_id} (plan: {plan_name})")
+
+            # Get subscription details
+            subscription_details = await killbill.get_subscription_by_id(subscription_id)
+            if not subscription_details:
+                logger.warning(f"Could not get subscription details for {subscription_id}")
+                continue # Skip to the next item
+
+            # Check if this is a reactivation subscription
+            subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
+            target_instance_id = subscription_metadata.get("target_instance_id")
+            is_reactivation = subscription_metadata.get("reactivation") == "true"
+
+            # Handle reactivation payment
+            if is_reactivation and target_instance_id:
+                logger.info(f"Payment received for reactivation subscription {subscription_id}, restarting instance {target_instance_id}")
+                try:
+                    result = await instance_client.restart_instance_with_new_subscription(
+                        instance_id=target_instance_id,
+                        subscription_id=subscription_id,
+                        billing_status="paid"
                     )
-                    logger.info(f"✅ Sent reactivation invoice paid email to {customer_info.get('email')}")
-            except Exception as email_error:
-                logger.error(f"❌ Failed to send reactivation invoice paid email: {email_error}")
+                    if result.get("status") == "success":
+                        logger.info(f"Successfully reactivated instance {target_instance_id} after payment for subscription {subscription_id}")
+                    else:
+                        logger.error(f"Failed to reactivate instance {target_instance_id}: {result}")
+                except Exception as e:
+                    logger.error(f"Error reactivating instance {target_instance_id}: {e}")
                 
-            # ALWAYS return for reactivations - don't continue to existing_instance logic
-            return  # Exit early - reactivation handled regardless of success/failure
-        
-        # SAFETY CHECK: Prevent duplicate instance creation for the same subscription
-        # SKIP ENTIRELY for reactivations - they are handled above with restart_instance_with_new_subscription
-        if is_reactivation:
-            logger.info(f"Skipping existing instance logic for reactivation subscription {subscription_id}")
-            return
-            
-        existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
-        if existing_instance:
-            logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
-            
-            # ALWAYS update billing status to "paid" when payment succeeds
-            try:
-                await instance_client.provision_instance(
-                    instance_id=existing_instance['id'],
-                    subscription_id=subscription_id,
-                    billing_status="paid",
-                    provisioning_trigger="invoice_payment_success_billing_update"
-                )
-                logger.info(f"Updated billing status to 'paid' for instance {existing_instance['id']} after payment success")
-            except Exception as e:
-                logger.error(f"Failed to update billing status to 'paid' for instance {existing_instance['id']}: {e}")
-            
-            # Additional provisioning if needed
-            if existing_instance.get('provisioning_status') in ['pending']:
-                logger.info(f"Triggering additional provisioning for existing instance {existing_instance.get('id')}")
+                # The rest of the logic for this item is skipped because reactivation is handled.
+                continue
+
+            # SAFETY CHECK: Prevent duplicate instance creation for the same subscription
+            existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+            if existing_instance:
+                logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
+
+                # ALWAYS update billing status to "paid" when payment succeeds
                 try:
                     await instance_client.provision_instance(
                         instance_id=existing_instance['id'],
                         subscription_id=subscription_id,
                         billing_status="paid",
-                        provisioning_trigger="invoice_payment_success_provision"
+                        provisioning_trigger="invoice_payment_success_billing_update"
                     )
+                    logger.info(f"Updated billing status to 'paid' for instance {existing_instance['id']} after payment success")
                 except Exception as e:
-                    logger.error(f"Failed to trigger additional provisioning: {e}")
-            else:
-                logger.info(f"Existing instance {existing_instance.get('id')} is in status {existing_instance.get('provisioning_status')} - billing status updated, no additional provisioning needed")
-            
-            # Send invoice paid email for existing instance
-            try:
-                from ..utils.notification_client import get_notification_client
+                    logger.error(f"Failed to update billing status to 'paid' for instance {existing_instance['id']}: {e}")
                 
-                customer_info = await _get_customer_info_by_external_key(customer_external_key)
-                if customer_info:
-                    from datetime import datetime
-                    payment_date = datetime.utcnow().strftime("%B %d, %Y")
-                    
-                    client = get_notification_client()
-                    await client.send_template_email(
-                        to_emails=[customer_info.get('email', '')],
-                        template_name="invoice_paid",
-                        template_variables={
-                            "first_name": customer_info.get('first_name', ''),
-                            "invoice_number": invoice_details.get('invoiceNumber', invoice_id),
-                            "amount_paid": str(invoice_details.get('amount', '0.00')),
-                            "payment_date": payment_date
-                        },
-                        tags=["billing", "invoice", "paid", "existing_instance"]
-                    )
-                    logger.info(f"✅ Sent existing instance invoice paid email to {customer_info.get('email')}")
-            except Exception as email_error:
-                logger.error(f"❌ Failed to send existing instance invoice paid email: {email_error}")
-            
-            return
-        
-        # Create instance for this customer and subscription
-        await _create_instance_for_subscription(customer_external_key, subscription_id, plan_name, billing_status="paid")
-        
-        logger.info(f"Processed invoice payment success for customer {customer_external_key}")
-        
-        # Send invoice paid notification email
+                # Additional provisioning if needed
+                if existing_instance.get('provisioning_status') in ['pending']:
+                    logger.info(f"Triggering additional provisioning for existing instance {existing_instance.get('id')}")
+                    try:
+                        await instance_client.provision_instance(
+                            instance_id=existing_instance['id'],
+                            subscription_id=subscription_id,
+                            billing_status="paid",
+                            provisioning_trigger="invoice_payment_success_provision"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to trigger additional provisioning: {e}")
+
+                continue # Skip to the next item
+
+            # Create instance for this customer and subscription
+            await _create_instance_for_subscription(customer_external_key, subscription_id, plan_name, billing_status="paid")
+
+        logger.info(f"Processed all items for invoice payment success for customer {customer_external_key}")
+
+        # Send a single invoice paid notification email after processing all items
         try:
             from ..utils.notification_client import get_notification_client
             
-            # Get customer info for the email
             customer_info = await _get_customer_info_by_external_key(customer_external_key)
             if customer_info:
-                # Format payment date
                 from datetime import datetime
                 payment_date = datetime.utcnow().strftime("%B %d, %Y")
                 
@@ -794,11 +731,11 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                     },
                     tags=["billing", "invoice", "paid"]
                 )
-                logger.info(f"✅ Sent invoice paid email to {customer_info.get('email')}")
+                logger.info(f"✅ Sent final invoice paid email to {customer_info.get('email')}")
             else:
-                logger.warning(f"Could not send invoice paid email - customer info not found for {customer_external_key}")
+                logger.warning(f"Could not send final invoice paid email - customer info not found for {customer_external_key}")
         except Exception as email_error:
-            logger.error(f"❌ Failed to send invoice paid email: {email_error}")
+            logger.error(f"❌ Failed to send final invoice paid email: {email_error}")
         
     except Exception as e:
         logger.error(f"Error handling invoice payment success: {e}")
