@@ -395,7 +395,12 @@ const BillingInstanceManage: React.FC = () => {
               </div>
               <div className="ml-3">
                 <h2 className="text-xl font-semibold text-red-800">Instance Terminated</h2>
-                <p className="text-red-700 mt-1">Your instance has been terminated. Select a plan below to reactivate it.</p>
+                <p className="text-red-700 mt-1">
+                  {instance.billing_status === 'payment_required'
+                    ? 'This instance is awaiting payment for reactivation.'
+                    : 'Your instance has been terminated. Select a plan below to reactivate it.'
+                  }
+                </p>
               </div>
             </div>
 
@@ -407,65 +412,79 @@ const BillingInstanceManage: React.FC = () => {
               </div>
             )}
 
-            <div className="bg-white rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Choose a Plan to Reactivate</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                {availablePlans.map((plan) => (
-                  <div
-                    key={plan.name}
-                    className={`relative border rounded-lg p-4 cursor-pointer transition-all ${
-                      selectedPlan === plan.name
-                        ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                        : 'border-gray-300 bg-white hover:border-gray-400'
-                    }`}
-                    onClick={() => setSelectedPlan(plan.name)}
-                  >
-                    <div className="flex items-center">
-                      <input
-                        type="radio"
-                        name="plan"
-                        value={plan.name}
-                        checked={selectedPlan === plan.name}
-                        onChange={() => setSelectedPlan(plan.name)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                      />
-                      <div className="ml-3 flex-1">
-                        <div className="text-lg font-semibold text-gray-900">{plan.display}</div>
-                        <div className="text-2xl font-bold text-blue-600">${plan.price.toFixed(2)}<span className="text-sm text-gray-500">/month</span></div>
-                        <div className="text-sm text-gray-600 mt-1">{plan.description}</div>
+            {/* Show payment pending message OR reactivation options */}
+            {instance.billing_status === 'payment_required' ? (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                <h3 className="text-lg font-medium text-yellow-800 mb-2">Payment Required</h3>
+                <p className="text-yellow-700 mb-4">
+                  A reactivation request has already been submitted. Please complete the payment to restore your instance.
+                  Check your email for the invoice or visit your billing page.
+                </p>
+                <Link to="/billing/invoices" className="btn-primary">
+                  View Invoices
+                </Link>
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg p-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Choose a Plan to Reactivate</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  {availablePlans.map((plan) => (
+                    <div
+                      key={plan.name}
+                      className={`relative border rounded-lg p-4 cursor-pointer transition-all ${
+                        selectedPlan === plan.name
+                          ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                          : 'border-gray-300 bg-white hover:border-gray-400'
+                      }`}
+                      onClick={() => setSelectedPlan(plan.name)}
+                    >
+                      <div className="flex items-center">
+                        <input
+                          type="radio"
+                          name="plan"
+                          value={plan.name}
+                          checked={selectedPlan === plan.name}
+                          onChange={() => setSelectedPlan(plan.name)}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                        />
+                        <div className="ml-3 flex-1">
+                          <div className="text-lg font-semibold text-gray-900">{plan.display}</div>
+                          <div className="text-2xl font-bold text-blue-600">${plan.price.toFixed(2)}<span className="text-sm text-gray-500">/month</span></div>
+                          <div className="text-sm text-gray-600 mt-1">{plan.description}</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-600">
-                  <p>✓ Your data and configuration will be preserved</p>
-                  <p>✓ Instance will be restored to stopped state</p>
-                  <p>✓ You can start it manually after reactivation</p>
+                  ))}
                 </div>
-                <button
-                  onClick={handleReactivateInstance}
-                  disabled={!selectedPlan || reactivationLoading}
-                  className={`px-6 py-3 rounded-md font-medium text-white transition-colors ${
-                    !selectedPlan || reactivationLoading
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  {reactivationLoading ? (
-                    <div className="flex items-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Reactivating...
-                    </div>
-                  ) : (
-                    `Reactivate Instance${selectedPlan ? ` - $${availablePlans.find(p => p.name === selectedPlan)?.price.toFixed(2)}/month` : ''}`
-                  )}
-                </button>
+
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-gray-600">
+                    <p>✓ Your data and configuration will be preserved</p>
+                    <p>✓ Instance will be restored to stopped state</p>
+                    <p>✓ You can start it manually after reactivation</p>
+                  </div>
+                  <button
+                    onClick={handleReactivateInstance}
+                    disabled={!selectedPlan || reactivationLoading}
+                    className={`px-6 py-3 rounded-md font-medium text-white transition-colors ${
+                      !selectedPlan || reactivationLoading
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                  >
+                    {reactivationLoading ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Reactivating...
+                      </div>
+                    ) : (
+                      `Reactivate Instance${selectedPlan ? ` - $${availablePlans.find(p => p.name === selectedPlan)?.price.toFixed(2)}/month` : ''}`
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
