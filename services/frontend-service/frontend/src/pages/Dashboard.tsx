@@ -267,14 +267,6 @@ const Dashboard: React.FC = () => {
                   <p className="text-yellow-700">
                     You have {trialInfo.daysRemaining} days remaining in your trial period.
                   </p>
-                  <div className="mt-2">
-                    <Link
-                      to="/billing/subscription"
-                      className="text-sm font-medium text-yellow-600 hover:text-yellow-500"
-                    >
-                      Choose a subscription plan →
-                    </Link>
-                  </div>
                 </div>
               </div>
             </div>

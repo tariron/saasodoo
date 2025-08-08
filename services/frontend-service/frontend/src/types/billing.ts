@@ -166,9 +166,10 @@ export interface Plan {
 }
 
 export interface CreateSubscriptionRequest {
-  account_id: string;
+  customer_id: string;
   plan_name: string;
   billing_period?: 'MONTHLY' | 'ANNUAL';
+  phase_type?: 'TRIAL' | 'EVERGREEN';
 }
 
 export interface CreatePaymentMethodRequest {

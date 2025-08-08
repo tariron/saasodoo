@@ -448,9 +448,9 @@ const BillingInstanceManage: React.FC = () => {
                 </div>
                 <button
                   onClick={handleReactivateInstance}
-                  disabled={!selectedPlan || reactivationLoading}
+                  disabled={!selectedPlan || reactivationLoading || instance?.billing_status === 'payment_required'}
                   className={`px-6 py-3 rounded-md font-medium text-white transition-colors ${
-                    !selectedPlan || reactivationLoading
+                    !selectedPlan || reactivationLoading || instance?.billing_status === 'payment_required'
                       ? 'bg-gray-400 cursor-not-allowed'
                       : 'bg-blue-600 hover:bg-blue-700'
                   }`}
@@ -460,6 +460,8 @@ const BillingInstanceManage: React.FC = () => {
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                       Reactivating...
                     </div>
+                  ) : instance?.billing_status === 'payment_required' ? (
+                    'Reactivation Pending Payment'
                   ) : (
                     `Reactivate Instance${selectedPlan ? ` - $${availablePlans.find(p => p.name === selectedPlan)?.price.toFixed(2)}/month` : ''}`
                   )}

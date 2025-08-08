@@ -8,7 +8,6 @@ import Instances from './pages/Instances';
 import CreateInstance from './pages/CreateInstance';
 import Profile from './pages/Profile';
 import Billing from './pages/Billing';
-import BillingSubscription from './pages/BillingSubscription';
 import BillingInvoices from './pages/BillingInvoices';
 import BillingPayment from './pages/BillingPayment';
 import BillingInstanceManage from './pages/BillingInstanceManage';
@@ -82,14 +81,6 @@ function App() {
             } 
           />
           
-          <Route 
-            path="/billing/subscription" 
-            element={
-              <AuthGuard>
-                <BillingSubscription />
-              </AuthGuard>
-            } 
-          />
           
           <Route 
             path="/billing/invoices" 

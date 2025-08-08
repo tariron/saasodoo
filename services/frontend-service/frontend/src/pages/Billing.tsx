@@ -469,11 +469,6 @@ const Billing: React.FC = () => {
                           ) : (
                             <div className="text-sm text-gray-500">
                               <div className="text-sm font-medium text-gray-700">No subscription</div>
-                              <div className="mt-1">
-                                <a href="/billing/subscription" className="text-blue-600 hover:text-blue-800 text-xs font-medium">
-                                  Add Plan →
-                                </a>
-                              </div>
                             </div>
                           )}
                         </td>
@@ -577,13 +572,6 @@ const Billing: React.FC = () => {
       <div className="bg-white shadow rounded-lg p-6 mt-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <a
-            href="/billing/subscription"
-            className="text-center p-4 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <div className="text-2xl mb-2">📊</div>
-            <div className="font-medium">Upgrade Plan</div>
-          </a>
           <a
             href="/billing/invoices"
             className="text-center p-4 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
