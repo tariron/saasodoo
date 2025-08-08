@@ -320,13 +320,19 @@ class AuthService:
             # Generate local reset token
             reset_token = secrets.token_urlsafe(32)
             
-            # For now, just return the token
-            # In production, store this in password_resets table and send email
+            # Set expiration time (24 hours from now)
+            from datetime import timezone
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+            
+            # Store token in database
+            await CustomerDatabase.create_password_reset_token(
+                customer['id'], reset_token, expires_at
+            )
             
             return {
                 'success': True,
                 'reset_token': reset_token,
-                'message': 'Password reset token generated'
+                'message': 'Password reset token generated and stored'
             }
             
         except Exception as e:
@@ -576,3 +582,60 @@ class AuthService:
         except Exception as e:
             logger.error(f"❌ Failed to send verification email to {email}: {e}")
             # Don't raise the exception to avoid blocking user registration 
+
+    @staticmethod
+    async def reset_password_with_token(reset_token: str, new_password: str) -> Dict:
+        """
+        Reset password using reset token
+        
+        Args:
+            reset_token: Password reset token
+            new_password: New password to set
+            
+        Returns:
+            dict: Reset result
+        """
+        try:
+            logger.info(f"🔍 Password reset attempt with token: {reset_token[:10]}...")
+            
+            # 1. Validate the reset token from database
+            token_data = await CustomerDatabase.get_password_reset_token(reset_token)
+            if not token_data:
+                return {
+                    'success': False,
+                    'error': 'Invalid or expired password reset token'
+                }
+            
+            customer_id = str(token_data['user_id'])
+            
+            # 2. Hash the new password
+            new_password_hash = AuthService.hash_password(new_password)
+            
+            # 3. Update the customer's password
+            success = await CustomerDatabase.update_customer(
+                customer_id,
+                {'password_hash': new_password_hash}
+            )
+            
+            if not success:
+                return {
+                    'success': False,
+                    'error': 'Failed to update password'
+                }
+            
+            # 4. Mark the reset token as used
+            await CustomerDatabase.mark_password_reset_token_used(reset_token)
+            
+            logger.info(f"Password reset successful for customer: {customer_id}")
+            
+            return {
+                'success': True,
+                'message': 'Password has been reset successfully'
+            }
+            
+        except Exception as e:
+            logger.error(f"Password reset with token failed: {e}")
+            return {
+                'success': False,
+                'error': 'Password reset failed'
+            }

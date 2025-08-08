@@ -223,6 +223,18 @@ class UserPasswordChangeSchema(BaseModel):
     )
     confirm_password: str = Field(..., min_length=8, max_length=128)
 
+
+class UserPasswordResetCompleteSchema(BaseModel):
+    """Schema for completing password reset with token"""
+    token: str = Field(..., min_length=1, description="Password reset token")
+    new_password: str = Field(
+        ..., 
+        min_length=8, 
+        max_length=128,
+        description="Password must be 8+ characters with uppercase, lowercase, digit, and special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
+    )
+    confirm_password: str = Field(..., min_length=8, max_length=128)
+
     @validator('new_password')
     def validate_new_password(cls, v):
         """Validate new password strength"""

@@ -313,6 +313,15 @@ export const authAPI = {
   
   resendVerification: (email: string): Promise<AxiosResponse<{success: boolean, message: string}>> => 
     api.post('/user/auth/resend-verification', { email }),
+
+  requestPasswordReset: (email: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
+    api.post('/user/auth/password-reset', { email }),
+
+  resetPasswordWithToken: (token: string, newPassword: string, confirmPassword: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
+    api.post('/user/auth/password-reset-complete', { token, new_password: newPassword, confirm_password: confirmPassword }),
+
+  changePassword: (currentPassword: string, newPassword: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
+    api.post('/user/auth/password-change', { current_password: currentPassword, new_password: newPassword }),
 };
 
 

@@ -1302,3 +1302,64 @@ Create dedicated reprovisioning module with automated cleanup and retry function
 - Reduced manual intervention requirements
 - Better error recovery capabilities
 - Preservation of billing continuity during retries
+
+---
+
+## Issue #019 - Instance Reactivation Should Offer Backup Restore Option
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: frontend-service, billing-service  
+**Date**: 2025-08-08  
+**Reporter**: User Experience Enhancement  
+
+### Description
+Instance reactivation flow only offers restoration with current data. Users cannot restore from backup during reactivation, forcing manual restore after reactivation.
+
+### Current Flow
+1. Select plan → Click "Reactivate" → Uses existing instance data
+
+### Proposed Enhanced Flow  
+1. Select plan → Click "Reactivate"
+2. **Show options modal:**
+   - ✅ "Reactivate with current data" 
+   - 🔄 "Restore from backup and reactivate" (NEW)
+   - ❌ "Cancel"
+
+### Business Value
+- **Data recovery**: Instance may have corrupt data before termination
+- **Point-in-time recovery**: Restore to known good state
+- **Business continuity**: Choose safest reactivation approach
+
+### Technical Implementation
+System already has required components:
+- ✅ `RestoreModal.tsx` - Backup selection UI
+- ✅ `instanceAPI.backups()` - Fetch backups  
+- ✅ Restore functionality via instance actions
+- ✅ Reactivation flow in `BillingInstanceManage.tsx`
+
+### Files to Modify
+- `services/frontend-service/frontend/src/pages/BillingInstanceManage.tsx` - Add reactivation options
+- Backend coordination for restore → reactivation sequence
+
+---
+
+## Issue #020 - Missing Subscription Plan Change/Upgrade Feature
+
+**Status**: 📋 Open  
+**Priority**: Medium  
+**Component**: billing-service, frontend-service  
+**Date**: 2025-08-08  
+
+### Description
+Users cannot upgrade/downgrade subscription plans. Currently must cancel and create new subscription, losing billing continuity.
+
+### Missing Implementation
+- KillBill PUT `/1.0/kb/subscriptions/{subscriptionId}` API integration
+- Frontend plan upgrade UI
+- Billing-service endpoint for plan changes
+
+### Business Impact
+- Poor user experience (cancel → recreate workflow)
+- Lost billing history and subscription continuity
+- No prorated billing for mid-cycle changes

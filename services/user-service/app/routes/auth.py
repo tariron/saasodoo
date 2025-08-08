@@ -17,7 +17,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from shared.schemas.user import (
     UserCreateSchema, UserLoginSchema, UserPasswordResetSchema,
-    UserPasswordChangeSchema, UserEmailVerificationSchema, UserResponseSchema,
+    UserPasswordChangeSchema, UserPasswordResetCompleteSchema, UserEmailVerificationSchema, UserResponseSchema,
     UserProfileSchema, UserResendVerificationSchema
 )
 
@@ -230,6 +230,52 @@ async def request_password_reset(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Password reset request failed"
+        )
+
+@router.post("/password-reset-complete", response_model=dict)
+async def complete_password_reset(
+    reset_data: UserPasswordResetCompleteSchema,
+    db: DatabaseDep
+):
+    """
+    Complete password reset with token
+    
+    Sets new password using reset token
+    """
+    try:
+        # For now, we need to implement token-based password reset in AuthService
+        # This is a simplified implementation - in production you'd want proper token validation
+        
+        # Since the current backend doesn't have token-based reset logic,
+        # we'll add this functionality to AuthService.reset_password_with_token()
+        from app.services.auth_service import AuthService
+        
+        # This method doesn't exist yet - we'll need to implement it
+        reset_result = await AuthService.reset_password_with_token(
+            reset_data.token,
+            reset_data.new_password
+        )
+        
+        if not reset_result['success']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=reset_result['error']
+            )
+        
+        logger.info(f"Password reset completed with token")
+        
+        return {
+            "success": True,
+            "message": "Password has been reset successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password reset completion error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Password reset failed"
         )
 
 @router.post("/password-change", response_model=dict)

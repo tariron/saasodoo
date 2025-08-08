@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-ro
 import Login from './pages/Login';
 import Register from './pages/Register';
 import VerifyEmail from './pages/VerifyEmail';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
 import CreateInstance from './pages/CreateInstance';
@@ -41,6 +43,33 @@ function App() {
           <Route 
             path="/verify-email" 
             element={<VerifyEmail />} 
+          />
+
+          <Route 
+            path="/forgot-password" 
+            element={
+              TokenManager.isAuthenticated() ? 
+                <Navigate to="/dashboard" replace /> : 
+                <ForgotPassword />
+            } 
+          />
+
+          <Route 
+            path="/reset-password/:token" 
+            element={
+              TokenManager.isAuthenticated() ? 
+                <Navigate to="/dashboard" replace /> : 
+                <ResetPassword />
+            } 
+          />
+
+          <Route 
+            path="/reset-password" 
+            element={
+              TokenManager.isAuthenticated() ? 
+                <Navigate to="/dashboard" replace /> : 
+                <ResetPassword />
+            } 
           />
           
           {/* Protected routes */}

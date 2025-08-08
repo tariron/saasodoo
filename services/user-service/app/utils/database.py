@@ -215,8 +215,9 @@ class CustomerDatabase:
             return False
         
         # Add updated_at
+        from datetime import datetime, timezone
         set_clauses.append(f"updated_at = ${param_count}")
-        values.append('CURRENT_TIMESTAMP')
+        values.append(datetime.now(timezone.utc))
         param_count += 1
         
         # Add customer_id for WHERE clause
@@ -392,6 +393,108 @@ class CustomerDatabase:
         result = await db_manager.execute_command(query, verification_token)
         return result == "UPDATE 1"
     
+    @staticmethod
+    async def create_password_reset_token(customer_id: str, reset_token: str, expires_at) -> str:
+        """
+        Create password reset token
+        
+        Args:
+            customer_id: Customer ID
+            reset_token: Password reset token
+            expires_at: Token expiration time
+            
+        Returns:
+            str: Token ID
+        """
+        query = """
+        INSERT INTO password_resets (user_id, reset_token, expires_at, created_at)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        """
+        
+        from datetime import datetime, timezone
+        created_at = datetime.now(timezone.utc)
+        
+        token_id = await db_manager.execute_value(
+            query, customer_id, reset_token, expires_at, created_at
+        )
+        
+        return str(token_id)
+    
+    @staticmethod
+    async def get_password_reset_token(reset_token: str) -> Optional[dict]:
+        """
+        Get password reset token data
+        
+        Args:
+            reset_token: Password reset token
+            
+        Returns:
+            dict: Token data or None if not found or expired
+        """
+        query = """
+        SELECT pr.id, pr.user_id, pr.reset_token, pr.expires_at, 
+               pr.used, pr.created_at, u.email, u.first_name, u.last_name
+        FROM password_resets pr
+        JOIN users u ON pr.user_id = u.id
+        WHERE pr.reset_token = $1 
+        AND pr.expires_at > $2 
+        AND pr.used = false
+        """
+        
+        from datetime import datetime, timezone
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        current_time = datetime.now(timezone.utc)
+        
+        logger.info(f"🔍 Executing password reset token query with token: {reset_token[:10]}...")
+        result = await db_manager.execute_single(query, reset_token, current_time)
+        logger.info(f"🔍 Password reset token query result: {result is not None}")
+        
+        if result:
+            return dict(result)
+        return None
+    
+    @staticmethod
+    async def mark_password_reset_token_used(reset_token: str) -> bool:
+        """
+        Mark password reset token as used
+        
+        Args:
+            reset_token: Password reset token
+            
+        Returns:
+            bool: Success status
+        """
+        query = """
+        UPDATE password_resets 
+        SET used = true
+        WHERE reset_token = $1 AND used = false
+        """
+        
+        result = await db_manager.execute_command(query, reset_token)
+        return result == "UPDATE 1"
+    
+    @staticmethod
+    async def cleanup_expired_password_reset_tokens() -> int:
+        """
+        Clean up expired password reset tokens
+        
+        Returns:
+            int: Number of tokens cleaned up
+        """
+        query = """
+        DELETE FROM password_resets 
+        WHERE expires_at < CURRENT_TIMESTAMP OR used = true
+        """
+        
+        result = await db_manager.execute_command(query)
+        # Extract number from result like "DELETE 3"
+        if result.startswith("DELETE"):
+            return int(result.split()[1])
+        return 0
+
     @staticmethod
     async def cleanup_expired_verification_tokens() -> int:
         """
