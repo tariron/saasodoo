@@ -116,6 +116,7 @@ async def get_instance_stats(
         stopped_instances = await db.get_instances_by_status(InstanceStatus.STOPPED)
         error_instances = await db.get_instances_by_status(InstanceStatus.ERROR)
         terminated_instances = await db.get_instances_by_status(InstanceStatus.TERMINATED)
+        container_missing_instances = await db.get_instances_by_status(InstanceStatus.CONTAINER_MISSING)
         
         return {
             "status_counts": {
@@ -124,12 +125,14 @@ async def get_instance_stats(
                 "running": len(running_instances),
                 "stopped": len(stopped_instances),
                 "error": len(error_instances),
-                "terminated": len(terminated_instances)
+                "terminated": len(terminated_instances),
+                "container_missing": len(container_missing_instances)
             },
             "total_instances": (
                 len(creating_instances) + len(starting_instances) + 
                 len(running_instances) + len(stopped_instances) + 
-                len(error_instances) + len(terminated_instances)
+                len(error_instances) + len(terminated_instances) + 
+                len(container_missing_instances)
             ),
             "healthy_instances": len(running_instances),
             "failed_instances": len(error_instances)

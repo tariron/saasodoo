@@ -48,6 +48,7 @@ class DockerEventMonitor:
             'restart': InstanceStatus.RUNNING,
             'pause': InstanceStatus.PAUSED,
             'unpause': InstanceStatus.RUNNING,
+            'destroy': InstanceStatus.CONTAINER_MISSING,
         }
     
     def _init_docker_client(self):
@@ -148,24 +149,54 @@ class DockerEventMonitor:
             container_name = event.get('Actor', {}).get('Attributes', {}).get('name', '')
             event_id = event.get('id', '')
             
+            # LOG ALL EVENTS - including destroy events
+            logger.info("RAW EVENT RECEIVED", 
+                       event_type=event_type, 
+                       container=container_name,
+                       event_id=event_id[:8])  # Short event ID
+            
             if not container_name or not event_type:
+                logger.debug("Event missing name/type", event_type=event_type, container=container_name)
                 return
             
             # Check if this is a SaaS Odoo container
             container_info = self._is_saasodoo_container(container_name)
             if not container_info:
+                logger.debug("Event ignored - not SaaS container", 
+                            event_type=event_type, 
+                            container=container_name)
                 return
+
+            logger.info("SaaS container event detected", 
+                       event_type=event_type, 
+                       container=container_name,
+                       instance_hex=container_info['instance_id_hex'])
             
             # Deduplication check
             if not self._should_process_event(event_id, container_name):
+                logger.debug("Event deduplicated", 
+                            event_type=event_type, 
+                            container=container_name,
+                            event_id=event_id[:8])
                 return
+
+            logger.info("Event passed deduplication", 
+                       event_type=event_type, 
+                       container=container_name)
             
             # Map event to status
             if event_type not in self.event_status_map:
-                logger.debug("Untracked event type", event_type=event_type, container=container_name)
+                logger.warning("DESTROY EVENT MISSING?", 
+                              event_type=event_type, 
+                              container=container_name,
+                              available_events=list(self.event_status_map.keys()))
                 return
             
             new_status = self.event_status_map[event_type]
+            logger.info("Event mapped to status", 
+                       event_type=event_type, 
+                       container=container_name,
+                       new_status=new_status.value)
             
             logger.info("Processing container event", 
                        event_type=event_type, 
@@ -189,6 +220,13 @@ class DockerEventMonitor:
                 container_name,
                 event.get('time', datetime.utcnow().isoformat())
             )
+            
+            # For kill events, schedule a delayed check to see if container was actually destroyed
+            if event_type == 'kill':
+                check_container_destroyed.apply_async(
+                    args=[instance_id, container_name],
+                    countdown=3  # Wait 3 seconds after kill event
+                )
             
         except Exception as e:
             logger.error("Failed to process container event", error=str(e), event=event)
@@ -230,7 +268,7 @@ class DockerEventMonitor:
             # Listen for container events only
             event_filters = {
                 'type': 'container',
-                'event': ['start', 'stop', 'die', 'kill', 'restart', 'pause', 'unpause']
+                'event': ['start', 'stop', 'die', 'kill', 'restart', 'pause', 'unpause', 'destroy']
             }
             
             logger.info("Starting Docker event stream", filters=event_filters)
@@ -513,25 +551,25 @@ async def _reconcile_instance_statuses() -> Dict[str, Any]:
                         })
                 
                 except docker.errors.NotFound:
-                    # Container doesn't exist but instance is not terminated
-                    if db_status not in [InstanceStatus.STOPPED.value, InstanceStatus.ERROR.value]:
+                    # Container doesn't exist but instance is not terminated or already marked as missing
+                    if db_status not in [InstanceStatus.STOPPED.value, InstanceStatus.ERROR.value, InstanceStatus.CONTAINER_MISSING.value]:
                         logger.warning("Container not found for active instance", 
                                      instance_id=str(instance_id),
                                      expected_container=expected_container_name,
                                      current_status=db_status)
                         
-                        # Mark as stopped
+                        # Mark as container missing
                         await conn.execute("""
                             UPDATE instances 
                             SET status = $1, error_message = $2, updated_at = $3
                             WHERE id = $4
-                        """, InstanceStatus.STOPPED.value, "Container not found", datetime.utcnow(), instance_id)
+                        """, InstanceStatus.CONTAINER_MISSING.value, "Container not found", datetime.utcnow(), instance_id)
                         
                         updated_count += 1
                         mismatched.append({
                             'instance_id': str(instance_id),
                             'old_status': db_status,
-                            'new_status': InstanceStatus.STOPPED.value,
+                            'new_status': InstanceStatus.CONTAINER_MISSING.value,
                             'reason': 'container_not_found'
                         })
                 
@@ -553,4 +591,79 @@ async def _reconcile_instance_statuses() -> Dict[str, Any]:
     
     except Exception as e:
         logger.error("Status reconciliation failed", error=str(e))
+        raise
+
+
+@celery_app.task(bind=True)
+def check_container_destroyed(self, instance_id: str, container_name: str):
+    """Check if container was actually destroyed after a kill event"""
+    try:
+        logger.info("Checking if container was destroyed", 
+                   instance_id=instance_id, 
+                   container=container_name,
+                   task_id=self.request.id)
+        
+        result = asyncio.run(_check_container_destroyed(instance_id, container_name))
+        
+        logger.info("Container destroy check completed", 
+                   instance_id=instance_id, 
+                   container=container_name,
+                   result=result)
+        
+        return result
+        
+    except Exception as e:
+        logger.error("Failed to check container destruction", 
+                    instance_id=instance_id, 
+                    container=container_name,
+                    error=str(e))
+        raise
+
+
+async def _check_container_destroyed(instance_id: str, container_name: str) -> Dict[str, Any]:
+    """Check if container still exists and update status accordingly"""
+    try:
+        import docker
+        
+        client = docker.from_env()
+        
+        try:
+            # Try to get the container
+            container = client.containers.get(container_name)
+            logger.info("Container still exists after kill", 
+                       instance_id=instance_id,
+                       container=container_name,
+                       status=container.status)
+            
+            return {
+                "container_exists": True,
+                "container_status": container.status,
+                "action": "no_change"
+            }
+            
+        except docker.errors.NotFound:
+            # Container doesn't exist - it was destroyed
+            logger.info("Container was destroyed after kill event", 
+                       instance_id=instance_id,
+                       container=container_name)
+            
+            # Update instance status to CONTAINER_MISSING
+            await _update_instance_status_from_event(
+                instance_id, 
+                InstanceStatus.CONTAINER_MISSING.value, 
+                "destroy", 
+                container_name, 
+                datetime.utcnow().isoformat()
+            )
+            
+            return {
+                "container_exists": False,
+                "action": "updated_to_container_missing"
+            }
+            
+    except Exception as e:
+        logger.error("Error checking container destruction", 
+                    instance_id=instance_id,
+                    container=container_name,
+                    error=str(e))
         raise

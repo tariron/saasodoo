@@ -725,6 +725,7 @@ def _get_valid_actions_for_status(status: InstanceStatus) -> list[InstanceAction
         InstanceStatus.MAINTENANCE: [InstanceAction.TERMINATE],  # Allow termination during maintenance
         InstanceStatus.ERROR: [InstanceAction.START, InstanceAction.STOP, InstanceAction.RESTART, InstanceAction.RESTORE, InstanceAction.SUSPEND, InstanceAction.TERMINATE],
         InstanceStatus.TERMINATED: [],  # No actions allowed on terminated instances
+        InstanceStatus.CONTAINER_MISSING: [InstanceAction.START, InstanceAction.BACKUP, InstanceAction.RESTORE, InstanceAction.SUSPEND, InstanceAction.TERMINATE],
         InstanceStatus.PAUSED: [InstanceAction.UNPAUSE, InstanceAction.TERMINATE]
     }
     return action_map.get(status, [])
@@ -938,6 +939,7 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
         # If instance has a Docker container that might exist, stop it first
         container_states = [InstanceStatus.RUNNING, InstanceStatus.STOPPED, InstanceStatus.STARTING, 
                           InstanceStatus.STOPPING, InstanceStatus.PAUSED, InstanceStatus.RESTARTING]
+        # Note: CONTAINER_MISSING is not included as there's no container to stop
         
         if instance.status in container_states:
             logger.info("Stopping instance container before termination", 

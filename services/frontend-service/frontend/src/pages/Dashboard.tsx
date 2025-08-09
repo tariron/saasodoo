@@ -313,52 +313,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
-          {/* Billing overview */}
-          {billingData && !billingLoading && (
-            <div className="bg-white shadow rounded-lg mb-8">
-              <div className="px-4 py-5 sm:p-6">
-                <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-                  Instance Billing Overview
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {formatCurrency(billingData.account_balance)}
-                    </div>
-                    <div className="text-sm text-gray-600">Account Balance</div>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600">
-                      {instances.filter(instance => instance.billing_status === 'paid').length}
-                    </div>
-                    <div className="text-sm text-gray-600">Billed Instances</div>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 rounded-lg">
-                    <div className="text-2xl font-bold text-purple-600">
-                      {instances.filter(instance => instance.billing_status === 'trial').length}
-                    </div>
-                    <div className="text-sm text-gray-600">Trial Instances</div>
-                  </div>
-                  {instances.filter(instance => instance.billing_status === 'payment_required').length > 0 && (
-                    <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
-                      <div className="text-2xl font-bold text-red-600">
-                        {instances.filter(instance => instance.billing_status === 'payment_required').length}
-                      </div>
-                      <div className="text-sm text-red-600 font-medium">Payment Required</div>
-                    </div>
-                  )}
-                </div>
-                <div className="mt-4 text-center">
-                  <Link
-                    to="/billing"
-                    className="text-sm font-medium text-blue-600 hover:text-blue-500"
-                  >
-                    Manage instance billing →
-                  </Link>
-                </div>
-              </div>
-            </div>
-          )}
 
 
           {/* Recent Instances */}

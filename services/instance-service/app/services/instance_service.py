@@ -98,7 +98,7 @@ class InstanceService:
             if instance.status == InstanceStatus.RUNNING:
                 return {"status": "already_running", "message": "Instance is already running"}
             
-            if instance.status not in [InstanceStatus.STOPPED, InstanceStatus.ERROR]:
+            if instance.status not in [InstanceStatus.STOPPED, InstanceStatus.ERROR, InstanceStatus.CONTAINER_MISSING]:
                 raise ValueError(f"Cannot start instance with status: {instance.status}")
             
             # Update status to starting
@@ -133,8 +133,8 @@ class InstanceService:
             if not instance:
                 raise ValueError("Instance not found")
             
-            if instance.status == InstanceStatus.STOPPED:
-                return {"status": "already_stopped", "message": "Instance is already stopped"}
+            if instance.status in [InstanceStatus.STOPPED, InstanceStatus.CONTAINER_MISSING]:
+                return {"status": "already_stopped", "message": "Instance is already stopped or container missing"}
             
             if instance.status not in [InstanceStatus.RUNNING, InstanceStatus.ERROR]:
                 raise ValueError(f"Cannot stop instance with status: {instance.status}")

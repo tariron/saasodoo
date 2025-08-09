@@ -230,7 +230,7 @@ DOCKER_STATUS_TO_INSTANCE_STATUS = {
     DockerContainerState.RESTARTING: InstanceStatus.RESTARTING,
     DockerContainerState.DEAD: InstanceStatus.ERROR,
     DockerContainerState.CREATED: InstanceStatus.CREATING,
-    DockerContainerState.REMOVING: InstanceStatus.TERMINATED,
+    DockerContainerState.REMOVING: InstanceStatus.CONTAINER_MISSING,
 }
 
 EVENT_TYPE_TO_INSTANCE_STATUS = {
@@ -242,7 +242,7 @@ EVENT_TYPE_TO_INSTANCE_STATUS = {
     DockerEventType.PAUSE: InstanceStatus.PAUSED,
     DockerEventType.UNPAUSE: InstanceStatus.RUNNING,
     DockerEventType.CREATE: InstanceStatus.CREATING,
-    DockerEventType.DESTROY: InstanceStatus.TERMINATED,
+    DockerEventType.DESTROY: InstanceStatus.CONTAINER_MISSING,
 }
 
 

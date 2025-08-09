@@ -24,15 +24,13 @@ const BillingInstanceManage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [reactivationLoading, setReactivationLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>('');
-  const [availablePlans] = useState([
-    { name: 'basic-monthly', display: 'Basic Plan', price: 5.00, description: 'Perfect for small teams' },
-    { name: 'standard-monthly', display: 'Standard Plan', price: 8.00, description: 'Great for growing businesses' },
-    { name: 'premium-monthly', display: 'Premium Plan', price: 10.00, description: 'For enterprise needs' }
-  ]);
+  const [availablePlans, setAvailablePlans] = useState<any[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
 
   useEffect(() => {
     if (instanceId) {
       fetchInstanceBillingData();
+      fetchAvailablePlans();
     }
   }, [instanceId]);
 
@@ -44,6 +42,31 @@ const BillingInstanceManage: React.FC = () => {
     } catch (err) {
       console.error('Failed to fetch user profile:', err);
       throw err;
+    }
+  };
+
+  const fetchAvailablePlans = async () => {
+    try {
+      setPlansLoading(true);
+      const response = await billingAPI.getPlans();
+      if (response.data.success && response.data.plans) {
+        setAvailablePlans(response.data.plans.map((plan: any) => ({
+          name: plan.name,
+          display: plan.name.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+          price: plan.price || 0,
+          description: plan.description || `${plan.name} plan`
+        })));
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch plans:', err);
+      // Fallback to hardcoded plans if API fails
+      setAvailablePlans([
+        { name: 'basic-monthly', display: 'Basic Plan', price: 5.00, description: 'Perfect for small teams' },
+        { name: 'standard-monthly', display: 'Standard Plan', price: 8.00, description: 'Great for growing businesses' },
+        { name: 'premium-monthly', display: 'Premium Plan', price: 10.00, description: 'For enterprise needs' }
+      ]);
+    } finally {
+      setPlansLoading(false);
     }
   };
 
@@ -411,7 +434,12 @@ const BillingInstanceManage: React.FC = () => {
               <h3 className="text-lg font-medium text-gray-900 mb-4">Choose a Plan to Reactivate</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                {availablePlans.map((plan) => (
+                {plansLoading ? (
+                  <div className="col-span-3 text-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                    <p className="mt-2 text-gray-600">Loading plans...</p>
+                  </div>
+                ) : availablePlans.map((plan) => (
                   <div
                     key={plan.name}
                     className={`relative border rounded-lg p-4 cursor-pointer transition-all ${
@@ -448,9 +476,9 @@ const BillingInstanceManage: React.FC = () => {
                 </div>
                 <button
                   onClick={handleReactivateInstance}
-                  disabled={!selectedPlan || reactivationLoading || instance?.billing_status === 'payment_required'}
+                  disabled={!selectedPlan || reactivationLoading || instance?.billing_status === 'payment_required' || plansLoading}
                   className={`px-6 py-3 rounded-md font-medium text-white transition-colors ${
-                    !selectedPlan || reactivationLoading || instance?.billing_status === 'payment_required'
+                    !selectedPlan || reactivationLoading || instance?.billing_status === 'payment_required' || plansLoading
                       ? 'bg-gray-400 cursor-not-allowed'
                       : 'bg-blue-600 hover:bg-blue-700'
                   }`}

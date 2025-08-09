@@ -22,6 +22,7 @@ class InstanceStatus(str, Enum):
     MAINTENANCE = "maintenance"
     ERROR = "error"
     TERMINATED = "terminated"
+    CONTAINER_MISSING = "container_missing"
     PAUSED = "paused"
 
 
