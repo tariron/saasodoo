@@ -121,10 +121,10 @@ class DockerEventMonitor:
         }
         return await asyncpg.connect(**db_config)
     
-    def _should_process_event(self, event_id: str, container_name: str) -> bool:
+    def _should_process_event(self, event_id: str, container_name: str, event_type: str) -> bool:
         """Check if event should be processed (deduplication)"""
         # Create unique event key
-        event_key = f"{container_name}_{event_id}_{int(time.time() // 5)}"  # 5-second window
+        event_key = f"{container_name}_{event_type}_{event_id}_{int(time.time() // 5)}"  # 5-second window
         
         if event_key in self.processed_events:
             logger.debug("Duplicate event ignored", event_key=event_key)
@@ -173,7 +173,7 @@ class DockerEventMonitor:
                        instance_hex=container_info['instance_id_hex'])
             
             # Deduplication check
-            if not self._should_process_event(event_id, container_name):
+            if not self._should_process_event(event_id, container_name, event_type):
                 logger.debug("Event deduplicated", 
                             event_type=event_type, 
                             container=container_name,
@@ -268,7 +268,7 @@ class DockerEventMonitor:
             # Listen for container events only
             event_filters = {
                 'type': 'container',
-                'event': ['start', 'stop', 'die', 'kill', 'restart', 'pause', 'unpause', 'destroy']
+                'event': ['start', 'stop', 'die', 'restart', 'pause', 'unpause', 'destroy'] #return kill
             }
             
             logger.info("Starting Docker event stream", filters=event_filters)
@@ -552,7 +552,7 @@ async def _reconcile_instance_statuses() -> Dict[str, Any]:
                 
                 except docker.errors.NotFound:
                     # Container doesn't exist but instance is not terminated or already marked as missing
-                    if db_status not in [InstanceStatus.STOPPED.value, InstanceStatus.ERROR.value, InstanceStatus.CONTAINER_MISSING.value]:
+                    if db_status not in [InstanceStatus.CONTAINER_MISSING.value]:
                         logger.warning("Container not found for active instance", 
                                      instance_id=str(instance_id),
                                      expected_container=expected_container_name,
