@@ -1,37 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-#Notes
-- dont use jq
-- after making changes to code always use docker compose -f infrastructure/compose/docker-compose.dev.yml up --build -d "service" to restart the service
-
-
-## Development Commands
-
-### Docker & Environment
-#- `make dev-up` - Start development environment with all services
-#- `make dev-down` - Stop development environment
-#- `make dev-logs` - View all service logs
-#- `make dev-logs-service SERVICE=user-service` - View specific service logs
-#- `make dev-shell SERVICE=user-service` - Access service shell
-#- `make dev-restart` - Restart development environment
-
-### Testing & Quality
-#- `make test` - Run all tests across services
-#- `make test-service SERVICE=user-service` - Run tests for specific service
-#- `make format` - Format code using black and isort
-#- `make lint` - Run flake8 and pylint code linting
-#- `make security-scan` - Run bandit security analysis
-
-### Database Operations
-#- `make db-test` - Test database connectivity using shared/configs/postgres/test_connectivity.py
-#- `make db-reset` - Reset development database (destroys all data)
-#- `make pgadmin-open` - Open pgAdmin web interface
-
-### Building & Deployment
-#- `make build` - Build all Docker images
-#- `make build-service SERVICE=user-service` - Build specific service image
-
 ## Architecture Overview
 
 ### Microservices Architecture
@@ -104,3 +70,4 @@ services/{service-name}/
 - instance-service: Working but has known issues
 - Frontend web application: Not yet implemented
 - Billing and notification services: Not yet implemented
+- use  docker compose -f infrastructure/compose/docker-compose.dev.yml up --build up -d to bring up services

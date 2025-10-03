@@ -244,7 +244,7 @@ services:
 
   # KillBill Billing Engine
   killbill:
-    image: killbill/killbill:latest
+    image: killbill/killbill:0.24.15
     container_name: saasodoo-killbill
     restart: unless-stopped
     environment:
