@@ -272,14 +272,14 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         # Pull Bitnami Odoo image
         odoo_version = instance.get('odoo_version', '17')
         logger.info("Pulling Bitnami Odoo image", version=odoo_version)
-        client.images.pull(f'bitnami/odoo:{odoo_version}')
+        client.images.pull(f'bitnamilegacy/odoo:{odoo_version}')
         
         # Create persistent volume for Odoo data
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
         
         # Create and start container with persistent volume
         container = client.containers.run(
-            f'bitnami/odoo:{odoo_version}',
+            f'bitnamilegacy/odoo:{odoo_version}',
             name=container_name,
             environment=environment,
             mem_limit=mem_limit,
