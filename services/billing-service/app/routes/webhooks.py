@@ -442,108 +442,120 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         logger.error(f"Error handling subscription creation: {e}")
 
 async def handle_subscription_cancelled(payload: Dict[str, Any]):
-    """Handle subscription cancellation webhook - database updates and notifications only"""
+    """Handle subscription cancellation webhook - check actionType to determine when to terminate"""
     subscription_id = payload.get('objectId')
     account_id = payload.get('accountId')
-    
-    logger.info(f"Subscription cancellation scheduled: {subscription_id} for account: {account_id}")
-    
+    metadata_str = payload.get('metaData')
+
+    # Parse metadata to check actionType
+    action_type = None
+    if metadata_str:
+        try:
+            import json
+            metadata = json.loads(metadata_str)
+            action_type = metadata.get('actionType')
+            logger.info(f"Subscription cancel actionType: {action_type} for {subscription_id}")
+        except Exception as parse_error:
+            logger.warning(f"Could not parse metaData for subscription {subscription_id}: {parse_error}")
+
+    logger.info(f"Subscription cancellation: {subscription_id} for account: {account_id}, actionType: {action_type}")
+
     try:
         # Get customer information from KillBill
         customer_external_key = await _get_customer_external_key_by_account_id(account_id)
         if not customer_external_key:
             logger.warning(f"Could not find customer for account {account_id}")
             return
-        
-        logger.info(f"Subscription {subscription_id} scheduled for cancellation for customer {customer_external_key}")
-        
-        # TODO: Update subscription status in our database if we have one
-        # TODO: Log cancellation event for analytics
-        # TODO: Update billing dashboard/UI status
-        
-        # Send subscription cancellation confirmation email
-        try:
-            from ..utils.notification_client import send_subscription_cancelled_email
-            
-            # Get customer info and subscription details
-            customer_info = await _get_customer_info_by_external_key(customer_external_key)
-            subscription_info = await _get_subscription_info(subscription_id)
-            
-            if customer_info and subscription_info:
-                await send_subscription_cancelled_email(
-                    email=customer_info.get('email', ''),
-                    first_name=customer_info.get('first_name', ''),
-                    subscription_name=subscription_info.get('planName', f'Subscription {subscription_id}'),
-                    end_date=subscription_info.get('chargedThroughDate', 'end of current billing period')
-                )
-                logger.info(f"✅ Sent subscription cancellation email to {customer_info.get('email')}")
-            else:
-                logger.warning(f"Could not send cancellation email - missing customer or subscription info")
-        except Exception as email_error:
-            logger.error(f"❌ Failed to send subscription cancellation email: {email_error}")
-        
-        # NOTE: We DO NOT terminate instances here - that happens in ENTITLEMENT_CANCEL webhook
-        # at the end of the billing period when the user's access actually ends
-        
-        logger.info(f"Processed subscription cancellation notification for {subscription_id}")
-        
+
+        if action_type == "REQUESTED":
+            # Cancellation requested but not yet effective - send notification only
+            logger.info(f"Subscription {subscription_id} cancellation REQUESTED for customer {customer_external_key}")
+
+            # Send subscription cancellation confirmation email
+            try:
+                from ..utils.notification_client import send_subscription_cancelled_email
+
+                # Get customer info and subscription details
+                customer_info = await _get_customer_info_by_external_key(customer_external_key)
+                subscription_info = await _get_subscription_info(subscription_id)
+
+                if customer_info and subscription_info:
+                    await send_subscription_cancelled_email(
+                        email=customer_info.get('email', ''),
+                        first_name=customer_info.get('first_name', ''),
+                        subscription_name=subscription_info.get('planName', f'Subscription {subscription_id}'),
+                        end_date=subscription_info.get('chargedThroughDate', 'end of current billing period')
+                    )
+                    logger.info(f"✅ Sent subscription cancellation email to {customer_info.get('email')}")
+                else:
+                    logger.warning(f"Could not send cancellation email - missing customer or subscription info")
+            except Exception as email_error:
+                logger.error(f"❌ Failed to send subscription cancellation email: {email_error}")
+
+            logger.info(f"Processed subscription cancellation notification for {subscription_id}")
+
+        elif action_type == "EFFECTIVE":
+            # Cancellation is now effective - terminate the instance
+            logger.info(f"Subscription {subscription_id} cancellation EFFECTIVE for customer {customer_external_key} - terminating instance")
+
+            # Find instance by subscription_id
+            instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+            if not instance:
+                logger.warning(f"No instance found for subscription {subscription_id} during effective cancellation")
+                return
+
+            instance_id = instance.get("id")
+            logger.info(f"Found instance {instance_id} for effective cancellation of subscription {subscription_id}")
+
+            # Terminate the instance since billing period has ended
+            try:
+                await instance_client.terminate_instance(instance_id, "Subscription billing period ended")
+                logger.info(f"Successfully terminated instance {instance_id} for subscription {subscription_id}")
+                logger.info(f"Instance {instance_id} terminated for customer {customer_external_key} - subscription {subscription_id} billing ended")
+
+            except Exception as instance_error:
+                logger.error(f"Failed to terminate instance {instance_id} for subscription {subscription_id}: {instance_error}")
+                # Don't raise - we want to continue processing other webhooks
+
+            # Send service termination notification email
+            try:
+                from ..utils.notification_client import send_service_terminated_email
+
+                # Get customer info for the email
+                customer_info = await _get_customer_info_by_external_key(customer_external_key)
+                if customer_info:
+                    await send_service_terminated_email(
+                        email=customer_info.get('email', ''),
+                        first_name=customer_info.get('first_name', ''),
+                        service_name=f'Odoo Instance {instance_id}',
+                        backup_info="Your data has been backed up and will be available for 30 days. Contact support to restore your data."
+                    )
+                    logger.info(f"✅ Sent service termination email to {customer_info.get('email')}")
+                else:
+                    logger.warning(f"Could not send termination email - customer info not found for {customer_external_key}")
+            except Exception as email_error:
+                logger.error(f"❌ Failed to send service termination email: {email_error}")
+
+            logger.info(f"Processed effective subscription cancellation for {subscription_id}")
+        else:
+            # Unknown or missing actionType - log but don't terminate
+            logger.warning(f"Subscription cancellation with unknown actionType '{action_type}' for {subscription_id}")
+
     except Exception as e:
         logger.error(f"Error handling subscription cancellation: {e}")
 
 async def handle_entitlement_cancelled(payload: Dict[str, Any]):
-    """Handle entitlement cancellation webhook - terminate instance when access ends"""
+    """Handle entitlement cancellation webhook - log event only, termination happens in SUBSCRIPTION_CANCEL with actionType=EFFECTIVE"""
     subscription_id = payload.get('objectId')
     account_id = payload.get('accountId')
-    
-    logger.info(f"Entitlement cancelled: {subscription_id} for account: {account_id}")
-    
-    try:
-        # Find instance by subscription_id using our database lookup
-        instance = await instance_client.get_instance_by_subscription_id(subscription_id)
-        if not instance:
-            logger.warning(f"No instance found for subscription {subscription_id} during entitlement cancellation")
-            return
-        
-        instance_id = instance.get("id")
-        logger.info(f"Found instance {instance_id} for cancelled entitlement {subscription_id}")
-        
-        # Terminate the instance since entitlement has ended
-        try:
-            await instance_client.terminate_instance(instance_id, "Subscription entitlement ended")
-            logger.info(f"Successfully terminated instance {instance_id} for subscription {subscription_id}")
-            
-            # Get customer information for logging
-            customer_external_key = await _get_customer_external_key_by_account_id(account_id)
-            logger.info(f"Instance {instance_id} terminated for customer {customer_external_key} - subscription {subscription_id} entitlement ended")
-            
-        except Exception as instance_error:
-            logger.error(f"Failed to terminate instance {instance_id} for subscription {subscription_id}: {instance_error}")
-            # Don't raise - we want to continue processing other webhooks
-        
-        # Send service termination notification email
-        try:
-            from ..utils.notification_client import send_service_terminated_email
-            
-            # Get customer info for the email
-            customer_info = await _get_customer_info_by_external_key(customer_external_key)
-            if customer_info:
-                await send_service_terminated_email(
-                    email=customer_info.get('email', ''),
-                    first_name=customer_info.get('first_name', ''),
-                    service_name=f'Odoo Instance {instance_id}',
-                    backup_info="Your data has been backed up and will be available for 30 days. Contact support to restore your data."
-                )
-                logger.info(f"✅ Sent service termination email to {customer_info.get('email')}")
-            else:
-                logger.warning(f"Could not send termination email - customer info not found for {customer_external_key}")
-        except Exception as email_error:
-            logger.error(f"❌ Failed to send service termination email: {email_error}")
-        
-        # TODO: Trigger data backup before final cleanup
-        # TODO: Clean up any additional resources
-        
-    except Exception as e:
-        logger.error(f"Error handling entitlement cancellation for subscription {subscription_id}: {e}")
+
+    logger.info(f"Entitlement cancelled event received: {subscription_id} for account: {account_id}")
+    logger.info(f"Instance termination will occur when SUBSCRIPTION_CANCEL webhook fires with actionType=EFFECTIVE")
+
+    # NOTE: We no longer terminate instances here. With END_OF_TERM cancel policy,
+    # ENTITLEMENT_CANCEL fires when cancellation is requested, but the instance should
+    # remain active until the billing period ends. Termination now happens in
+    # handle_subscription_cancelled when actionType == "EFFECTIVE"
 
 async def handle_invoice_created(payload: Dict[str, Any]):
     """Handle invoice creation webhook"""
