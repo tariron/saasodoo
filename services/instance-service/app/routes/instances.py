@@ -900,15 +900,18 @@ async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
         # If instance is running, stop the actual Docker container first
         if instance.status == InstanceStatus.RUNNING:
             logger.info("Stopping running instance container before suspension", instance_id=str(instance_id))
-            
+
             # Use the same Docker stopping logic as the lifecycle module
             await _stop_container_for_suspension(instance)
             logger.info("Container stopped for suspension", instance_id=str(instance_id))
-        
+
         # Update status to suspended
         await db.update_instance_status(instance_id, InstanceStatus.PAUSED, "Instance suspended due to billing issues")
-        
-        logger.info("Instance suspended successfully with container stopped", instance_id=str(instance_id))
+
+        # Update billing status to payment_required
+        await db.update_instance_billing_status(str(instance_id), BillingStatus.PAYMENT_REQUIRED)
+
+        logger.info("Instance suspended successfully with container stopped and billing status updated", instance_id=str(instance_id))
         return {
             "status": "success",
             "message": "Instance suspended successfully",

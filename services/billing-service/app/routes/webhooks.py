@@ -133,6 +133,8 @@ async def handle_killbill_webhook(request: Request, response: Response):
             await handle_invoice_overdue(payload)
         elif event_type == "INVOICE_CREATION":
             await handle_invoice_created(payload)
+        elif event_type == "INVOICE_PAYMENT_FAILED":
+            await handle_invoice_payment_failed(payload)
         elif event_type == "PING":
             logger.info("Processed KillBill ping/health check webhook")
         elif event_type == "UNKNOWN":
@@ -215,7 +217,7 @@ async def handle_payment_success(payload: Dict[str, Any]):
         unsuspended_count = 0
         
         for instance in instances:
-            if instance.get('status') == 'suspended' or instance.get('billing_status') == 'payment_required':
+            if instance.get('status') in ['suspended', 'paused'] or instance.get('billing_status') == 'payment_required':
                 try:
                     result = await instance_client.unsuspend_instance(instance['id'], "Payment received")
                     if result.get('status') == 'success':
@@ -605,6 +607,99 @@ async def handle_invoice_created(payload: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error handling invoice creation: {e}")
+
+async def handle_invoice_payment_failed(payload: Dict[str, Any]):
+    """Handle invoice payment failure - suspend instances due to non-payment"""
+    invoice_id = payload.get('objectId')
+    account_id = payload.get('accountId')
+
+    logger.warning(f"Invoice payment failed: {invoice_id} for account: {account_id}")
+
+    try:
+        # Get customer information from KillBill
+        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+        if not customer_external_key:
+            logger.warning(f"Could not find customer for account {account_id}")
+            return
+
+        # Get invoice details to find associated subscriptions
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+
+        invoice_details = await killbill.get_invoice_by_id(invoice_id)
+        if not invoice_details or not invoice_details.get('items'):
+            logger.warning(f"Could not get invoice details for failed payment invoice {invoice_id}")
+            return
+
+        # Extract subscription IDs from invoice items
+        subscription_ids = set()
+        for item in invoice_details.get('items', []):
+            sub_id = item.get('subscriptionId')
+            if sub_id:
+                subscription_ids.add(sub_id)
+
+        if not subscription_ids:
+            logger.warning(f"No subscriptions found in failed payment invoice {invoice_id}")
+            return
+
+        logger.info(f"Found {len(subscription_ids)} subscriptions in failed payment invoice {invoice_id}: {subscription_ids}")
+
+        # Suspend instances for each subscription
+        for subscription_id in subscription_ids:
+            try:
+                # Find instance by subscription_id
+                instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+                if not instance:
+                    logger.warning(f"No instance found for subscription {subscription_id} with failed payment")
+                    continue
+
+                instance_id = instance.get("id")
+                instance_status = instance.get("status")
+                logger.info(f"Found instance {instance_id} (status: {instance_status}) for subscription {subscription_id} with failed payment")
+
+                # Only suspend if instance is running
+                if instance_status == "running":
+                    # Suspend the instance
+                    await instance_client.suspend_instance(instance_id, f"Payment failed for invoice {invoice_id}")
+                    logger.info(f"Successfully suspended instance {instance_id} for subscription {subscription_id} due to payment failure")
+                else:
+                    logger.info(f"Instance {instance_id} not running (status: {instance_status}), skipping suspension")
+
+            except Exception as instance_error:
+                logger.error(f"Failed to suspend instance for subscription {subscription_id}: {instance_error}")
+                continue
+
+        # Send payment failure notification email
+        try:
+            from ..utils.notification_client import send_payment_failed_email
+
+            # Get customer info and invoice details
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+
+            if customer_info:
+                # Note: send_payment_failed_email might not exist yet, this is a placeholder
+                # You may need to create this email template or use a generic one
+                logger.info(f"TODO: Send payment failed email to {customer_info.get('email')}")
+                # await send_payment_failed_email(
+                #     email=customer_info.get('email', ''),
+                #     first_name=customer_info.get('first_name', ''),
+                #     invoice_id=invoice_id,
+                #     amount=invoice_details.get('balance', 0)
+                # )
+            else:
+                logger.warning(f"Could not send payment failed email - customer info not found for {customer_external_key}")
+        except Exception as email_error:
+            logger.error(f"❌ Failed to send payment failed notification email: {email_error}")
+
+        logger.info(f"Processed invoice payment failure for {len(subscription_ids)} subscriptions")
+
+    except Exception as e:
+        logger.error(f"Error handling invoice payment failure: {e}")
 
 async def handle_invoice_payment_success(payload: Dict[str, Any]):
     """Handle invoice payment success - create instances for paid subscriptions"""

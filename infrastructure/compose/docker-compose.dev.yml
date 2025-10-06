@@ -552,9 +552,12 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      - postgres
-      - redis
-      - killbill
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      killbill:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
       interval: 30s
