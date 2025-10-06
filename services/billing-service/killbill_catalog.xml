@@ -22,7 +22,7 @@
     <rules>
         <changePolicy>
             <changePolicyCase>
-                <policy>IMMEDIATE</policy>
+                <policy>END_OF_TERM</policy>
             </changePolicyCase>
         </changePolicy>
         <changeAlignment>

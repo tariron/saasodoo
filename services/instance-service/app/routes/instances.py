@@ -950,9 +950,24 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             logger.info("Container stopped for termination", instance_id=str(instance_id))
         
         # Update status to terminated (permanent)
-        await db.update_instance_status(instance_id, InstanceStatus.TERMINATED, "Instance terminated due to subscription cancellation")
-        
-        logger.info("Instance terminated successfully with container stopped", instance_id=str(instance_id))
+        logger.info("Updating instance status to TERMINATED", instance_id=str(instance_id))
+        update_success = await db.update_instance_status(instance_id, InstanceStatus.TERMINATED, "Instance terminated due to subscription cancellation")
+
+        if not update_success:
+            error_msg = f"Database update returned False - instance {instance_id} status not updated to TERMINATED"
+            logger.error(error_msg, instance_id=str(instance_id))
+            raise Exception(error_msg)
+
+        # Verify the update actually happened by reading back from database
+        updated_instance = await db.get_instance(instance_id)
+        if not updated_instance or updated_instance.status != InstanceStatus.TERMINATED:
+            actual_status = updated_instance.status if updated_instance else "NOT_FOUND"
+            error_msg = f"Database update verification failed - instance {instance_id} status is {actual_status}, expected TERMINATED"
+            logger.error(error_msg, instance_id=str(instance_id), actual_status=actual_status)
+            raise Exception(error_msg)
+
+        logger.info("Instance terminated successfully with container stopped and database verified",
+                   instance_id=str(instance_id), verified_status=updated_instance.status)
         return {
             "status": "success",
             "message": "Instance terminated successfully",
