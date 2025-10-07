@@ -840,8 +840,15 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                             provisioning_trigger="invoice_payment_success_billing_update"
                         )
                         logger.info(f"Updated billing status to 'paid' for instance {existing_instance['id']} after payment success")
+
+                        # Start the instance after successful payment
+                        await instance_client.start_instance(
+                            instance_id=existing_instance['id'],
+                            reason="Payment successful - starting instance"
+                        )
+                        logger.info(f"Started instance {existing_instance['id']} after payment success")
                     except Exception as e:
-                        logger.error(f"Failed to update billing status to 'paid' for instance {existing_instance['id']}: {e}")
+                        logger.error(f"Failed to update billing status or start instance {existing_instance['id']}: {e}")
 
                     # Additional provisioning if needed
                     if existing_instance.get('provisioning_status') in ['pending']:

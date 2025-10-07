@@ -174,7 +174,27 @@ class InstanceServiceClient:
             logger.error(f"Failed to terminate instance {instance_id}: {result}")
         
         return result or {}
-    
+
+    async def start_instance(self, instance_id: str, reason: str = "Payment successful") -> Dict[str, Any]:
+        """Start an instance"""
+        endpoint = f"/api/v1/instances/{instance_id}/actions"
+        payload = {
+            "action": "start",
+            "parameters": {
+                "reason": reason
+            }
+        }
+
+        logger.info(f"Starting instance {instance_id}: {reason}")
+        result = await self._make_request("POST", endpoint, json=payload)
+
+        if result and result.get("status") == "success":
+            logger.info(f"Successfully started instance {instance_id}")
+        else:
+            logger.error(f"Failed to start instance {instance_id}: {result}")
+
+        return result or {}
+
     async def get_instance_status(self, instance_id: str) -> Optional[Dict[str, Any]]:
         """Get instance status"""
         endpoint = f"/api/v1/instances/{instance_id}/status"
