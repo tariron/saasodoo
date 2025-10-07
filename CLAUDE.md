@@ -71,3 +71,128 @@ services/{service-name}/
 - Frontend web application: Not yet implemented
 - Billing and notification services: Not yet implemented
 - use  docker compose -f infrastructure/compose/docker-compose.dev.yml up --build up -d to bring up services
+
+ curl -X POST \
+    -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    -H "Content-Type: text/plain" \
+    -H "X-Killbill-CreatedBy: admin" \
+    -d "http://billing-service:8004/api/billing/webhooks/killbill" \
+    "http://localhost:8081/1.0/kb/tenants/userKeyValue/PUSH_NOTIFICATION_CB"
+	
+    	
+	● Here are the commands I used:
+
+  1. Check current KillBill test clock time:
+  docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
+   fresh-secret" http://localhost:8080/1.0/kb/test/clock
+
+  2. Get subscription details (to see end time):
+  docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
+   fresh-secret" "http://localhost:8080/1.0/kb/subscriptions/7b30402a-056c-4c85-8c56-f9b38a23268c" | python3 -m
+  json.tool
+
+  3. Advance time to specific date (November 4th, 2025):
+  docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
+   fresh-secret" -X POST "http://localhost:8080/1.0/kb/test/clock?requestedDate=2025-11-04T00:00:00.000Z"
+
+  Provisioning Commands
+
+  # Add tenant (run once after reset)
+  docker exec saasodoo-killbill curl -v \
+    -X POST \
+    -u admin:password \
+    -H "Content-Type: application/json" \
+    -H "X-Killbill-CreatedBy: admin" \
+    -d '{"apiKey":"fresh-tenant","apiSecret":"fresh-secret"}' \
+    "http://localhost:8080/1.0/kb/tenants"
+
+  # Upload catalog (using the modified killbill_catalog.xml)
+  docker exec saasodoo-killbill curl -v \
+    -X POST \
+    -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    -H "Content-Type: application/xml" \
+    -H "X-Killbill-CreatedBy: admin" \
+    -d @/var/tmp/killbill_catalog.xml \
+    "http://localhost:8080/1.0/kb/tenants/uploadPluginConfig/killbill-catalog"
+
+  Test Clock Commands
+
+  # Check current KillBill time
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    http://localhost:8080/1.0/kb/test/clock
+
+  # Advance time to specific date
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    -X POST \
+    "http://localhost:8080/1.0/kb/test/clock?requestedDate=2026-04-01T02:00:00.000Z"
+
+  # Reset to current system time
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    -X POST \
+    "http://localhost:8080/1.0/kb/test/clock?requestedDate=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+
+  Account Commands
+
+  # Get account by external key (customer_id)
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    "http://localhost:8080/1.0/kb/accounts?externalKey=CUSTOMER_ID_HERE" | python3 -m json.tool
+
+  # Get account bundles/subscriptions
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    "http://localhost:8080/1.0/kb/accounts/ACCOUNT_ID_HERE/bundles" | python3 -m json.tool
+
+  Subscription Commands
+
+  # Get subscription details
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    "http://localhost:8080/1.0/kb/subscriptions/SUBSCRIPTION_ID_HERE" | python3 -m json.tool
+
+  # Get subscription with grep filters
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    "http://localhost:8080/1.0/kb/subscriptions/SUBSCRIPTION_ID_HERE" | python3 -m json.tool | grep -E
+  "state|cancelledDate|chargedThroughDate|phaseType"
+
+  Bundle Commands
+
+  # Get bundle details
+  docker exec saasodoo-killbill curl -s -u admin:password \
+    -H "X-Killbill-ApiKey: fresh-tenant" \
+    -H "X-Killbill-ApiSecret: fresh-secret" \
+    "http://localhost:8080/1.0/kb/bundles/BUNDLE_ID_HERE" | python3 -m json.tool
+
+  Health Check
+
+  # Check KillBill health
+  docker exec saasodoo-killbill curl -s http://localhost:8080/1.0/healthcheck
+
+  Database Commands
+
+  # Check instance in database
+  docker exec saasodoo-postgres psql -U instance_service -d instance -c \
+    "SELECT id, name, status, subscription_id, updated_at FROM instances WHERE id = 'INSTANCE_ID_HERE';"
+
+  Note: The killbill_catalog.xml file is located at infrastructure/killbill/killbill_catalog.xml and needs to be copied
+  into the KillBill container before uploading.
+
+
+
+docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
+   fresh-secret" "http://localhost:8080/1.0/kb/tenants/userKeyValue/PUSH_NOTIFICATION_CB"

@@ -32,7 +32,20 @@ async def lifespan(app: FastAPI):
         username=os.getenv("KILLBILL_USERNAME", "admin"),
         password=os.getenv("KILLBILL_PASSWORD", "password")
     )
-    
+
+    # Check and create KillBill tenant if needed
+    try:
+        tenant_exists = await app.state.killbill.check_tenant_exists()
+        if not tenant_exists:
+            logger.info("KillBill tenant does not exist, creating...")
+            await app.state.killbill.create_tenant()
+            logger.info("Successfully created KillBill tenant")
+        else:
+            logger.info("KillBill tenant already exists")
+    except Exception as e:
+        logger.error(f"Failed to check/create tenant: {e}")
+        logger.warning("Continuing without tenant verification")
+
     # Register webhook with KillBill
     try:
         webhook_url = os.getenv("KILLBILL_NOTIFICATION_URL", "http://billing-service:8004/api/billing/webhooks/killbill")

@@ -262,6 +262,76 @@ class KillBillClient:
             logger.error(f"Failed to get subscription {subscription_id}: {e}")
             return None
     
+    async def check_tenant_exists(self) -> bool:
+        """Check if KillBill tenant exists"""
+        try:
+            headers = {
+                "X-Killbill-ApiKey": self.api_key,
+                "X-Killbill-ApiSecret": self.api_secret,
+                "Accept": "application/json"
+            }
+
+            url = f"{self.base_url}/1.0/kb/tenants"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url=url,
+                    headers=headers,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+
+                if response.status_code == 200:
+                    logger.info("KillBill tenant exists")
+                    return True
+                elif response.status_code == 404:
+                    logger.info("KillBill tenant does not exist")
+                    return False
+                else:
+                    logger.warning(f"Unexpected response checking tenant: {response.status_code}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"Failed to check if tenant exists: {e}")
+            return False
+
+    async def create_tenant(self) -> Dict[str, Any]:
+        """Create KillBill tenant"""
+        try:
+            tenant_data = {
+                "apiKey": self.api_key,
+                "apiSecret": self.api_secret
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-Killbill-CreatedBy": "billing-service"
+            }
+
+            url = f"{self.base_url}/1.0/kb/tenants"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url=url,
+                    headers=headers,
+                    json=tenant_data,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+
+                logger.info(f"KillBill tenant creation POST {url}: {response.status_code}")
+
+                if response.status_code >= 400:
+                    logger.error(f"KillBill tenant creation error: {response.status_code} - {response.text}")
+                    response.raise_for_status()
+
+            logger.info(f"Successfully created KillBill tenant with apiKey: {self.api_key}")
+            return {"status": "created", "apiKey": self.api_key}
+
+        except Exception as e:
+            logger.error(f"Failed to create tenant: {e}")
+            raise
+
     async def register_webhook(self, webhook_url: str) -> Dict[str, Any]:
         """Register webhook URL with KillBill using proper notification callback API"""
         try:
@@ -269,11 +339,11 @@ class KillBillClient:
             headers["X-Killbill-ApiKey"] = self.api_key
             headers["X-Killbill-ApiSecret"] = self.api_secret
             headers["X-Killbill-CreatedBy"] = "billing-service"
-            
+
             # Use the correct KillBill webhook registration endpoint
             url = f"{self.base_url}/1.0/kb/tenants/registerNotificationCallback"
             params = {"cb": webhook_url}
-            
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url=url,
@@ -282,16 +352,16 @@ class KillBillClient:
                     auth=(self.username, self.password),
                     timeout=30.0
                 )
-                
+
                 logger.info(f"KillBill webhook registration POST {url}: {response.status_code}")
-                
+
                 if response.status_code >= 400:
                     logger.error(f"KillBill webhook registration error: {response.status_code} - {response.text}")
                     response.raise_for_status()
-            
+
             logger.info(f"Successfully registered webhook URL: {webhook_url}")
             return {"status": "registered", "url": webhook_url}
-            
+
         except Exception as e:
             logger.error(f"Failed to register webhook {webhook_url}: {e}")
             raise
