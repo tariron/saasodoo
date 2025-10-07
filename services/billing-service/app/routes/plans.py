@@ -27,6 +27,9 @@ class Plan(BaseModel):
     currency: str
     available: bool
     fallback: bool = False
+    cpu_limit: float | None = None
+    memory_limit: str | None = None
+    storage_limit: str | None = None
 
 class PlansResponse(BaseModel):
     """Response for plans listing"""
@@ -41,14 +44,18 @@ def get_killbill_client(request: Request) -> KillBillClient:
 
 @router.get("/", response_model=PlansResponse)
 async def get_available_plans(
+    request: Request,
     killbill: KillBillClient = Depends(get_killbill_client)
 ):
-    """Get all available billing plans from KillBill catalog"""
+    """Get all available billing plans from KillBill catalog with entitlements"""
     try:
         logger.info("Fetching available plans from KillBill catalog")
-        
-        # Get plans from KillBill catalog
-        plans_data = await killbill.get_catalog_plans()
+
+        # Get entitlements from app state
+        entitlements = request.app.state.plan_entitlements
+
+        # Get plans from KillBill catalog with entitlements merged
+        plans_data = await killbill.get_catalog_plans(entitlements=entitlements)
         
         # Convert to response models
         plans = []
@@ -65,7 +72,10 @@ async def get_available_plans(
                     price=plan_data.get("price"),
                     currency=plan_data.get("currency", "USD"),
                     available=plan_data.get("available", True),
-                    fallback=plan_data.get("fallback", False)
+                    fallback=plan_data.get("fallback", False),
+                    cpu_limit=plan_data.get("cpu_limit"),
+                    memory_limit=plan_data.get("memory_limit"),
+                    storage_limit=plan_data.get("storage_limit")
                 )
                 plans.append(plan)
             except Exception as plan_error:

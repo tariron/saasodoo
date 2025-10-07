@@ -108,7 +108,7 @@ async def create_instance_with_subscription(
             "odoo_version": instance_data.odoo_version,
             "instance_type": instance_data.instance_type,
             "demo_data": str(instance_data.demo_data).lower(),
-            "cpu_limit": str(instance_data.cpu_limit),
+            "cpu_limit": instance_data.cpu_limit,
             "memory_limit": instance_data.memory_limit,
             "storage_limit": instance_data.storage_limit,
             "custom_addons": ",".join(instance_data.custom_addons) if instance_data.custom_addons else ""

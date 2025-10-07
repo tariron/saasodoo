@@ -163,6 +163,9 @@ export interface Plan {
   currency: string;
   available: boolean;
   fallback?: boolean;
+  cpu_limit?: number;
+  memory_limit?: string;
+  storage_limit?: string;
 }
 
 export interface CreateSubscriptionRequest {

@@ -99,6 +99,18 @@ const CreateInstance: React.FC = () => {
     }
   }, [trialEligible, selectedPlan]);
 
+  // Auto-populate resources from selected plan
+  useEffect(() => {
+    if (selectedPlan) {
+      setFormData(prev => ({
+        ...prev,
+        cpu_limit: selectedPlan.cpu_limit || 1.0,
+        memory_limit: selectedPlan.memory_limit || '2G',
+        storage_limit: selectedPlan.storage_limit || '10G'
+      }));
+    }
+  }, [selectedPlan]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -356,7 +368,7 @@ const CreateInstance: React.FC = () => {
                           />
                           <div className="ml-3 flex-1">
                             <label className="block text-sm font-medium text-gray-900">
-                              {plan.product} 
+                              {plan.product}
                               {plan.trial_length > 0 && (
                                 <span className="ml-1 text-green-600">
                                   ({plan.trial_length} day trial)
@@ -366,6 +378,25 @@ const CreateInstance: React.FC = () => {
                             <p className="text-sm text-gray-500 mt-1">
                               {plan.description}
                             </p>
+
+                            {/* Show included resources */}
+                            {plan.cpu_limit && (
+                              <div className="mt-2 space-y-1">
+                                <div className="text-xs text-gray-600 flex items-center">
+                                  <span className="mr-1">•</span>
+                                  {plan.cpu_limit} CPU core{plan.cpu_limit !== 1 ? 's' : ''}
+                                </div>
+                                <div className="text-xs text-gray-600 flex items-center">
+                                  <span className="mr-1">•</span>
+                                  {plan.memory_limit} RAM
+                                </div>
+                                <div className="text-xs text-gray-600 flex items-center">
+                                  <span className="mr-1">•</span>
+                                  {plan.storage_limit} Storage
+                                </div>
+                              </div>
+                            )}
+
                             <div className="mt-2">
                               {plan.trial_length > 0 && plan.price === 0 ? (
                                 <span className="text-lg font-semibold text-green-600">Free Trial</span>
@@ -674,60 +705,49 @@ const CreateInstance: React.FC = () => {
                 </div>
               </div>
 
-              {/* Resource Allocation */}
-              <div className="border-t border-gray-200 pt-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Resource Allocation</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      CPU Cores
-                    </label>
-                    <select
-                      value={formData.cpu_limit}
-                      onChange={(e) => handleInputChange('cpu_limit', parseFloat(e.target.value))}
-                      className="input-field"
-                    >
-                      <option value={0.5}>0.5 cores</option>
-                      <option value={1.0}>1 core</option>
-                      <option value={2.0}>2 cores</option>
-                      <option value={4.0}>4 cores</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Memory (RAM)
-                    </label>
-                    <select
-                      value={formData.memory_limit}
-                      onChange={(e) => handleInputChange('memory_limit', e.target.value)}
-                      className="input-field"
-                    >
-                      <option value="1G">1 GB</option>
-                      <option value="2G">2 GB</option>
-                      <option value="4G">4 GB</option>
-                      <option value="8G">8 GB</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Storage
-                    </label>
-                    <select
-                      value={formData.storage_limit}
-                      onChange={(e) => handleInputChange('storage_limit', e.target.value)}
-                      className="input-field"
-                    >
-                      <option value="10G">10 GB</option>
-                      <option value="20G">20 GB</option>
-                      <option value="50G">50 GB</option>
-                      <option value="100G">100 GB</option>
-                    </select>
+              {/* Resource Allocation - Included with Plan */}
+              {selectedPlan && (
+                <div className="border-t border-gray-200 pt-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                    Included Resources
+                  </h3>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="grid grid-cols-3 gap-6 text-center">
+                      <div>
+                        <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                          CPU Cores
+                        </div>
+                        <div className="text-3xl font-bold text-blue-900">
+                          {formData.cpu_limit}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                          Memory (RAM)
+                        </div>
+                        <div className="text-3xl font-bold text-blue-900">
+                          {formData.memory_limit}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-1">
+                          Storage
+                        </div>
+                        <div className="text-3xl font-bold text-blue-900">
+                          {formData.storage_limit}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-xs text-center text-gray-600">
+                        <span className="font-medium">Included with your {selectedPlan.product} plan</span>
+                        {' • '}
+                        These resources are automatically provisioned for your instance
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Options */}
               <div className="border-t border-gray-200 pt-6">

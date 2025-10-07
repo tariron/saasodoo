@@ -469,8 +469,12 @@ class KillBillClient:
             logger.error(f"Failed to extract subscription ID from invoice {invoice_id}: {e}")
             return None
     
-    async def get_catalog_plans(self) -> List[Dict[str, Any]]:
-        """Get available plans from KillBill catalog"""
+    async def get_catalog_plans(self, entitlements: dict = None) -> List[Dict[str, Any]]:
+        """Get available plans from KillBill catalog with entitlements merged
+
+        Args:
+            entitlements: Dict mapping plan_name to entitlement data (cpu_limit, memory_limit, storage_limit)
+        """
         try:
             endpoint = "/1.0/kb/catalog"
             response = await self._make_request("GET", endpoint)
@@ -524,7 +528,14 @@ class KillBillClient:
                             "currency": currency,
                             "available": True
                         }
-                        
+
+                        # Merge entitlements from database
+                        if entitlements and plan_name in entitlements:
+                            ent = entitlements[plan_name]
+                            plan_info["cpu_limit"] = ent["cpu_limit"]
+                            plan_info["memory_limit"] = ent["memory_limit"]
+                            plan_info["storage_limit"] = ent["storage_limit"]
+
                         plans.append(plan_info)
             
             logger.info(f"Retrieved {len(plans)} plans from KillBill catalog")

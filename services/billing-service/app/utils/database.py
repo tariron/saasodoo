@@ -70,3 +70,55 @@ async def fetch_all(query: str, *args):
     pool = get_pool()
     async with pool.acquire() as connection:
         return await connection.fetch(query, *args)
+
+async def get_plan_entitlements(plan_name: str, effective_date: str = None):
+    """
+    Get plan entitlements for a specific plan at a given date.
+    If effective_date not provided, returns latest version.
+
+    Args:
+        plan_name: Name of the plan (e.g., 'basic-monthly')
+        effective_date: Date to query entitlements for (ISO format string or None for latest)
+
+    Returns:
+        asyncpg.Record with fields: plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+    """
+    pool = get_pool()
+
+    if effective_date:
+        query = """
+            SELECT plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+            FROM plan_entitlements
+            WHERE plan_name = $1 AND effective_date <= $2
+            ORDER BY effective_date DESC
+            LIMIT 1
+        """
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(query, plan_name, effective_date)
+    else:
+        query = """
+            SELECT plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+            FROM plan_entitlements
+            WHERE plan_name = $1
+            ORDER BY effective_date DESC
+            LIMIT 1
+        """
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(query, plan_name)
+
+async def get_all_current_entitlements():
+    """
+    Get current (latest) entitlements for all plans.
+
+    Returns:
+        List of asyncpg.Record objects with current entitlements for each plan
+    """
+    pool = get_pool()
+    query = """
+        SELECT DISTINCT ON (plan_name)
+            plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+        FROM plan_entitlements
+        ORDER BY plan_name, effective_date DESC
+    """
+    async with pool.acquire() as conn:
+        return await conn.fetch(query)

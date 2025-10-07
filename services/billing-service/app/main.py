@@ -10,7 +10,7 @@ import logging
 import os
 
 from .routes import accounts, subscriptions, webhooks, payments, invoices, instances, plans
-from .utils.database import init_db, close_db
+from .utils.database import init_db, close_db, get_all_current_entitlements
 from .utils.killbill_client import KillBillClient
 
 # Configure logging
@@ -23,7 +23,25 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Billing Service...")
     await init_db()
-    
+
+    # Load current plan entitlements from database
+    try:
+        entitlements_rows = await get_all_current_entitlements()
+        app.state.plan_entitlements = {
+            row['plan_name']: {
+                'cpu_limit': float(row['cpu_limit']),
+                'memory_limit': row['memory_limit'],
+                'storage_limit': row['storage_limit'],
+                'description': row['description'],
+                'effective_date': row['effective_date']
+            }
+            for row in entitlements_rows
+        }
+        logger.info(f"Loaded entitlements for {len(app.state.plan_entitlements)} plans")
+    except Exception as e:
+        logger.error(f"Failed to load plan entitlements: {e}")
+        app.state.plan_entitlements = {}
+
     # Initialize KillBill client
     app.state.killbill = KillBillClient(
         base_url=os.getenv("KILLBILL_URL", "http://killbill:8080"),
