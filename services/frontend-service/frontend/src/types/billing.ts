@@ -198,7 +198,7 @@ export interface CustomerInstance {
   name: string;
   status: string;
   instance_type: string;
-  billing_status: 'trial' | 'paid';
+  billing_status: 'trial' | 'paid' | 'payment_required';
   external_url?: string;
   created_at: string;
   [key: string]: any;

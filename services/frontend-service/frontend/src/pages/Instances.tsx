@@ -290,11 +290,15 @@ const Instances: React.FC = () => {
                         </span>
                         {/* Billing status badge */}
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          instance.billing_status === 'paid' 
-                            ? 'text-green-600 bg-green-100' 
+                          instance.billing_status === 'paid'
+                            ? 'text-green-600 bg-green-100'
+                            : instance.billing_status === 'payment_required'
+                            ? 'text-red-600 bg-red-100'
                             : 'text-yellow-600 bg-yellow-100'
                         }`}>
-                          {instance.billing_status === 'paid' ? 'Paid' : 'Trial'}
+                          {instance.billing_status === 'paid' ? 'Paid' :
+                           instance.billing_status === 'payment_required' ? 'Payment Required' :
+                           instance.billing_status === 'trial' ? 'Trial' : 'Unknown'}
                         </span>
                         
                         {instance.external_url && (

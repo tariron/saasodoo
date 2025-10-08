@@ -557,7 +557,9 @@ const BillingInstanceManage: React.FC = () => {
                   </span>
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
-                  {instance?.billing_status === 'trial' ? 'Trial Period' : 'Paid Subscription'}
+                  {instance?.billing_status === 'trial' ? 'Trial Period' :
+                   instance?.billing_status === 'paid' ? 'Paid Subscription' :
+                   'Payment Required'}
                 </div>
               </div>
 

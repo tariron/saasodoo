@@ -381,6 +381,10 @@ const Dashboard: React.FC = () => {
                             <span className="px-2 py-1 text-xs font-medium rounded-full text-green-600 bg-green-100">
                               Paid
                             </span>
+                          ) : instance.billing_status === 'payment_required' ? (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full text-red-600 bg-red-100">
+                              Payment Required
+                            </span>
                           ) : (
                             <span className="px-2 py-1 text-xs font-medium rounded-full text-yellow-600 bg-yellow-100">
                               Trial
