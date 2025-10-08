@@ -932,43 +932,56 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
     """Terminate instance permanently - stops container and sets status to terminated"""
     from datetime import datetime
     import docker
-    
+
+    print(f"DEBUG: _terminate_instance called for {instance_id}")
+
     try:
         # Get current instance to check if it needs to be stopped first
         instance = await db.get_instance(instance_id)
         if not instance:
             raise Exception("Instance not found")
-        
+
+        print(f"DEBUG: Instance current status: {instance.status}")
+
         # If instance has a Docker container that might exist, stop it first
-        container_states = [InstanceStatus.RUNNING, InstanceStatus.STOPPED, InstanceStatus.STARTING, 
+        container_states = [InstanceStatus.RUNNING, InstanceStatus.STOPPED, InstanceStatus.STARTING,
                           InstanceStatus.STOPPING, InstanceStatus.PAUSED, InstanceStatus.RESTARTING]
         # Note: CONTAINER_MISSING is not included as there's no container to stop
-        
+
         if instance.status in container_states:
-            logger.info("Stopping instance container before termination", 
+            print(f"DEBUG: Instance in container_states, attempting to stop container")
+            logger.info("Stopping instance container before termination",
                        instance_id=str(instance_id), current_status=instance.status)
-            
+
             # Use the same Docker stopping logic as the lifecycle module
             await _stop_container_for_suspension(instance)
+            print(f"DEBUG: Container stop completed")
             logger.info("Container stopped for termination", instance_id=str(instance_id))
-        
+
         # Update status to terminated (permanent)
+        print(f"DEBUG: About to update status to TERMINATED")
         logger.info("Updating instance status to TERMINATED", instance_id=str(instance_id))
         update_success = await db.update_instance_status(instance_id, InstanceStatus.TERMINATED, "Instance terminated due to subscription cancellation")
+        print(f"DEBUG: update_success = {update_success}")
 
         if not update_success:
+            print(f"DEBUG: update_success is False!")
             error_msg = f"Database update returned False - instance {instance_id} status not updated to TERMINATED"
             logger.error(error_msg, instance_id=str(instance_id))
             raise Exception(error_msg)
 
         # Verify the update actually happened by reading back from database
+        print(f"DEBUG: Verifying database update...")
         updated_instance = await db.get_instance(instance_id)
+        print(f"DEBUG: Verification - status is {updated_instance.status if updated_instance else 'NOT_FOUND'}")
         if not updated_instance or updated_instance.status != InstanceStatus.TERMINATED:
             actual_status = updated_instance.status if updated_instance else "NOT_FOUND"
             error_msg = f"Database update verification failed - instance {instance_id} status is {actual_status}, expected TERMINATED"
+            print(f"DEBUG: VERIFICATION FAILED - {error_msg}")
             logger.error(error_msg, instance_id=str(instance_id), actual_status=actual_status)
             raise Exception(error_msg)
 
+        print(f"DEBUG: Termination successful!")
         logger.info("Instance terminated successfully with container stopped and database verified",
                    instance_id=str(instance_id), verified_status=updated_instance.status)
         return {
@@ -976,8 +989,9 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             "message": "Instance terminated successfully",
             "timestamp": datetime.utcnow().isoformat()
         }
-        
+
     except Exception as e:
+        print(f"DEBUG: Exception in _terminate_instance: {e}")
         logger.error("Failed to terminate instance", instance_id=str(instance_id), error=str(e))
         await db.update_instance_status(instance_id, InstanceStatus.ERROR, f"Termination failed: {str(e)}")
         return {

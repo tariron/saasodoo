@@ -72,7 +72,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to register webhook during startup: {e}")
         logger.info("Webhook registration can be done manually if needed")
-    
+
+    # Always upload overdue configuration on startup to ensure it's up to date
+    try:
+        logger.info("Uploading overdue configuration...")
+
+        # Read overdue.xml file
+        overdue_xml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "overdue.xml")
+        if os.path.exists(overdue_xml_path):
+            with open(overdue_xml_path, 'r') as f:
+                overdue_xml = f.read()
+
+            await app.state.killbill.upload_overdue_config(overdue_xml)
+            logger.info("Successfully uploaded overdue configuration")
+        else:
+            logger.warning(f"Overdue.xml not found at {overdue_xml_path}")
+    except Exception as e:
+        logger.warning(f"Failed to upload overdue configuration: {e}")
+        logger.info("Overdue configuration can be uploaded manually if needed")
+
     logger.info("Billing Service started successfully")
     yield
     

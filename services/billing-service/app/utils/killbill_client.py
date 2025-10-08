@@ -365,6 +365,68 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to register webhook {webhook_url}: {e}")
             raise
+
+    async def get_overdue_config(self) -> Optional[str]:
+        """Get overdue configuration from KillBill"""
+        try:
+            url = f"{self.base_url}/1.0/kb/overdue/xml"
+            headers = self.headers.copy()
+            headers["Accept"] = "text/xml"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url=url,
+                    headers=headers,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+
+                if response.status_code == 404:
+                    logger.info("No overdue configuration found in KillBill")
+                    return None
+
+                if response.status_code >= 400:
+                    logger.error(f"Error fetching overdue config: {response.status_code} - {response.text}")
+                    return None
+
+                return response.text
+
+        except Exception as e:
+            logger.error(f"Failed to get overdue config: {e}")
+            return None
+
+    async def upload_overdue_config(self, overdue_xml: str) -> Dict[str, Any]:
+        """Upload overdue configuration to KillBill"""
+        try:
+            url = f"{self.base_url}/1.0/kb/overdue/xml"
+            headers = {
+                "X-Killbill-ApiKey": self.api_key,
+                "X-Killbill-ApiSecret": self.api_secret,
+                "X-Killbill-CreatedBy": "billing-service",
+                "Content-Type": "text/xml"
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url=url,
+                    headers=headers,
+                    content=overdue_xml,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+
+                logger.info(f"KillBill overdue config upload: {response.status_code}")
+
+                if response.status_code >= 400:
+                    logger.error(f"Error uploading overdue config: {response.status_code} - {response.text}")
+                    response.raise_for_status()
+
+            logger.info("Successfully uploaded overdue configuration")
+            return {"status": "uploaded"}
+
+        except Exception as e:
+            logger.error(f"Failed to upload overdue config: {e}")
+            raise
     
     async def _add_subscription_metadata(self, subscription_id: str, metadata: Dict[str, str]) -> Dict[str, Any]:
         """Add custom metadata to a subscription"""
