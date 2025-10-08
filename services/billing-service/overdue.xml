@@ -1,42 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <overdueConfig>
-    <accountOverdueStates>
-        <!-- WARNING: 3 days after first unpaid invoice -->
-        <state name="WARNING">
-            <condition>
-                <timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
-                    <unit>DAYS</unit>
-                    <number>3</number>
-                </timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
-            </condition>
-            <externalMessage>Your payment is overdue. Please update your payment method to avoid service interruption.</externalMessage>
-            <blockChanges>true</blockChanges>
-            <disableEntitlementAndChangesBlocked>false</disableEntitlementAndChangesBlocked>
-        </state>
-
-        <!-- BLOCKED: 7 days - service suspended -->
-        <state name="BLOCKED">
-            <condition>
-                <timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
-                    <unit>DAYS</unit>
-                    <number>7</number>
-                </timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
-            </condition>
-            <externalMessage>Your account has been suspended due to non-payment. Please settle your outstanding balance immediately.</externalMessage>
-            <blockChanges>true</blockChanges>
-            <disableEntitlementAndChangesBlocked>true</disableEntitlementAndChangesBlocked>
-        </state>
-
-        <!-- CANCELLATION: 14 days - automatically cancel subscriptions -->
-        <state name="CANCELLATION">
-            <condition>
-                <timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
-                    <unit>DAYS</unit>
-                    <number>14</number>
-                </timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
-            </condition>
-            <externalMessage>Your account has been cancelled due to non-payment.</externalMessage>
-            <subscriptionCancellationPolicy>IMMEDIATE</subscriptionCancellationPolicy>
-        </state>
-    </accountOverdueStates>
+   <accountOverdueStates>
+       <initialReevaluationInterval>
+           <unit>DAYS</unit><number>10</number>
+       </initialReevaluationInterval>
+       <state name="CANCELLATION">
+           <condition>
+               <timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
+                   <unit>DAYS</unit><number>21</number>
+               </timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
+           </condition>
+           <externalMessage>Reached CANCELATION</externalMessage>
+           <subscriptionCancellationPolicy>END_OF_TERM</subscriptionCancellationPolicy>
+       </state>
+       <state name="BLOCKED">
+           <condition>
+               <timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
+                   <unit>DAYS</unit><number>14</number>
+               </timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
+           </condition>
+           <externalMessage>Reached BLOCKED</externalMessage>
+           <blockChanges>true</blockChanges>
+           <disableEntitlementAndChangesBlocked>false</disableEntitlementAndChangesBlocked>
+           <autoReevaluationInterval>
+               <unit>DAYS</unit><number>7</number>
+           </autoReevaluationInterval>
+       </state>
+       <state name="WARNING">
+           <condition>
+               <timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
+                   <unit>DAYS</unit><number>10</number>
+               </timeSinceEarliestUnpaidInvoiceEqualsOrExceeds>
+           </condition>
+           <externalMessage>Reached WARNING</externalMessage>
+           <blockChanges>true</blockChanges>
+           <disableEntitlementAndChangesBlocked>false</disableEntitlementAndChangesBlocked>
+           <autoReevaluationInterval>
+               <unit>DAYS</unit><number>4</number>
+           </autoReevaluationInterval>
+       </state>
+   </accountOverdueStates>
 </overdueConfig>

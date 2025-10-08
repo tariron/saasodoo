@@ -1224,23 +1224,37 @@ async def restart_instance_with_new_subscription(
         
         # Conditionally change instance status based on skip_status_change parameter
         if not skip_status_change:
+            # Queue start task to actually restart the instance container
+            from app.tasks.lifecycle import start_instance_task
+
+            # First set to STOPPED, then queue the start
             await db.update_instance_status(instance_id, InstanceStatus.STOPPED, reason)
-            final_status = "stopped"
+
+            # Queue the start task
+            job = start_instance_task.delay(str(instance_id))
+            final_status = "starting"
+            job_id = job.id
+
+            logger.info("Instance restart queued after reactivation",
+                       instance_id=str(instance_id),
+                       job_id=job_id)
         else:
             final_status = instance.status.value  # Keep current status
-        
-        logger.info("Instance restarted with new subscription successfully", 
+            job_id = None
+
+        logger.info("Instance restarted with new subscription successfully",
                    instance_id=str(instance_id),
                    new_subscription_id=new_subscription_id,
                    billing_status=billing_status)
-        
+
         return {
             "status": "success",
-            "message": f"Instance updated with subscription {new_subscription_id} - status: {final_status}",
+            "message": f"Instance reactivated with subscription {new_subscription_id} - status: {final_status}",
             "instance_id": str(instance_id),
             "subscription_id": new_subscription_id,
             "billing_status": billing_status,
             "instance_status": final_status,
+            "job_id": job_id,
             "timestamp": datetime.utcnow().isoformat()
         }
         
