@@ -463,6 +463,15 @@ async def handle_subscription_cancelled(payload: Dict[str, Any]):
     logger.info(f"Subscription cancellation: {subscription_id} for account: {account_id}, actionType: {action_type}")
 
     try:
+        # Initialize KillBill client
+        killbill = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+
         # Get customer information from KillBill
         customer_external_key = await _get_customer_external_key_by_account_id(account_id)
         if not customer_external_key:
@@ -513,7 +522,29 @@ async def handle_subscription_cancelled(payload: Dict[str, Any]):
             try:
                 await instance_client.terminate_instance(instance_id, "Subscription billing period ended")
                 logger.info(f"Successfully terminated instance {instance_id} for subscription {subscription_id}")
-                logger.info(f"Instance {instance_id} terminated for customer {customer_external_key} - subscription {subscription_id} billing ended")
+
+                # Write off all unpaid invoices for this cancelled subscription (debt forgiven)
+                unpaid_invoices = await killbill.get_unpaid_invoices_by_subscription(subscription_id)
+                written_off_count = 0
+                for invoice in unpaid_invoices:
+                    invoice_id = invoice.get('invoiceId')
+                    written_off = await killbill.write_off_invoice(invoice_id, "Subscription cancelled - debt forgiven")
+                    if written_off:
+                        written_off_count += 1
+                        logger.info(f"Wrote off unpaid invoice {invoice_id} for cancelled subscription {subscription_id}")
+
+                # Update instance billing_status to "paid" to indicate billing is resolved/settled
+                # This enables the reactivation button in the frontend
+                if written_off_count > 0:
+                    await instance_client.provision_instance(
+                        instance_id=instance_id,
+                        subscription_id=subscription_id,
+                        billing_status="paid",
+                        provisioning_trigger="invoice_write_off_billing_resolved"
+                    )
+                    logger.info(f"Updated instance {instance_id} billing_status to 'paid' after writing off {written_off_count} invoice(s) - reactivation now enabled")
+
+                logger.info(f"Instance {instance_id} terminated for customer {customer_external_key} - subscription {subscription_id} billing ended, {written_off_count} invoice(s) written off")
 
             except Exception as instance_error:
                 logger.error(f"Failed to terminate instance {instance_id} for subscription {subscription_id}: {instance_error}")

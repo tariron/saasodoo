@@ -836,3 +836,45 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get payments for invoice {invoice_id}: {e}")
             return []
+
+    async def write_off_invoice(self, invoice_id: str, reason: str = "Subscription cancelled - debt forgiven") -> bool:
+        """Write off an invoice by adding the WRITTEN_OFF tag - brings balance to zero without moving charges to next invoice"""
+        try:
+            # WRITTEN_OFF tag UUID (standard KillBill control tag)
+            WRITTEN_OFF_TAG_UUID = "00000000-0000-0000-0000-000000000004"
+
+            endpoint = f"/1.0/kb/invoices/{invoice_id}/tags"
+            # data parameter is automatically sent as JSON by _make_request
+            await self._make_request("POST", endpoint, data=[WRITTEN_OFF_TAG_UUID])
+            logger.info(f"Successfully wrote off invoice {invoice_id} - debt forgiven, balance brought to zero")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to write off invoice {invoice_id}: {e}")
+            return False
+
+    async def get_unpaid_invoices_by_subscription(self, subscription_id: str) -> List[Dict[str, Any]]:
+        """Get all unpaid invoices for a subscription"""
+        try:
+            # Get subscription details to get account_id
+            subscription = await self.get_subscription_by_id(subscription_id)
+            if not subscription:
+                return []
+
+            account_id = subscription.get('accountId')
+
+            # Get unpaid invoices for account
+            endpoint = f"/1.0/kb/accounts/{account_id}/invoices?unpaidInvoicesOnly=true&withItems=true"
+            invoices = await self._make_request("GET", endpoint)
+
+            # Filter by subscription_id
+            unpaid = []
+            for invoice in (invoices or []):
+                for item in invoice.get('items', []):
+                    if item.get('subscriptionId') == subscription_id:
+                        unpaid.append(invoice)
+                        break
+
+            return unpaid
+        except Exception as e:
+            logger.error(f"Failed to get unpaid invoices for subscription {subscription_id}: {e}")
+            return []

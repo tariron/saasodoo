@@ -398,11 +398,19 @@ async def _update_instance_status_from_event(instance_id: str, status: str, even
             if not current_status:
                 logger.warning("Instance not found for status update", instance_id=instance_id)
                 return {"updated": False, "reason": "instance_not_found"}
-            
+
+            # CRITICAL: Never overwrite TERMINATED status - it's a final state set by subscription cancellation
+            if current_status == 'terminated':
+                logger.info("Skipping Docker event status update - instance is TERMINATED (final state)",
+                           instance_id=instance_id,
+                           attempted_status=status,
+                           event_type=event_type)
+                return {"updated": False, "reason": "instance_terminated"}
+
             # Check if update is needed
             if current_status == status:
-                logger.debug("Instance status already up to date", 
-                           instance_id=instance_id, 
+                logger.debug("Instance status already up to date",
+                           instance_id=instance_id,
                            status=status)
                 return {"updated": False, "reason": "status_unchanged"}
             

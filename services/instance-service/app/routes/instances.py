@@ -1047,27 +1047,50 @@ async def provision_instance_from_webhook(
         
         if provisioning_trigger == "invoice_payment_success_billing_update":
             # For payment success, just update billing status without full provisioning
-            logger.info("Payment success billing update", 
+            logger.info("Payment success billing update",
                        instance_id=str(instance_id),
                        current_status=instance.provisioning_status)
-            
+
             await db.update_instance_billing_status(
-                str(instance_id), 
+                str(instance_id),
                 BillingStatus(billing_status),
                 instance.provisioning_status  # Keep current provisioning status
             )
-            
-            logger.info("Updated billing status for payment success", 
+
+            logger.info("Updated billing status for payment success",
                        instance_id=str(instance_id),
                        billing_status=billing_status)
-            
+
             return {
                 "status": "success",
                 "message": f"Billing status updated to {billing_status}",
                 "billing_status": billing_status,
                 "timestamp": datetime.utcnow().isoformat()
             }
-        
+
+        if provisioning_trigger == "invoice_write_off_billing_resolved":
+            # For invoice write-off, just update billing status to enable reactivation
+            logger.info("Invoice write-off billing update",
+                       instance_id=str(instance_id),
+                       current_status=instance.provisioning_status)
+
+            await db.update_instance_billing_status(
+                str(instance_id),
+                BillingStatus(billing_status),
+                instance.provisioning_status  # Keep current provisioning status
+            )
+
+            logger.info("Updated billing status after invoice write-off",
+                       instance_id=str(instance_id),
+                       billing_status=billing_status)
+
+            return {
+                "status": "success",
+                "message": f"Billing status updated to {billing_status} after invoice write-off",
+                "billing_status": billing_status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
         # Validate that instance is in pending state for regular provisioning
         if instance.provisioning_status != ProvisioningStatus.PENDING:
             logger.warning("Instance not in pending state", 
