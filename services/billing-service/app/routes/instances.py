@@ -27,7 +27,6 @@ class CreateInstanceWithSubscriptionRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Instance display name")
     description: Optional[str] = Field(None, max_length=500, description="Instance description")
     admin_email: str = Field(..., description="Odoo admin email")
-    admin_password: str = Field(..., min_length=8, description="Odoo admin password")
     subdomain: Optional[str] = Field(None, min_length=3, max_length=50, description="Custom subdomain")
     database_name: str = Field(..., min_length=1, max_length=50, description="Database name")
     
@@ -44,19 +43,6 @@ class CreateInstanceWithSubscriptionRequest(BaseModel):
     # Additional settings
     custom_addons: List[str] = Field(default_factory=list, description="Custom addon names")
     phase_type: Optional[str] = Field(None, description="Target phase type: TRIAL or EVERGREEN")
-    
-    @validator('admin_password')
-    def validate_admin_password(cls, v):
-        """Validate admin password strength"""
-        if len(v) < 8:
-            raise ValueError('Admin password must be at least 8 characters long')
-        if not any(c.isupper() for c in v):
-            raise ValueError('Admin password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Admin password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Admin password must contain at least one digit')
-        return v
 
     @validator('subdomain')
     def validate_subdomain(cls, v):
@@ -102,7 +88,6 @@ async def create_instance_with_subscription(
             "name": instance_data.name,
             "description": instance_data.description or f"Instance for {instance_data.plan_name} plan",
             "admin_email": instance_data.admin_email,
-            "admin_password": instance_data.admin_password,
             "subdomain": instance_data.subdomain,
             "database_name": instance_data.database_name,
             "odoo_version": instance_data.odoo_version,
@@ -159,7 +144,6 @@ async def create_instance_with_subscription(
         try:
             metadata = {
                 "instance_admin_email": instance_data.admin_email,
-                "instance_admin_password": instance_data.admin_password,
                 "instance_subdomain": instance_data.subdomain or "",
                 "instance_name": instance_data.name,
                 "instance_description": instance_data.description or "",

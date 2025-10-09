@@ -113,7 +113,6 @@ export interface CreateInstanceRequest {
   memory_limit: string;
   storage_limit: string;
   admin_email: string;
-  admin_password: string;
   database_name: string;
   subdomain?: string | null;
   demo_data: boolean;
@@ -126,7 +125,6 @@ export interface CreateInstanceWithSubscriptionRequest {
   name: string;
   description?: string | null;
   admin_email: string;
-  admin_password: string;
   subdomain?: string | null;
   database_name: string;
   odoo_version?: string;

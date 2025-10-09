@@ -767,9 +767,9 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
             return  # Exit early - we restarted existing instance
         
         logger.info(f"NEW INSTANCE CREATION: No target_instance_id found, creating new instance for subscription {subscription_id}")
-        
+
         # Validate required metadata exists for new instance creation
-        required_fields = ["instance_name", "instance_admin_email", "instance_admin_password", "instance_database_name"]
+        required_fields = ["instance_name", "instance_admin_email", "instance_database_name"]
         missing_fields = [field for field in required_fields if not subscription_metadata.get(field)]
         
         if missing_fields:
@@ -783,7 +783,6 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
             "name": subscription_metadata["instance_name"],
             "description": subscription_metadata.get("instance_description", f"Instance created for subscription {subscription_id}"),
             "admin_email": subscription_metadata["instance_admin_email"],
-            "admin_password": subscription_metadata["instance_admin_password"],
             "database_name": subscription_metadata["instance_database_name"],
             "subdomain": subscription_metadata.get("instance_subdomain") or None,
             "odoo_version": subscription_metadata.get("instance_odoo_version", "17.0"),

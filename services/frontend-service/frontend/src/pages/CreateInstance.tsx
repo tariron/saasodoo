@@ -20,7 +20,6 @@ const CreateInstance: React.FC = () => {
     memory_limit: '2G',
     storage_limit: '10G',
     admin_email: '',
-    admin_password: '',
     database_name: '',
     subdomain: '',
     demo_data: true,
@@ -29,7 +28,6 @@ const CreateInstance: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState('');
-  const [adminPasswordStrength, setAdminPasswordStrength] = useState(0);
   const [subdomainStatus, setSubdomainStatus] = useState<{
     checking: boolean;
     available: boolean | null;
@@ -145,7 +143,6 @@ const CreateInstance: React.FC = () => {
           name: formData.name,
           description: formData.description || null,
           admin_email: formData.admin_email,
-          admin_password: formData.admin_password,
           subdomain: formData.subdomain?.trim() || null,
           database_name: formData.database_name,
           odoo_version: formData.odoo_version,
@@ -245,57 +242,6 @@ const CreateInstance: React.FC = () => {
       
       handleInputChange('name', instanceName);
       handleInputChange('database_name', dbName);
-    }
-  };
-
-  const checkAdminPasswordStrength = (password: string) => {
-    let strength = 0;
-    const checks = {
-      length: password.length >= 8,
-      lowercase: /[a-z]/.test(password),
-      uppercase: /[A-Z]/.test(password),
-      digit: /[0-9]/.test(password),
-      special: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)
-    };
-    if (checks.length) strength++;
-    if (checks.lowercase) strength++;
-    if (checks.uppercase) strength++;
-    if (checks.digit) strength++;
-    if (checks.special) strength++;
-    return { strength, checks };
-  };
-
-  const isAdminPasswordValid = () => {
-    const result = checkAdminPasswordStrength(formData.admin_password);
-    const { checks } = result;
-    return checks.length && checks.lowercase && checks.uppercase && checks.digit && checks.special;
-  };
-
-  const getAdminPasswordStrengthText = () => {
-    const result = checkAdminPasswordStrength(formData.admin_password);
-    const { checks } = result;
-    
-    if (isAdminPasswordValid()) {
-      return 'Strong - All requirements met';
-    }
-    
-    const missing = [];
-    if (!checks.length) missing.push('8+ characters');
-    if (!checks.uppercase) missing.push('uppercase letter');
-    if (!checks.lowercase) missing.push('lowercase letter');  
-    if (!checks.digit) missing.push('number');
-    if (!checks.special) missing.push('special character');
-    
-    return `Missing: ${missing.join(', ')}`;
-  };
-
-  const getAdminPasswordStrengthColor = () => {
-    if (isAdminPasswordValid()) {
-      return 'bg-green-500';
-    } else if (adminPasswordStrength >= 3) {
-      return 'bg-yellow-500';
-    } else {
-      return 'bg-red-500';
     }
   };
 
@@ -636,52 +582,6 @@ const CreateInstance: React.FC = () => {
                       className="input-field"
                       placeholder="admin@company.com"
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Admin Password *
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={formData.admin_password || ''}
-                      onChange={(e) => {
-                        const password = e.target.value;
-                        setFormData({ ...formData, admin_password: password });
-                        const result = checkAdminPasswordStrength(password);
-                        setAdminPasswordStrength(result.strength);
-                        // Optionally clear error on change
-                        if (error) setError('');
-                      }}
-                      className="input-field"
-                      placeholder="Enter secure password for Odoo admin"
-                      minLength={8}
-                      pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).{8,}$"
-                      title="Password must contain at least 8 characters with uppercase, lowercase, number, and special character"
-                    />
-                    
-                    {formData.admin_password && (
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-gray-600">Password Strength:</span>
-                          <span className={`font-medium ${
-                            isAdminPasswordValid() ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {getAdminPasswordStrengthText()}
-                          </span>
-                        </div>
-                        <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className={`h-2 rounded-full transition-all duration-300 ${getAdminPasswordStrengthColor()}`}
-                            style={{ width: `${(adminPasswordStrength / 5) * 100}%` }}
-                          ></div>
-                        </div>
-                        <div className="mt-1 text-xs text-gray-500">
-                          Required: 8+ characters, uppercase, lowercase, number & special character
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
 

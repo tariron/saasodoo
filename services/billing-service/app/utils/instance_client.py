@@ -235,9 +235,9 @@ class InstanceServiceClient:
     async def create_instance_with_subscription(self, instance_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Create instance with subscription linkage"""
         endpoint = "/api/v1/instances/"
-        
+
         # Validate required fields are present
-        required_fields = ["customer_id", "subscription_id", "name", "admin_email", "admin_password", "database_name"]
+        required_fields = ["customer_id", "subscription_id", "name", "admin_email", "database_name"]
         missing_fields = [field for field in required_fields if not instance_data.get(field)]
         
         if missing_fields:
@@ -251,7 +251,6 @@ class InstanceServiceClient:
             "odoo_version": instance_data.get("odoo_version", "17"),
             "instance_type": instance_data.get("instance_type", "production"),
             "admin_email": instance_data["admin_email"],
-            "admin_password": instance_data["admin_password"],
             "database_name": instance_data["database_name"],
             "subdomain": instance_data.get("subdomain"),
             "demo_data": instance_data.get("demo_data", False),
