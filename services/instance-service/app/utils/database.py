@@ -81,7 +81,7 @@ class InstanceDatabase:
                     INSERT INTO instances (
                         customer_id, name, odoo_version, instance_type, description,
                         cpu_limit, memory_limit, storage_limit, admin_email, admin_password,
-                        database_name, subdomain, demo_data, custom_addons, disabled_modules, 
+                        database_name, subdomain, demo_data, custom_addons, disabled_modules,
                         environment_vars, metadata, status, billing_status, provisioning_status,
                         created_at, updated_at
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
@@ -96,7 +96,7 @@ class InstanceDatabase:
                     instance_data.memory_limit,
                     instance_data.storage_limit,
                     instance_data.admin_email,
-                    instance_data.admin_password,
+                    None,  # admin_password - always NULL, password generated at provisioning
                     instance_data.database_name,
                     instance_data.subdomain,
                     instance_data.demo_data,

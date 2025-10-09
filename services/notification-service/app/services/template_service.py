@@ -59,7 +59,7 @@ class TemplateService:
                 "description": "Notification when instance is provisioned",
                 "from_email": "noreply@saasodoo.local",
                 "from_name": "SaaS Odoo Platform",
-                "variables": ["first_name", "instance_name", "instance_url", "admin_email"],
+                "variables": ["first_name", "instance_name", "instance_url", "admin_email", "admin_password"],
                 "created_at": datetime.utcnow()
             },
             "billing_reminder": {
@@ -389,12 +389,16 @@ class TemplateService:
                         <h3 style="margin-top: 0;">Instance Details:</h3>
                         <p><strong>Instance Name:</strong> {variables.get('instance_name', 'N/A')}</p>
                         <p><strong>Admin Email:</strong> {variables.get('admin_email', 'N/A')}</p>
+                        <p><strong>Admin Password:</strong> <code style="background-color: #e8f5e9; padding: 4px 8px; border-radius: 3px; font-family: monospace; font-size: 14px;">{variables.get('admin_password', 'N/A')}</code></p>
                         <p><strong>URL:</strong> <a href="{variables.get('instance_url', '#')}">{variables.get('instance_url', 'N/A')}</a></p>
+                    </div>
+                    <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
+                        <p style="margin: 0;"><strong>🔒 Security Note:</strong> Please change your password after your first login. This password is only sent once for security reasons.</p>
                     </div>
                     <div style="text-align: center; margin: 30px 0;">
                         <a href="{variables.get('instance_url', '#')}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Access Your Instance</a>
                     </div>
-                    <p>You can now log in to your Odoo instance and start configuring your business processes.</p>
+                    <p>You can now log in to your Odoo instance using the credentials above and start configuring your business processes.</p>
                     <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
                     <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
                 </div>

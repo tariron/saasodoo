@@ -14,6 +14,7 @@ from celery import current_task
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
 from app.utils.notification_client import send_instance_provisioning_started_email, send_instance_ready_email, send_instance_provisioning_failed_email
+from app.utils.password_generator import generate_secure_password
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -91,7 +92,7 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 8: Mark as RUNNING
         await _update_instance_status(instance_id, InstanceStatus.RUNNING)
         
-        # Step 9: Send instance ready email
+        # Step 9: Send instance ready email with password
         if user_info:
             try:
                 await send_instance_ready_email(
@@ -99,9 +100,10 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
                     first_name=user_info['first_name'],
                     instance_name=instance['name'],
                     instance_url=container_info['external_url'],
-                    admin_email=instance['admin_email']
+                    admin_email=instance['admin_email'],
+                    admin_password=container_info['admin_password']  # Include generated password
                 )
-                logger.info("Instance ready email sent", email=user_info['email'])
+                logger.info("Instance ready email sent with password", email=user_info['email'])
             except Exception as e:
                 logger.warning("Failed to send instance ready email", error=str(e))
         
@@ -247,7 +249,11 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
     client = docker.from_env()
     
     container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    # Generate secure random password for this instance
+    generated_password = generate_secure_password()
+    logger.info("Generated secure password for instance", instance_id=str(instance['id']))
+
     # Container configuration
     environment = {
         'ODOO_DATABASE_HOST': db_info['db_host'],
@@ -256,7 +262,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         'ODOO_DATABASE_USER': db_info['db_user'],
         'ODOO_DATABASE_PASSWORD': db_info['db_password'],
         'ODOO_EMAIL': instance['admin_email'],
-        'ODOO_PASSWORD': instance['admin_password'],  # Use provided password or generate
+        'ODOO_PASSWORD': generated_password,  # Use generated password
         'ODOO_LOAD_DEMO_DATA': 'yes' if instance['demo_data'] else 'no',
     }
     
@@ -333,7 +339,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
             'external_url': f'http://{instance.get("subdomain") or instance["database_name"]}.saasodoo.local',
-            'admin_password': environment['ODOO_PASSWORD']
+            'admin_password': generated_password  # Return generated password for email
         }
         
     except Exception as e:

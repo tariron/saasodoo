@@ -111,7 +111,6 @@ async def create_instance(
             "external_url": instance.external_url,
             "internal_url": instance.internal_url,
             "admin_email": instance.admin_email,
-            "admin_password": instance.admin_password,
             "subdomain": instance.subdomain,
             "error_message": instance.error_message,
             "last_health_check": instance.last_health_check.isoformat() if instance.last_health_check else None,
@@ -145,7 +144,7 @@ async def get_instance(
         instance = await db.get_instance(instance_id)
         if not instance:
             raise HTTPException(status_code=404, detail="Instance not found")
-        
+
         response_data = {
             "id": str(instance.id),
             "customer_id": str(instance.customer_id),
@@ -163,7 +162,6 @@ async def get_instance(
             "external_url": instance.external_url,
             "internal_url": instance.internal_url,
             "admin_email": instance.admin_email,
-            "admin_password": instance.admin_password,
             "subdomain": instance.subdomain,
             "error_message": instance.error_message,
             "last_health_check": instance.last_health_check.isoformat() if instance.last_health_check else None,
@@ -175,7 +173,7 @@ async def get_instance(
             "custom_addons": instance.custom_addons,
             "metadata": instance.metadata or {}
         }
-        
+
         return InstanceResponse(**response_data)
         
     except HTTPException:
@@ -221,7 +219,6 @@ async def list_instances(
                 "external_url": instance_data['external_url'],
                 "internal_url": instance_data['internal_url'],
                 "admin_email": instance_data['admin_email'],
-                "admin_password": instance_data.get('admin_password'),
                 "subdomain": instance_data.get('subdomain'),
                 "error_message": instance_data['error_message'],
                 "last_health_check": instance_data['last_health_check'].isoformat() if instance_data['last_health_check'] else None,
@@ -268,10 +265,10 @@ async def get_instance_by_subscription(
         if not instance:
             raise HTTPException(status_code=404, detail="Instance not found for subscription")
         
-        logger.info("Found instance by subscription_id", 
-                   instance_id=str(instance.id), 
+        logger.info("Found instance by subscription_id",
+                   instance_id=str(instance.id),
                    subscription_id=subscription_id)
-        
+
         response_data = {
             "id": str(instance.id),
             "customer_id": str(instance.customer_id),
@@ -289,7 +286,6 @@ async def get_instance_by_subscription(
             "external_url": instance.external_url,
             "internal_url": instance.internal_url,
             "admin_email": instance.admin_email,
-            "admin_password": instance.admin_password,
             "subdomain": instance.subdomain,
             "error_message": instance.error_message,
             "last_health_check": instance.last_health_check.isoformat() if instance.last_health_check else None,
@@ -301,7 +297,7 @@ async def get_instance_by_subscription(
             "custom_addons": instance.custom_addons,
             "metadata": instance.metadata or {}
         }
-        
+
         return InstanceResponse(**response_data)
         
     except HTTPException:

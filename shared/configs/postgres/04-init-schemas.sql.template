@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS instances (
     
     -- Odoo configuration
     admin_email VARCHAR(255) NOT NULL,
-    admin_password VARCHAR(255) NOT NULL, -- User-provided admin password
+    admin_password VARCHAR(255), -- Auto-generated password (not stored, sent via email)
     database_name VARCHAR(50) NOT NULL,
     subdomain VARCHAR(50), -- Custom subdomain or defaults to database_name
     demo_data BOOLEAN DEFAULT false,

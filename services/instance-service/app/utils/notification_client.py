@@ -91,23 +91,25 @@ class NotificationClient:
             raise
     
     async def send_instance_ready_email(
-        self, 
-        email: str, 
-        first_name: str, 
-        instance_name: str, 
+        self,
+        email: str,
+        first_name: str,
+        instance_name: str,
         instance_url: str,
-        admin_email: str
+        admin_email: str,
+        admin_password: str
     ) -> Dict[str, Any]:
         """
         Send instance ready notification email
-        
+
         Args:
             email: User's email address
             first_name: User's first name
             instance_name: Name of the Odoo instance
             instance_url: URL to access the instance
             admin_email: Admin email for the instance
-            
+            admin_password: Generated admin password for the instance
+
         Returns:
             Response from notification service
         """
@@ -118,7 +120,8 @@ class NotificationClient:
                 "first_name": first_name,
                 "instance_name": instance_name,
                 "instance_url": instance_url,
-                "admin_email": admin_email
+                "admin_email": admin_email,
+                "admin_password": admin_password
             },
             tags=["instance", "provisioning", "ready"]
         )
@@ -361,10 +364,10 @@ def get_notification_client() -> NotificationClient:
     return notification_client
 
 # Convenience functions for instance-specific emails
-async def send_instance_ready_email(email: str, first_name: str, instance_name: str, instance_url: str, admin_email: str) -> Dict[str, Any]:
+async def send_instance_ready_email(email: str, first_name: str, instance_name: str, instance_url: str, admin_email: str, admin_password: str) -> Dict[str, Any]:
     """Send instance ready email (convenience function)"""
     client = get_notification_client()
-    return await client.send_instance_ready_email(email, first_name, instance_name, instance_url, admin_email)
+    return await client.send_instance_ready_email(email, first_name, instance_name, instance_url, admin_email, admin_password)
 
 async def send_instance_provisioning_started_email(email: str, first_name: str, instance_name: str, estimated_time: str = "10-15 minutes") -> Dict[str, Any]:
     """Send instance provisioning started email (convenience function)"""

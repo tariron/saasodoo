@@ -71,7 +71,7 @@ class InstanceBase(BaseModel):
     
     # Odoo configuration
     admin_email: str = Field(..., description="Odoo admin email")
-    admin_password: str = Field(..., min_length=8, description="Odoo admin password")
+    admin_password: Optional[str] = Field(None, description="Odoo admin password (auto-generated if not provided)")
     database_name: str = Field(..., min_length=1, max_length=50, description="Odoo database name")
     subdomain: Optional[str] = Field(None, min_length=3, max_length=50, description="Custom subdomain (defaults to database_name if not provided)")
     demo_data: bool = Field(default=False, description="Install demo data")
@@ -127,7 +127,9 @@ class InstanceBase(BaseModel):
 
     @validator('admin_password')
     def validate_admin_password(cls, v):
-        """Validate admin password strength according to Odoo requirements"""
+        """Validate admin password strength according to Odoo requirements (if provided)"""
+        if v is None:
+            return v  # Password will be auto-generated
         if len(v) < 8:
             raise ValueError('Admin password must be at least 8 characters long')
         if not any(c.isupper() for c in v):
@@ -259,7 +261,6 @@ class InstanceResponse(BaseModel):
     external_url: Optional[str] = Field(None, description="External access URL")
     internal_url: Optional[str] = Field(None, description="Internal access URL")
     admin_email: str = Field(..., description="Admin email")
-    admin_password: Optional[str] = Field(None, description="Admin password")
     subdomain: Optional[str] = Field(None, description="Custom subdomain")
     
     # Status information
