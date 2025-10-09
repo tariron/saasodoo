@@ -24,7 +24,6 @@ from shared.schemas.user import (
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
 from app.utils.dependencies import DatabaseDep, CurrentCustomer, ActiveCustomer
-from app.utils.supabase_client import supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +40,8 @@ async def register_customer(
 ):
     """
     Register new customer
-    
+
     Creates customer account with email verification
-    Integrates with Supabase for enhanced authentication
     """
     try:
         # Check if customer already exists
@@ -89,8 +87,7 @@ async def register_customer(
                 "first_name": customer_result['customer']['first_name'],
                 "last_name": customer_result['customer']['last_name'],
                 "requires_verification": not customer_result['customer']['is_verified']
-            },
-            "supabase_user": customer_result.get('supabase_user')
+            }
         }
         
     except HTTPException:
@@ -109,9 +106,9 @@ async def login_customer(
 ):
     """
     Customer login
-    
+
     Authenticates customer and returns access tokens
-    Supports both Supabase and local authentication
+    Uses Redis for session management
     """
     try:
         # Authenticate customer

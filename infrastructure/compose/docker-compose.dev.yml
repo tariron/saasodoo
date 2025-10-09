@@ -354,12 +354,7 @@ services:
       POSTGRES_DB: auth
       DB_SERVICE_USER: ${POSTGRES_AUTH_SERVICE_USER:-auth_service}
       DB_SERVICE_PASSWORD: ${POSTGRES_AUTH_SERVICE_PASSWORD:-auth_service_secure_pass_change_me}
-      
-      # Supabase Configuration (Optional)
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
-      
+
       # Redis Configuration
       REDIS_HOST: redis
       REDIS_PORT: 6379

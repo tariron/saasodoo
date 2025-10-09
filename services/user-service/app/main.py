@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 
 from app.routes import auth, users
 from app.utils.dependencies import get_database
-from app.utils.supabase_client import supabase_client
 from app.utils.database import init_database
 
 # Configure logging
@@ -25,21 +24,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     # Startup
     logger.info("User Service starting up...")
-    
+
     # Initialize database connections
     await init_database()
-    
-    # Test Supabase connection
-    try:
-        response = supabase_client.auth.get_session()
-        logger.info("Supabase connection established")
-    except Exception as e:
-        logger.warning(f"Supabase connection warning: {e}")
-    
-    logger.info("User Service startup complete")
-    
+
+    logger.info("User Service startup complete - using Redis for sessions")
+
     yield
-    
+
     # Shutdown
     logger.info("User Service shutting down...")
 
