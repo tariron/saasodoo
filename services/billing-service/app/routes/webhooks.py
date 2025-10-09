@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Module-level singleton KillBill client
+def _get_killbill_client() -> KillBillClient:
+    """Get or create singleton KillBill client instance"""
+    if not hasattr(_get_killbill_client, '_instance'):
+        _get_killbill_client._instance = KillBillClient(
+            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
+            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
+            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
+            username=os.getenv('KILLBILL_USERNAME', 'admin'),
+            password=os.getenv('KILLBILL_PASSWORD', 'password')
+        )
+    return _get_killbill_client._instance
+
 @router.post("/killbill")
 async def handle_killbill_webhook(request: Request, response: Response):
     """Handle webhook events from KillBill"""
@@ -165,13 +178,7 @@ async def handle_payment_success(payload: Dict[str, Any]):
             return
         
         # Get payment details to find associated subscription
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         # First, handle provisioning of pending paid instances
         # NOTE: Payment webhooks don't directly provide subscription_id, they provide payment_id
@@ -309,13 +316,7 @@ async def handle_payment_failed(payload: Dict[str, Any]):
             from ..utils.notification_client import send_payment_failure_email
             
             # Get payment details to determine amount
-            killbill = KillBillClient(
-                base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-                api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-                api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-                username=os.getenv('KILLBILL_USERNAME', 'admin'),
-                password=os.getenv('KILLBILL_PASSWORD', 'password')
-            )
+            killbill = _get_killbill_client()
             
             payment_amount = "0.00"  # Default fallback
             try:
@@ -377,13 +378,7 @@ async def handle_subscription_created(payload: Dict[str, Any]):
         logger.info(f"Subscription {subscription_id} created for customer {customer_external_key}")
         
         # Get subscription details from KillBill
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         subscription_details = await killbill.get_subscription_by_id(subscription_id)
         if not subscription_details:
@@ -464,13 +459,7 @@ async def handle_subscription_cancelled(payload: Dict[str, Any]):
 
     try:
         # Initialize KillBill client
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
 
         # Get customer information from KillBill
         customer_external_key = await _get_customer_external_key_by_account_id(account_id)
@@ -654,13 +643,7 @@ async def handle_invoice_payment_failed(payload: Dict[str, Any]):
             return
 
         # Get invoice details to find associated subscriptions
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
 
         invoice_details = await killbill.get_invoice_by_id(invoice_id)
         if not invoice_details or not invoice_details.get('items'):
@@ -747,13 +730,7 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
             return
         
         # Get subscription details from the invoice
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         invoice_details = await killbill.get_invoice_by_id(invoice_id)
         logger.info(f"Fetched invoice details for {invoice_id}: {invoice_details}")
@@ -951,13 +928,7 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
         # The subscription (subscription_id) already exists and was just paid for
         
         # Get custom instance configuration from subscription metadata
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         # Extract instance configuration from subscription custom fields
         subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
@@ -1060,13 +1031,7 @@ async def handle_subscription_phase_change(payload: Dict[str, Any]):
             return
         
         # Get subscription details to understand the phase change
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         subscription_details = await killbill.get_subscription_by_id(subscription_id)
         if not subscription_details:
@@ -1200,13 +1165,7 @@ async def handle_invoice_overdue(payload: Dict[str, Any]):
             return
         
         # Get invoice details to find associated subscription
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         invoice_details = await killbill.get_invoice_by_id(invoice_id)
         if not invoice_details or not invoice_details.get('items'):
@@ -1308,17 +1267,9 @@ async def handle_invoice_overdue(payload: Dict[str, Any]):
 
 async def _get_customer_external_key_by_account_id(account_id: str) -> Optional[str]:
     """Get customer external key from KillBill account ID"""
-    import os
-    
     try:
         # Initialize KillBill client with environment variables
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         # Get account details from KillBill
         account = await killbill.get_account_by_id(account_id)
@@ -1352,16 +1303,8 @@ async def _get_customer_info_by_external_key(external_key: str) -> Optional[Dict
 
 async def _get_subscription_info(subscription_id: str) -> Optional[Dict[str, Any]]:
     """Get subscription information from KillBill"""
-    import os
-    
     try:
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         subscription = await killbill.get_subscription_by_id(subscription_id)
         return subscription
@@ -1372,16 +1315,8 @@ async def _get_subscription_info(subscription_id: str) -> Optional[Dict[str, Any
 
 async def _get_invoice_info(invoice_id: str) -> Optional[Dict[str, Any]]:
     """Get invoice information from KillBill"""
-    import os
-    
     try:
-        killbill = KillBillClient(
-            base_url=os.getenv('KILLBILL_URL', 'http://killbill:8080'),
-            api_key=os.getenv('KILLBILL_API_KEY', 'test-key'),
-            api_secret=os.getenv('KILLBILL_API_SECRET', 'test-secret'),
-            username=os.getenv('KILLBILL_USERNAME', 'admin'),
-            password=os.getenv('KILLBILL_PASSWORD', 'password')
-        )
+        killbill = _get_killbill_client()
         
         invoice = await killbill.get_invoice_by_id(invoice_id)
         return invoice
