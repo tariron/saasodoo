@@ -124,11 +124,7 @@ async def handle_killbill_webhook(request: Request, response: Response):
         logger.info(f"Received KillBill webhook: {event_type}")
         
         # Handle different event types
-        if event_type == "PAYMENT_SUCCESS":
-            await handle_payment_success(payload)
-        elif event_type == "PAYMENT_FAILED":
-            await handle_payment_failed(payload)
-        elif event_type == "INVOICE_PAYMENT_SUCCESS":
+        if event_type == "INVOICE_PAYMENT_SUCCESS":
             await handle_invoice_payment_success(payload)
         elif event_type == "SUBSCRIPTION_CREATION":
             await handle_subscription_created(payload)
@@ -162,187 +158,6 @@ async def handle_killbill_webhook(request: Request, response: Response):
     except Exception as e:
         logger.error(f"Failed to process webhook: {e}")
         raise HTTPException(status_code=500, detail="Failed to process webhook")
-
-async def handle_payment_success(payload: Dict[str, Any]):
-    """Handle successful payment webhook - trigger instance provisioning for paid instances"""
-    payment_id = payload.get('objectId')
-    account_id = payload.get('accountId')
-    
-    logger.info(f"Payment successful: {payment_id} for account: {account_id}")
-    
-    try:
-        # Get customer information from KillBill
-        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
-        if not customer_external_key:
-            logger.warning(f"Could not find customer for account {account_id}")
-            return
-        
-        # Get payment details to find associated subscription
-        killbill = _get_killbill_client()
-        
-        # First, handle provisioning of pending paid instances
-        # NOTE: Payment webhooks don't directly provide subscription_id, they provide payment_id
-        # For now, keeping bulk approach since payment->invoice->subscription mapping is complex
-        # TODO: Could be improved by fetching payment details to get invoice/subscription info
-        pending_instances = await instance_client.get_instances_by_customer_and_status(
-            customer_external_key, "pending"
-        )
-        
-        provisioned_count = 0
-        for instance in pending_instances:
-            instance_id = instance.get('id')
-            billing_status = instance.get('billing_status')
-            
-            # Only provision paid instances here (not trial instances)
-            if billing_status == 'payment_required':
-                # Skip reactivation instances - they are handled by INVOICE_PAYMENT_SUCCESS webhook
-                subscription_id = instance.get('subscription_id')
-                if subscription_id:
-                    # Check if this is a reactivation subscription
-                    subscription_metadata = await killbill.get_subscription_metadata(subscription_id)
-                    is_reactivation = subscription_metadata.get("reactivation") == "true"
-                    
-                    if is_reactivation:
-                        logger.info(f"Skipping reactivation instance {instance_id} in PAYMENT_SUCCESS - handled by INVOICE_PAYMENT_SUCCESS")
-                        continue
-                
-                logger.info(f"Provisioning paid instance {instance_id} for customer {customer_external_key}")
-                
-                # Update instance billing status and trigger provisioning
-                await instance_client.provision_instance(
-                    instance_id=instance_id,
-                    subscription_id=None,  # Will be updated when we get subscription details
-                    billing_status="paid",
-                    provisioning_trigger="payment_success"
-                )
-                
-                provisioned_count += 1
-                logger.info(f"Paid instance {instance_id} provisioning triggered")
-        
-        # Second, handle unsuspending existing instances due to payment
-        instances = await instance_client.get_instances_by_customer(customer_external_key)
-        unsuspended_count = 0
-        
-        for instance in instances:
-            if instance.get('status') in ['suspended', 'paused'] or instance.get('billing_status') == 'payment_required':
-                try:
-                    result = await instance_client.unsuspend_instance(instance['id'], "Payment received")
-                    if result.get('status') == 'success':
-                        unsuspended_count += 1
-                        logger.info(f"Unsuspended instance {instance['id']} for customer {customer_external_key}")
-                    else:
-                        logger.error(f"Failed to unsuspend instance {instance['id']}: {result}")
-                except Exception as e:
-                    logger.error(f"Error unsuspending instance {instance['id']}: {e}")
-        
-        logger.info(f"Payment success processed for customer {customer_external_key}: "
-                   f"provisioned {provisioned_count} instances, unsuspended {unsuspended_count} instances")
-        
-        # Send payment success notification email
-        try:
-            from ..utils.notification_client import get_notification_client
-            
-            # Get payment details
-            payment_amount = "0.00"  # Default fallback
-            payment_method = "Credit Card"  # Default fallback
-            try:
-                payment_details = await killbill.get_payment_by_id(payment_id)
-                if payment_details:
-                    payment_amount = str(payment_details.get('amount', '0.00'))
-                    payment_method = payment_details.get('paymentMethodType', 'Credit Card')
-            except Exception as payment_error:
-                logger.warning(f"Could not get payment details for {payment_id}: {payment_error}")
-            
-            # Get customer info for the email
-            customer_info = await _get_customer_info_by_external_key(customer_external_key)
-            if customer_info:
-                client = get_notification_client()
-                await client.send_template_email(
-                    to_emails=[customer_info.get('email', '')],
-                    template_name="payment_received",
-                    template_variables={
-                        "first_name": customer_info.get('first_name', ''),
-                        "amount": payment_amount,
-                        "payment_method": payment_method,
-                        "transaction_id": payment_id
-                    },
-                    tags=["billing", "payment", "success"]
-                )
-                logger.info(f"✅ Sent payment success email to {customer_info.get('email')}")
-            else:
-                logger.warning(f"Could not send payment success email - customer info not found for {customer_external_key}")
-        except Exception as email_error:
-            logger.error(f"❌ Failed to send payment success email: {email_error}")
-        
-    except Exception as e:
-        logger.error(f"Error handling payment success: {e}")
-
-async def handle_payment_failed(payload: Dict[str, Any]):
-    """Handle failed payment webhook"""
-    payment_id = payload.get('objectId')
-    account_id = payload.get('accountId')
-    
-    logger.warning(f"Payment failed: {payment_id} for account: {account_id}")
-    
-    try:
-        # Get customer information from KillBill
-        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
-        if not customer_external_key:
-            logger.warning(f"Could not find customer for account {account_id}")
-            return
-        
-        # Get all instances for this customer and suspend them
-        logger.warning(f"Payment failed for customer {customer_external_key} - suspending all instances")
-        
-        instances = await instance_client.get_instances_by_customer(customer_external_key)
-        suspended_count = 0
-        
-        for instance in instances:
-            if instance.get('status') in ['running', 'stopped', 'starting', 'stopping']:
-                try:
-                    result = await instance_client.suspend_instance(instance['id'], "Payment failed")
-                    if result.get('status') == 'success':
-                        suspended_count += 1
-                        logger.warning(f"Suspended instance {instance['id']} for customer {customer_external_key}")
-                    else:
-                        logger.error(f"Failed to suspend instance {instance['id']}: {result}")
-                except Exception as e:
-                    logger.error(f"Error suspending instance {instance['id']}: {e}")
-        
-        logger.warning(f"Suspended {suspended_count} instances for customer {customer_external_key}")
-        
-        # Send payment failure notification email
-        try:
-            from ..utils.notification_client import send_payment_failure_email
-            
-            # Get payment details to determine amount
-            killbill = _get_killbill_client()
-            
-            payment_amount = "0.00"  # Default fallback
-            try:
-                payment_details = await killbill.get_payment_by_id(payment_id)
-                if payment_details and payment_details.get('amount'):
-                    payment_amount = str(payment_details['amount'])
-            except Exception as payment_error:
-                logger.warning(f"Could not get payment amount for {payment_id}: {payment_error}")
-            
-            # Get customer info for the email
-            customer_info = await _get_customer_info_by_external_key(customer_external_key)
-            if customer_info:
-                await send_payment_failure_email(
-                    email=customer_info.get('email', ''),
-                    first_name=customer_info.get('first_name', ''),
-                    amount_due=payment_amount,
-                    payment_method_url=f"https://billing.saasodoo.local/payment-methods/{customer_external_key}"
-                )
-                logger.info(f"✅ Sent payment failure email to {customer_info.get('email')}")
-            else:
-                logger.warning(f"Could not send payment failure email - customer info not found for {customer_external_key}")
-        except Exception as email_error:
-            logger.error(f"❌ Failed to send payment failure email: {email_error}")
-        
-    except Exception as e:
-        logger.error(f"Error handling payment failure: {e}")
 
 async def handle_subscription_created(payload: Dict[str, Any]):
     """Handle subscription creation webhook - create instances for trial subscriptions"""
@@ -690,21 +505,19 @@ async def handle_invoice_payment_failed(payload: Dict[str, Any]):
 
         # Send payment failure notification email
         try:
-            from ..utils.notification_client import send_payment_failed_email
+            from ..utils.notification_client import send_payment_failure_email
 
             # Get customer info and invoice details
             customer_info = await _get_customer_info_by_external_key(customer_external_key)
 
             if customer_info:
-                # Note: send_payment_failed_email might not exist yet, this is a placeholder
-                # You may need to create this email template or use a generic one
-                logger.info(f"TODO: Send payment failed email to {customer_info.get('email')}")
-                # await send_payment_failed_email(
-                #     email=customer_info.get('email', ''),
-                #     first_name=customer_info.get('first_name', ''),
-                #     invoice_id=invoice_id,
-                #     amount=invoice_details.get('balance', 0)
-                # )
+                await send_payment_failure_email(
+                    email=customer_info.get('email', ''),
+                    first_name=customer_info.get('first_name', ''),
+                    amount_due=str(invoice_details.get('balance', 0)),
+                    payment_method_url=f"https://billing.saasodoo.local/invoices/{invoice_id}/pay"
+                )
+                logger.info(f"✅ Sent payment failure email to {customer_info.get('email')}")
             else:
                 logger.warning(f"Could not send payment failed email - customer info not found for {customer_external_key}")
         except Exception as email_error:
