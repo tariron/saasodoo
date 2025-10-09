@@ -499,23 +499,6 @@ const CreateInstance: React.FC = () => {
                       This will be your Odoo URL: {formData.subdomain || 'subdomain'}.saasodoo.local
                     </p>
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Instance Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => handleInputChange('name', e.target.value)}
-                      className="input-field"
-                      placeholder="Auto-generated from subdomain"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Display name for this instance in your dashboard
-                    </p>
-                  </div>
                 </div>
 
                 <div className="mt-4">
@@ -582,25 +565,6 @@ const CreateInstance: React.FC = () => {
                       className="input-field"
                       placeholder="admin@company.com"
                     />
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Database Name
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.database_name}
-                      className="input-field bg-gray-50"
-                      placeholder="Auto-generated from subdomain"
-                      readOnly
-                      disabled
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Automatically generated from subdomain (read-only)
-                    </p>
                   </div>
                 </div>
               </div>
