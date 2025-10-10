@@ -56,40 +56,40 @@ def validate_database_name(database_name: str, tenant_databases: List[str] = Non
     Returns list of validation errors
     """
     errors = []
-    
+
     if not database_name:
-        errors.append("Database name is required")
+        errors.append("Subdomain is required")
         return errors
-    
+
     if len(database_name) < 1:
-        errors.append("Database name must be at least 1 character long")
-    
+        errors.append("Subdomain must be at least 1 character long")
+
     if len(database_name) > 50:
-        errors.append("Database name must be no more than 50 characters long")
-    
+        errors.append("Subdomain must be no more than 50 characters long")
+
     # Character validation
     if not database_name.replace('_', '').replace('-', '').isalnum():
-        errors.append("Database name must contain only alphanumeric characters, underscores, and hyphens")
-    
+        errors.append("Subdomain must contain only alphanumeric characters, underscores, and hyphens")
+
     if database_name.startswith('_') or database_name.startswith('-'):
-        errors.append("Database name cannot start with underscore or hyphen")
-    
+        errors.append("Subdomain cannot start with underscore or hyphen")
+
     if database_name.endswith('_') or database_name.endswith('-'):
-        errors.append("Database name cannot end with underscore or hyphen")
-    
+        errors.append("Subdomain cannot end with underscore or hyphen")
+
     # Reserved database names
     reserved_names = [
         'postgres', 'template0', 'template1', 'admin', 'root', 'master',
         'system', 'test', 'temp', 'public', 'information_schema'
     ]
-    
+
     if database_name.lower() in reserved_names:
-        errors.append(f"Database name '{database_name}' is reserved and cannot be used")
-    
+        errors.append(f"Subdomain '{database_name}' is reserved and cannot be used")
+
     # Check uniqueness if tenant databases provided
     if tenant_databases and database_name.lower() in [db.lower() for db in tenant_databases]:
-        errors.append(f"Database name '{database_name}' already exists for this tenant")
-    
+        errors.append(f"Subdomain '{database_name}' is already taken")
+
     return errors
 
 

@@ -91,6 +91,24 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to upload overdue configuration: {e}")
         logger.info("Overdue configuration can be uploaded manually if needed")
 
+    # Always upload catalog configuration on startup to ensure it's up to date
+    try:
+        logger.info("Uploading catalog configuration...")
+
+        # Read killbill_catalog.xml file
+        catalog_xml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "killbill_catalog.xml")
+        if os.path.exists(catalog_xml_path):
+            with open(catalog_xml_path, 'r') as f:
+                catalog_xml = f.read()
+
+            await app.state.killbill.upload_catalog_config(catalog_xml)
+            logger.info("Successfully uploaded catalog configuration")
+        else:
+            logger.warning(f"killbill_catalog.xml not found at {catalog_xml_path}")
+    except Exception as e:
+        logger.warning(f"Failed to upload catalog configuration: {e}")
+        logger.info("Catalog configuration can be uploaded manually if needed")
+
     logger.info("Billing Service started successfully")
     yield
     

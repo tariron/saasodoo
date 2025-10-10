@@ -116,7 +116,12 @@ class InstanceDatabase:
                 return await self.get_instance(instance_id)
                 
             except Exception as e:
-                logger.error("Failed to create instance", error=str(e))
+                import traceback
+                logger.error("Failed to create instance in database",
+                             error=str(e),
+                             error_type=type(e).__name__,
+                             traceback=traceback.format_exc(),
+                             instance_data=str(instance_data))
                 raise
     
     async def get_instance(self, instance_id: UUID) -> Optional[Instance]:

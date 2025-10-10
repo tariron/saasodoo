@@ -353,6 +353,122 @@ const Billing: React.FC = () => {
         </div>
       )}
 
+      {/* Orphaned Subscriptions (Subscriptions without Instances) */}
+      {(() => {
+        // Find subscriptions that don't have linked instances
+        const orphanedActiveSubscriptions = billingData.active_subscriptions.filter(
+          (sub: any) => !sub.instance_id
+        );
+        const orphanedPendingSubscriptions = billingData.pending_subscriptions.filter(
+          (sub: any) => !sub.instance_id
+        );
+        const allOrphanedSubscriptions = [...orphanedActiveSubscriptions, ...orphanedPendingSubscriptions];
+
+        if (allOrphanedSubscriptions.length === 0) return null;
+
+        return (
+          <div className="bg-orange-50 border border-orange-300 rounded-lg p-6 mb-8">
+            <div className="flex items-center mb-4">
+              <div className="flex-shrink-0">
+                <span className="text-3xl">⚠️</span>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-orange-900">
+                  Subscriptions Without Instances
+                </h3>
+                <p className="text-orange-800">
+                  {allOrphanedSubscriptions.length} subscription(s) exist but instance was never created or creation failed.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Subscription ID
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Plan
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Created
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {allOrphanedSubscriptions.map((subscription: any) => (
+                    <tr key={subscription.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-mono text-gray-900">
+                          {subscription.id.substring(0, 8)}...
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Full ID: {subscription.id}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-bold text-gray-900">
+                          {subscription.plan_name}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {subscription.billing_period} billing
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                          subscription.state === 'ACTIVE' ? 'text-blue-700 bg-blue-100' :
+                          subscription.state === 'COMMITTED' ? 'text-yellow-700 bg-yellow-100' :
+                          'text-gray-700 bg-gray-100'
+                        }`}>
+                          {subscription.state}
+                        </span>
+                        <div className="text-xs text-red-600 mt-2 font-medium">
+                          ❌ No Instance Created
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatDate(subscription.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                        <div className="flex flex-col space-y-2">
+                          <a
+                            href={`/instances/create?subscription_id=${subscription.id}`}
+                            className="text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            Create Instance →
+                          </a>
+                          <button
+                            onClick={() => alert('Contact support with subscription ID: ' + subscription.id)}
+                            className="text-gray-600 hover:text-gray-800 text-xs"
+                          >
+                            Contact Support
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 p-4 bg-orange-100 rounded-lg">
+              <p className="text-sm text-orange-900">
+                <strong>Why did this happen?</strong> Instance creation may have failed due to invalid configuration,
+                reserved names, or system errors. You can retry creating an instance or contact support for assistance.
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Unified Per-Instance Billing Table */}
       <div className="bg-white shadow rounded-lg mb-8">
         <div className="px-4 py-5 sm:p-6">

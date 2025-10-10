@@ -427,7 +427,40 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to upload overdue config: {e}")
             raise
-    
+
+    async def upload_catalog_config(self, catalog_xml: str) -> Dict[str, Any]:
+        """Upload catalog configuration to KillBill"""
+        try:
+            url = f"{self.base_url}/1.0/kb/tenants/uploadPluginConfig/killbill-catalog"
+            headers = {
+                "X-Killbill-ApiKey": self.api_key,
+                "X-Killbill-ApiSecret": self.api_secret,
+                "X-Killbill-CreatedBy": "billing-service",
+                "Content-Type": "text/plain"  # Must be text/plain for catalog upload
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url=url,
+                    headers=headers,
+                    content=catalog_xml,
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+
+                logger.info(f"KillBill catalog config upload: {response.status_code}")
+
+                if response.status_code >= 400:
+                    logger.error(f"Error uploading catalog config: {response.status_code} - {response.text}")
+                    response.raise_for_status()
+
+            logger.info("Successfully uploaded catalog configuration")
+            return {"status": "uploaded"}
+
+        except Exception as e:
+            logger.error(f"Failed to upload catalog config: {e}")
+            raise
+
     async def _add_subscription_metadata(self, subscription_id: str, metadata: Dict[str, str]) -> Dict[str, Any]:
         """Add custom metadata to a subscription"""
         try:

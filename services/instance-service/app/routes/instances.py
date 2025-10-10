@@ -130,8 +130,13 @@ async def create_instance(
         logger.warning("Instance creation validation failed", error=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("Failed to create instance", error=str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error("Failed to create instance",
+                     error=str(e),
+                     error_type=type(e).__name__,
+                     traceback=error_details)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.get("/{instance_id}", response_model=InstanceResponse)
@@ -669,36 +674,25 @@ async def check_subdomain_availability(
 ):
     """Check if subdomain is available for use"""
     try:
-        # Validate subdomain format (basic validation)
-        if not subdomain or len(subdomain) < 3 or len(subdomain) > 50:
-            raise HTTPException(
-                status_code=400, 
-                detail="Subdomain must be between 3 and 50 characters"
-            )
-        
-        # Check if subdomain contains only valid characters
-        if not subdomain.replace('-', '').isalnum():
-            raise HTTPException(
-                status_code=400, 
-                detail="Subdomain must contain only alphanumeric characters and hyphens"
-            )
-        
-        # Check if subdomain starts or ends with hyphen
-        if subdomain.startswith('-') or subdomain.endswith('-'):
-            raise HTTPException(
-                status_code=400, 
-                detail="Subdomain cannot start or end with a hyphen"
-            )
-        
+        # Use the same validation as instance creation to ensure consistency
+        validation_errors = validate_database_name(subdomain)
+
+        if validation_errors:
+            return {
+                "subdomain": subdomain,
+                "available": False,
+                "message": validation_errors[0]  # Return the first validation error
+            }
+
         # Check availability in database
         is_available = await db.check_subdomain_availability(subdomain)
-        
+
         return {
             "subdomain": subdomain,
             "available": is_available,
             "message": "Available" if is_available else "Already taken"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

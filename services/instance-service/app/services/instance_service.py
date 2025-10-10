@@ -41,8 +41,12 @@ class InstanceService:
             return instance
             
         except Exception as e:
-            logger.error("Failed to create instance for customer", 
-                        customer_id=str(customer_id), error=str(e))
+            import traceback
+            logger.error("Failed to create instance for customer",
+                        customer_id=str(customer_id),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        traceback=traceback.format_exc())
             raise
     
     async def get_customer_instance_summary(self, customer_id: UUID) -> Dict[str, Any]:

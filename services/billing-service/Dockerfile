@@ -17,6 +17,9 @@ COPY app/ ./app/
 # Copy overdue configuration
 COPY overdue.xml ./overdue.xml
 
+# Copy catalog configuration
+COPY killbill_catalog.xml ./killbill_catalog.xml
+
 # Expose port
 EXPOSE 8004
 

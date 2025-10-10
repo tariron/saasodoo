@@ -489,7 +489,7 @@ const CreateInstance: React.FC = () => {
                             <svg className="h-4 w-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                             </svg>
-                            <span className="text-sm text-red-600 font-medium">Already taken</span>
+                            <span className="text-sm text-red-600 font-medium">{subdomainStatus.message}</span>
                           </>
                         ) : null}
                       </div>

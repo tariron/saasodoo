@@ -190,15 +190,16 @@ async def get_billing_overview(
         trial_info = None
         next_billing_date = None
         next_billing_amount = 0.0
-        
-        # Create instance lookup for faster matching
-        instance_lookup = {instance['id']: instance for instance in customer_instances}
-        
+
+        # Create instance lookup by subscription_id (the correct way - instances have subscription_id foreign key)
+        instance_by_subscription = {instance['subscription_id']: instance for instance in customer_instances if instance.get('subscription_id')}
+        logger.info(f"Created instance lookup with {len(instance_by_subscription)} subscription mappings")
+
         # Get all subscription metadata in parallel (batch the N+1 queries)
         metadata_start = time.time()
         active_subscription_ids = [sub.get('subscriptionId') for sub in subscriptions if sub.get('state') == 'ACTIVE']
         logger.info(f"Starting metadata fetch for {len(active_subscription_ids)} active subscriptions")
-        
+
         # Fetch all subscription metadata in parallel
         metadata_tasks = [killbill.get_subscription_metadata(sub_id) for sub_id in active_subscription_ids]
         if metadata_tasks:
@@ -213,26 +214,25 @@ async def get_billing_overview(
                         logger.warning(f"Failed to get metadata for subscription {sub_id}: {metadata_results[i]}")
         else:
             metadata_lookup = {}
-        
+
         metadata_time = time.time() - metadata_start
         logger.info(f"Metadata fetch completed in {metadata_time:.2f} seconds")
-        
+
         # Separate processing for all subscription states
         pending_subscriptions = []
         outstanding_invoices = []
         total_outstanding = 0.0
         provisioning_blocked_instances = []
-        
+
         for sub in subscriptions:
             if sub.get('state') == 'ACTIVE':
                 # Get subscription metadata from our batched results
                 subscription_metadata = metadata_lookup.get(sub.get('subscriptionId', ''), {})
-                
-                # Find linked instance
-                instance_id = subscription_metadata.get('instance_id')
-                linked_instance = None
-                if instance_id and instance_id in instance_lookup:
-                    linked_instance = instance_lookup[instance_id]
+
+                # Find linked instance using subscription_id (instances have subscription_id field)
+                subscription_id = sub.get('subscriptionId')
+                linked_instance = instance_by_subscription.get(subscription_id)
+                instance_id = linked_instance.get('id') if linked_instance else None
                 
                 # Extract cancellation information
                 cancelled_date = sub.get('cancelledDate')
@@ -308,25 +308,24 @@ async def get_billing_overview(
             # Handle non-ACTIVE subscriptions (pending payment states)
             elif sub.get('state') in ['COMMITTED']:  # Subscriptions created but not fully activated
                 subscription_metadata = metadata_lookup.get(sub.get('subscriptionId', ''), {})
-                
-                # Find linked instance
-                instance_id = subscription_metadata.get('instance_id')
-                linked_instance = None
-                if instance_id and instance_id in instance_lookup:
-                    linked_instance = instance_lookup[instance_id]
-                    
-                    # Track instances blocked by pending payment
-                    if linked_instance.get('billing_status') == 'payment_required':
-                        provisioning_blocked_instances.append({
-                            'instance_id': instance_id,
-                            'instance_name': linked_instance.get('name'),
-                            'subscription_id': sub.get('subscriptionId'),
-                            'plan_name': sub.get('planName'),
-                            'created_at': sub.get('createdDate')
-                        })
+
+                # Find linked instance using subscription_id (instances have subscription_id field)
+                subscription_id = sub.get('subscriptionId')
+                linked_instance = instance_by_subscription.get(subscription_id)
+                instance_id = linked_instance.get('id') if linked_instance else None
+
+                # Track instances blocked by pending payment
+                if linked_instance and linked_instance.get('billing_status') == 'payment_required':
+                    provisioning_blocked_instances.append({
+                        'instance_id': instance_id,
+                        'instance_name': linked_instance.get('name'),
+                        'subscription_id': subscription_id,
+                        'plan_name': sub.get('planName'),
+                        'created_at': sub.get('createdDate')
+                    })
 
                 pending_subscription_data = {
-                    'id': sub.get('subscriptionId'),
+                    'id': subscription_id,
                     'account_id': account_id,
                     'plan_name': sub.get('planName'),
                     'product_name': sub.get('productName', sub.get('planName')),
@@ -339,7 +338,7 @@ async def get_billing_overview(
                     'instance_status': linked_instance.get('status') if linked_instance else None,
                     'awaiting_payment': True
                 }
-                
+
                 pending_subscriptions.append(pending_subscription_data)
         
         # Get outstanding invoices (invoices with balance > 0)
