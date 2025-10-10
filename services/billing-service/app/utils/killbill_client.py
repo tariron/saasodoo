@@ -444,14 +444,15 @@ class KillBillClient:
             raise
 
     async def upload_catalog_config(self, catalog_xml: str) -> Dict[str, Any]:
-        """Upload catalog configuration to KillBill"""
+        """Upload catalog configuration to KillBill using per-tenant catalog endpoint"""
         try:
-            url = f"{self.base_url}/1.0/kb/tenants/uploadPluginConfig/killbill-catalog"
+            # Use the per-tenant XML catalog endpoint which makes catalog available via /1.0/kb/catalog API
+            url = f"{self.base_url}/1.0/kb/catalog/xml"
             headers = {
                 "X-Killbill-ApiKey": self.api_key,
                 "X-Killbill-ApiSecret": self.api_secret,
                 "X-Killbill-CreatedBy": "billing-service",
-                "Content-Type": "text/plain"  # Must be text/plain for catalog upload
+                "Content-Type": "text/xml"  # Must be text/xml for catalog upload
             }
 
             async with httpx.AsyncClient() as client:
@@ -463,13 +464,13 @@ class KillBillClient:
                     timeout=30.0
                 )
 
-                logger.info(f"KillBill catalog config upload: {response.status_code}")
+                logger.info(f"KillBill catalog XML upload: {response.status_code}")
 
                 if response.status_code >= 400:
-                    logger.error(f"Error uploading catalog config: {response.status_code} - {response.text}")
+                    logger.error(f"Error uploading catalog XML: {response.status_code} - {response.text}")
                     response.raise_for_status()
 
-            logger.info("Successfully uploaded catalog configuration")
+            logger.info("Successfully uploaded catalog configuration via XML endpoint")
             return {"status": "uploaded"}
 
         except Exception as e:
