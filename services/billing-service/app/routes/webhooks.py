@@ -823,9 +823,37 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
             logger.info(f"Triggered provisioning for instance {instance_id}")
         else:
             logger.error(f"Failed to create instance for customer {customer_id}")
-            
+
     except Exception as e:
-        logger.error(f"Error creating instance for subscription {subscription_id}: {e}")
+        import traceback
+        logger.error(f"Error creating instance for subscription {subscription_id}: {e}",
+                     traceback=traceback.format_exc())
+
+        # Send failure email to customer
+        try:
+            from ..utils.notification_client import get_notification_client
+
+            # Get customer email from subscription metadata
+            admin_email = subscription_metadata.get("instance_admin_email")
+            instance_name = subscription_metadata.get("instance_name", "your instance")
+
+            if admin_email:
+                client = get_notification_client()
+                await client.send_template_email(
+                    template_name="instance_creation_failed",
+                    recipient_email=admin_email,
+                    context={
+                        "instance_name": instance_name,
+                        "subscription_id": subscription_id,
+                        "error_reason": str(e)[:200],  # Truncate long errors
+                        "support_url": f"{os.getenv('FRONTEND_URL', 'http://app.saasodoo.local')}/support"
+                    }
+                )
+                logger.info(f"Sent instance creation failure email to {admin_email}")
+            else:
+                logger.warning(f"Could not send failure email - no admin email in subscription metadata")
+        except Exception as email_error:
+            logger.error(f"Failed to send instance creation failure email: {email_error}")
 
 
 async def handle_subscription_phase_change(payload: Dict[str, Any]):

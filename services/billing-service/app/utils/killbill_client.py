@@ -263,32 +263,35 @@ class KillBillClient:
             return None
     
     async def check_tenant_exists(self) -> bool:
-        """Check if KillBill tenant exists"""
+        """Check if KillBill tenant exists using apiKey query parameter"""
         try:
-            headers = {
-                "X-Killbill-ApiKey": self.api_key,
-                "X-Killbill-ApiSecret": self.api_secret,
-                "Accept": "application/json"
-            }
-
+            # Use the official KillBill API: GET /1.0/kb/tenants?apiKey={apiKey}
+            # This endpoint requires only basic auth, not tenant headers
             url = f"{self.base_url}/1.0/kb/tenants"
+            params = {"apiKey": self.api_key}
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     url=url,
-                    headers=headers,
+                    params=params,
                     auth=(self.username, self.password),
                     timeout=30.0
                 )
 
                 if response.status_code == 200:
-                    logger.info("KillBill tenant exists")
+                    logger.info(f"KillBill tenant exists with apiKey: {self.api_key}")
                     return True
-                elif response.status_code == 404:
-                    logger.info("KillBill tenant does not exist")
-                    return False
+                elif response.status_code == 500:
+                    # KillBill returns 500 with "TenantCacheLoader cannot find value" when tenant doesn't exist
+                    response_text = response.text
+                    if "TenantCacheLoader cannot find value" in response_text or "cannot find value for key" in response_text:
+                        logger.info(f"KillBill tenant does not exist for apiKey: {self.api_key}")
+                        return False
+                    else:
+                        logger.warning(f"Unexpected 500 error checking tenant: {response_text}")
+                        return False
                 else:
-                    logger.warning(f"Unexpected response checking tenant: {response.status_code}")
+                    logger.warning(f"Unexpected response checking tenant: {response.status_code} - {response.text}")
                     return False
 
         except Exception as e:
@@ -321,6 +324,11 @@ class KillBillClient:
 
                 logger.info(f"KillBill tenant creation POST {url}: {response.status_code}")
 
+                # Handle 409 Conflict - tenant already exists
+                if response.status_code == 409:
+                    logger.info(f"KillBill tenant already exists with apiKey: {self.api_key} (409 Conflict)")
+                    return {"status": "already_exists", "apiKey": self.api_key}
+
                 if response.status_code >= 400:
                     logger.error(f"KillBill tenant creation error: {response.status_code} - {response.text}")
                     response.raise_for_status()
@@ -328,6 +336,13 @@ class KillBillClient:
             logger.info(f"Successfully created KillBill tenant with apiKey: {self.api_key}")
             return {"status": "created", "apiKey": self.api_key}
 
+        except httpx.HTTPStatusError as e:
+            # Re-check for 409 in case it wasn't caught above
+            if e.response.status_code == 409:
+                logger.info(f"KillBill tenant already exists with apiKey: {self.api_key} (409 Conflict)")
+                return {"status": "already_exists", "apiKey": self.api_key}
+            logger.error(f"Failed to create tenant: {e}")
+            raise
         except Exception as e:
             logger.error(f"Failed to create tenant: {e}")
             raise

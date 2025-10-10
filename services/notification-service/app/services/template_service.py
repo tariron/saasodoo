@@ -143,6 +143,15 @@ class TemplateService:
                 "variables": ["first_name", "instance_name", "error_reason", "support_url"],
                 "created_at": datetime.utcnow()
             },
+            "instance_creation_failed": {
+                "name": "instance_creation_failed",
+                "subject": "Instance creation failed",
+                "description": "Notification when instance creation fails during validation or setup",
+                "from_email": "support@saasodoo.local",
+                "from_name": "SaaS Odoo Support",
+                "variables": ["instance_name", "subscription_id", "error_reason", "support_url"],
+                "created_at": datetime.utcnow()
+            },
             "instance_stopped": {
                 "name": "instance_stopped",
                 "subject": "Instance stopped - {{ instance_name }}",
@@ -712,6 +721,30 @@ class TemplateService:
             </body>
             </html>
             """
+        elif template_name == "instance_creation_failed":
+            return f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+                <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h1 style="color: #e74c3c; text-align: center; margin-bottom: 30px;">❌ Instance Creation Failed</h1>
+                    <p>Hello,</p>
+                    <p>We're sorry, but the creation of your Odoo instance <strong>{variables.get('instance_name', 'your instance')}</strong> has failed.</p>
+                    <div style="background-color: #fdf2f2; padding: 20px; border-radius: 5px; border-left: 4px solid #e74c3c; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #e74c3c;">Error Details</h3>
+                        <p><strong>Instance:</strong> {variables.get('instance_name', 'N/A')}</p>
+                        <p><strong>Subscription ID:</strong> {variables.get('subscription_id', 'N/A')}</p>
+                        <p><strong>Error:</strong> {variables.get('error_reason', 'Unknown error occurred during instance creation')}</p>
+                    </div>
+                    <p>This may have occurred due to validation errors (such as reserved names or invalid configuration) or system issues. Please check your configuration and try again.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{variables.get('support_url', '#')}" style="background-color: #e74c3c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Contact Support</a>
+                    </div>
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #666; text-align: center;">© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.</p>
+                </div>
+            </body>
+            </html>
+            """
         elif template_name == "instance_stopped":
             return f"""
             <html>
@@ -1169,6 +1202,25 @@ Error Details:
 - Error: {variables.get('error_reason', 'Unknown error occurred during provisioning')}
 
 Our technical team has been automatically notified and will investigate this issue. You can try provisioning again or contact our support team for assistance.
+
+Contact Support: {variables.get('support_url', '#')}
+
+© {variables.get('current_year')} {variables.get('platform_name', 'SaaS Odoo Platform')}. All rights reserved.
+            """
+        elif template_name == "instance_creation_failed":
+            return f"""
+Instance Creation Failed
+
+Hello,
+
+We're sorry, but the creation of your Odoo instance "{variables.get('instance_name', 'your instance')}" has failed.
+
+Error Details:
+- Instance: {variables.get('instance_name', 'N/A')}
+- Subscription ID: {variables.get('subscription_id', 'N/A')}
+- Error: {variables.get('error_reason', 'Unknown error occurred during instance creation')}
+
+This may have occurred due to validation errors (such as reserved names or invalid configuration) or system issues. Please check your configuration and try again.
 
 Contact Support: {variables.get('support_url', '#')}
 
