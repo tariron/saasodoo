@@ -1,0 +1,772 @@
+version: '3.8'
+
+services:
+  # Reverse Proxy & Load Balancer
+  traefik:
+    image: traefik:v3.0
+    container_name: saasodoo-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$10$$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
+
+  # Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: saasodoo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_MULTIPLE_DATABASES}
+      # Service user passwords for initialization scripts
+      POSTGRES_READONLY_PASSWORD: ${POSTGRES_READONLY_PASSWORD}
+      POSTGRES_BACKUP_PASSWORD: ${POSTGRES_BACKUP_PASSWORD}
+      POSTGRES_AUTH_SERVICE_PASSWORD: ${POSTGRES_AUTH_SERVICE_PASSWORD}
+      POSTGRES_BILLING_SERVICE_PASSWORD: ${POSTGRES_BILLING_SERVICE_PASSWORD}
+      POSTGRES_INSTANCE_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../shared/configs/postgres:/docker-entrypoint-initdb.d
+    networks:
+      - saasodoo-network
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo_user} -d ${POSTGRES_DB:-odoo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+
+  # Database Management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: saasodoo-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@saasodoo.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_DISABLE_POSTFIX: true
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ../../shared/configs/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    networks:
+      - saasodoo-network
+    depends_on:
+      - postgres
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.pgadmin.service=pgadmin"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
+  # Redis Cache & Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: saasodoo-redis
+    restart: unless-stopped
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - redis-data:/data
+      - ../../shared/configs/redis.conf:/etc/redis/redis.conf:ro
+    networks:
+      - saasodoo-network
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    labels:
+      - "traefik.enable=false"
+
+  # Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: saasodoo-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-saasodoo}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-saasodoo123}
+      RABBITMQ_DEFAULT_VHOST: saasodoo
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - saasodoo-network
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.rabbitmq.service=rabbitmq"
+      - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: saasodoo-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.prometheus.service=prometheus"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: saasodoo-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.grafana.service=grafana"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # Log Management
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    container_name: saasodoo-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=false"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.8.0
+    container_name: saasodoo-kibana
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    networks:
+      - saasodoo-network
+    depends_on:
+      - elasticsearch
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kibana.rule=Host(`kibana.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.kibana.service=kibana"
+      - "traefik.http.services.kibana.loadbalancer.server.port=5601"
+
+  # Development Tools
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: saasodoo-mailhog
+    restart: unless-stopped
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailhog.rule=Host(`mail.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.mailhog.service=mailhog"
+      - "traefik.http.services.mailhog.loadbalancer.server.port=8025"
+
+  # Shared Volume for File Storage
+  minio:
+    image: minio/minio:latest
+    container_name: saasodoo-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    networks:
+      - saasodoo-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.minio.rule=Host(`minio.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.minio.service=minio"
+      - "traefik.http.services.minio.loadbalancer.server.port=9001"
+      - "traefik.http.routers.minio-api.rule=Host(`s3.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.minio-api.service=minio-api"
+      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
+
+  # ===== BILLING INFRASTRUCTURE =====
+  
+  # KillBill MariaDB Database (with pre-built schemas)
+  killbill-db:
+    image: killbill/mariadb:0.24
+    container_name: saasodoo-killbill-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: killbill
+    volumes:
+      - killbill-db-data:/var/lib/mysql
+      #- ../../shared/configs/killbill:/docker-entrypoint-initdb.d:ro
+    networks:
+      - saasodoo-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=false"
+
+  # KillBill Billing Engine
+  killbill:
+    image: killbill/killbill:0.24.15
+    container_name: saasodoo-killbill
+    restart: unless-stopped
+    environment:
+      # Database Configuration
+      KILLBILL_DAO_URL: jdbc:mysql://killbill-db:3306/killbill
+      KILLBILL_DAO_USER: root
+      KILLBILL_DAO_PASSWORD: killbill
+      
+      # API Credentials  
+      KILLBILL_SERVER_MULTITENANT: true
+      KILLBILL_CONFIG_OSGI_BUNDLE_CACHE_NAME: felix-cache
+      
+      # API credentials from .env file
+      KILLBILL_USERNAME: ${KILLBILL_USERNAME}
+      KILLBILL_PASSWORD: ${KILLBILL_PASSWORD}
+      KILLBILL_API_SECRET: ${KILLBILL_API_SECRET}
+      KILLBILL_API_KEY: ${KILLBILL_API_KEY}
+      
+      # JVM Memory settings
+      KILLBILL_JVM_PERM_SIZE: 512m
+      KILLBILL_JVM_MAX_PERM_SIZE: 1G
+      
+      # Webhook Configuration
+      KILLBILL_NOTIFICATION_URL: http://billing-service:8004/api/billing/webhooks/killbill
+      KILLBILL_NOTIFICATION_NB_THREADS: 3
+      KILLBILL_NOTIFICATION_QUEUE_CAPACITY: 100
+      
+      # HTTP Client Configuration - Disable HTTP/2
+      KILLBILL_SERVER_HTTP_CLIENT_ENABLE_HTTP2: false
+      KILLBILL_HTTP_CLIENT_DISABLE_HTTP2: true
+      
+      # Test Mode Configuration - Enable clock manipulation
+      KILLBILL_SERVER_TEST_MODE: true
+    networks:
+      - saasodoo-network
+    depends_on:
+      killbill-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/1.0/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.killbill.rule=Host(`billing.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.killbill.service=killbill"
+      - "traefik.http.services.killbill.loadbalancer.server.port=8080"
+    ports:
+      - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
+
+  # Kaui Admin UI for KillBill
+  kaui:
+    image: killbill/kaui:latest
+    container_name: saasodoo-kaui
+    restart: unless-stopped
+    environment:
+      # Database Configuration for Kaui
+      KAUI_KILLBILL_URL: http://killbill:8080
+      KAUI_KILLBILL_API_KEY: lazar
+      KAUI_KILLBILL_API_SECRET: bob
+      
+      # Kaui Database (shared with KillBill)
+      KAUI_CONFIG_DAO_URL: jdbc:mysql://killbill-db:3306/kaui
+      KAUI_CONFIG_DAO_USER: root
+      KAUI_CONFIG_DAO_PASSWORD: killbill
+      
+      # Default admin credentials
+      KAUI_ROOT_USERNAME: admin
+      KAUI_ROOT_PASSWORD: password
+      
+      # Enable automatic database migration
+      KAUI_CONFIG_CURRENCY: USD
+    networks:
+      - saasodoo-network
+    depends_on:
+      killbill:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kaui.rule=Host(`billing-admin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.kaui.service=kaui"
+      - "traefik.http.services.kaui.loadbalancer.server.port=8080"
+    ports:
+      - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
+
+  # ===== MICROSERVICES =====
+  
+  # User Service - Customer Authentication & Management
+  user-service:
+    build:
+      context: ../../services/user-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-user-service
+    restart: unless-stopped
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: auth
+      DB_SERVICE_USER: ${POSTGRES_AUTH_SERVICE_USER:-auth_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_AUTH_SERVICE_PASSWORD:-auth_service_secure_pass_change_me}
+
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # JWT Configuration
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
+      
+      # Notification Service Configuration
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://notification.saasodoo.local}
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+    networks:
+      - saasodoo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.user-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/user`)"
+      - "traefik.http.routers.user-service.service=user-service"
+      - "traefik.http.services.user-service.loadbalancer.server.port=8001"
+      # Auth routes  
+      - "traefik.http.routers.user-auth.rule=Host(`auth.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.user-auth.service=user-service"
+      # Strip /user prefix for clean API
+      - "traefik.http.middlewares.user-strip.stripprefix.prefixes=/user"
+      - "traefik.http.routers.user-service.middlewares=user-strip"
+    ports:
+      - "8001:8001"  # Expose user-service port to host
+
+
+  # Instance Service - Odoo Instance Operations & Lifecycle Management
+  instance-service:
+    build:
+      context: ../../services/instance-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-instance-service
+    restart: unless-stopped
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: instance
+      DB_SERVICE_USER: ${POSTGRES_INSTANCE_SERVICE_USER:-instance_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD:-instance_service_secure_pass_change_me}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Docker Configuration (for instance lifecycle management)
+      DOCKER_HOST: unix:///var/run/docker.sock
+      
+      # Instance Configuration
+      ODOO_INSTANCES_PATH: ${ODOO_INSTANCES_PATH:-/var/lib/odoo/instances}
+      ODOO_BACKUPS_PATH: ${ODOO_BACKUPS_PATH:-/var/lib/odoo/backups}
+      DEFAULT_ODOO_VERSION: ${DEFAULT_ODOO_VERSION:-17.0}
+      
+      # Instance Limits
+      MAX_INSTANCES_PER_USER: ${MAX_INSTANCES_PER_USER:-5}
+      INSTANCE_CPU_LIMIT: ${INSTANCE_CPU_LIMIT:-1.0}
+      INSTANCE_MEMORY_LIMIT: ${INSTANCE_MEMORY_LIMIT:-2G}
+      INSTANCE_STORAGE_LIMIT: ${INSTANCE_STORAGE_LIMIT:-10G}
+      
+      # Monitoring Configuration
+      AUTO_START_MONITORING: ${AUTO_START_MONITORING:-true}
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
+      - odoo-instances:/var/lib/odoo/instances  # Instance storage
+      - odoo-backups:/var/lib/odoo/backups  # Backup storage
+    networks:
+      - saasodoo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.instance-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/instance`)"
+      - "traefik.http.routers.instance-service.service=instance-service"
+      - "traefik.http.services.instance-service.loadbalancer.server.port=8003"
+      # Strip /instance prefix for clean API
+      - "traefik.http.middlewares.instance-strip.stripprefix.prefixes=/instance"
+      - "traefik.http.routers.instance-service.middlewares=instance-strip"
+    ports:
+      - "8003:8003"  # Expose instance-service port to host
+
+  # Instance Service Worker - Background Task Processing
+  instance-worker:
+    build:
+      context: ../../services/instance-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-instance-worker
+    restart: unless-stopped
+    command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: instance
+      DB_SERVICE_USER: ${POSTGRES_INSTANCE_SERVICE_USER:-instance_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD:-instance_service_secure_pass_change_me}
+      
+      # Database Configuration - Admin credentials for creating new databases (SECURITY ISSUE - TO FIX)
+      POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # RabbitMQ Configuration
+      RABBITMQ_USER: ${RABBITMQ_USER:-saasodoo}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-saasodoo123}
+      
+      # Docker Configuration (for instance lifecycle management)
+      DOCKER_HOST: unix:///var/run/docker.sock
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
+      - odoo-backups:/var/lib/odoo/backups  # Backup storage
+    networks:
+      - saasodoo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=false"
+
+  # Billing Service - KillBill Integration & Billing Management
+  billing-service:
+    build:
+      context: ../../services/billing-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-billing-service
+    restart: unless-stopped
+    environment:
+      # Database Configuration - Service-specific credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: billing
+      DB_SERVICE_USER: ${POSTGRES_BILLING_SERVICE_USER:-billing_service}
+      DB_SERVICE_PASSWORD: ${POSTGRES_BILLING_SERVICE_PASSWORD:-billing_service123}
+      
+      # KillBill Configuration
+      KILLBILL_URL: ${KILLBILL_URL:-http://killbill:8080}
+      KILLBILL_API_KEY: ${KILLBILL_API_KEY}
+      KILLBILL_API_SECRET: ${KILLBILL_API_SECRET}
+      KILLBILL_USERNAME: ${KILLBILL_USERNAME}
+      KILLBILL_PASSWORD: ${KILLBILL_PASSWORD}
+      
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Application Configuration
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+    networks:
+      - saasodoo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      killbill:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.billing-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/billing`)"
+      - "traefik.http.routers.billing-service.service=billing-service"
+      - "traefik.http.services.billing-service.loadbalancer.server.port=8004"
+      # Strip /billing prefix for clean API
+      - "traefik.http.middlewares.billing-strip.stripprefix.prefixes=/billing"
+      - "traefik.http.routers.billing-service.middlewares=billing-strip"
+    ports:
+      - "8004:8004"  # Expose billing-service port to host
+
+  # Frontend Service - React SPA with Flask backend
+  frontend-service:
+    build: 
+      context: ../../services/frontend-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"  # Direct access for debugging
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=true
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - ENVIRONMENT=${ENVIRONMENT}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`app.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.frontend.service=frontend"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      - "traefik.http.services.frontend.loadbalancer.healthcheck.path=/health"
+    networks:
+      - saasodoo-network
+
+  # Notification Service - Email and Notification Management
+  notification-service:
+    build:
+      context: ../../services/notification-service
+      dockerfile: Dockerfile
+    container_name: saasodoo-notification-service
+    restart: unless-stopped
+    environment:
+      # SMTP Configuration (Development - MailHog)
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: false
+      SMTP_USE_SSL: false
+      SMTP_TIMEOUT: 30
+      
+      # SMTP Authentication (empty for MailHog)
+      SMTP_USERNAME: 
+      SMTP_PASSWORD: 
+      
+      # Email Defaults
+      DEFAULT_FROM_EMAIL: noreply@saasodoo.local
+      DEFAULT_FROM_NAME: SaaS Odoo Platform
+      
+      # Rate Limiting
+      MAX_EMAILS_PER_MINUTE: 60
+      MAX_EMAILS_PER_HOUR: 1000
+      
+      # Database Configuration
+      DB_DATABASE_URL: postgresql://notification_service:notification_service_secure_pass_change_me@postgres:5432/communication
+      DB_POOL_SIZE: 10
+      DB_MAX_OVERFLOW: 20
+      
+      # Application Configuration
+      APP_DEBUG: ${DEBUG:-true}
+      APP_SERVICE_NAME: notification-service
+      APP_SERVICE_VERSION: 1.0.0
+      APP_API_PREFIX: /api/v1
+      APP_TEMPLATES_DIR: app/templates
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ../../shared:/app/shared:ro  # Mount shared schemas
+    networks:
+      - saasodoo-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notification.rule=Host(`notification.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.notification.service=notification"
+      - "traefik.http.services.notification.loadbalancer.server.port=5000"
+      - "traefik.http.services.notification.loadbalancer.healthcheck.path=/health"
+
+networks:
+  saasodoo-network:
+    driver: bridge
+    name: saasodoo-network
+
+volumes:
+  # All volumes now backed by CephFS distributed storage
+  # MicroCeph must be installed and CephFS mounted at /mnt/cephfs
+  # See: infrastructure/docs/MICROCEPH_MIGRATION.md
+
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/postgres_data
+
+  redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/redis_data
+
+  rabbitmq-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/rabbitmq_data
+
+  prometheus-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/prometheus_data
+
+  grafana-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/grafana_data
+
+  elasticsearch-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/elasticsearch_data
+
+  minio-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/minio_data
+
+  pgadmin-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/pgadmin_data
+
+  odoo-instances:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/odoo_instances
+
+  odoo-backups:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/odoo_backups
+
+  killbill-db-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/killbill_db_data
