@@ -6,6 +6,8 @@ import os
 import asyncio
 import asyncpg
 import docker
+import subprocess
+import shutil
 from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID
@@ -18,6 +20,68 @@ from app.utils.password_generator import generate_secure_password
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+def _parse_size_to_bytes(size_str: str) -> int:
+    """
+    Convert size string like '10G' or '512M' to bytes
+
+    Args:
+        size_str: Size string with unit (e.g., '10G', '512M')
+
+    Returns:
+        Size in bytes
+    """
+    size_str = size_str.upper().strip()
+
+    # Extract numeric value and unit
+    value = int(size_str[:-1])
+    unit = size_str[-1]
+
+    # Define multipliers
+    multipliers = {
+        'M': 1024 ** 2,  # Megabytes
+        'G': 1024 ** 3,  # Gigabytes
+        'T': 1024 ** 4   # Terabytes
+    }
+
+    return value * multipliers.get(unit, 1)
+
+
+def _create_cephfs_directory_with_quota(path: str, size_limit: str):
+    """
+    Create CephFS directory and set quota
+
+    Args:
+        path: Full path to directory on CephFS mount
+        size_limit: Size limit string (e.g., '10G', '512M')
+    """
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(path, exist_ok=True)
+        logger.info("Created CephFS directory", path=path)
+
+        # Parse size to bytes
+        quota_bytes = _parse_size_to_bytes(size_limit)
+
+        # Set CephFS quota using setfattr
+        cmd = [
+            'setfattr',
+            '-n', 'ceph.quota.max_bytes',
+            '-v', str(quota_bytes),
+            path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        logger.info("Set CephFS quota", path=path, size_limit=size_limit, quota_bytes=quota_bytes)
+
+    except subprocess.CalledProcessError as e:
+        logger.error("Failed to set CephFS quota", path=path, error=str(e), stderr=e.stderr)
+        raise RuntimeError(f"Failed to set CephFS quota: {e.stderr}")
+    except Exception as e:
+        logger.error("Failed to create CephFS directory with quota", path=path, error=str(e))
+        raise
 
 
 @celery_app.task(bind=True)
@@ -279,10 +343,31 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         odoo_version = instance.get('odoo_version', '17')
         logger.info("Pulling Bitnami Odoo image", version=odoo_version)
         client.images.pull(f'bitnamilegacy/odoo:{odoo_version}')
-        
-        # Create persistent volume for Odoo data
+
+        # Get storage limit from instance
+        storage_limit = instance.get('storage_limit', '10G')
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-        
+
+        # Create CephFS directory with quota BEFORE Docker volume
+        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
+        _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
+        logger.info("Created CephFS volume with quota",
+                   volume_name=volume_name,
+                   storage_limit=storage_limit,
+                   path=cephfs_path)
+
+        # Create Docker volume backed by CephFS with quota
+        volume = client.volumes.create(
+            name=volume_name,
+            driver='local',
+            driver_opts={
+                'type': 'none',
+                'o': 'bind',
+                'device': cephfs_path
+            }
+        )
+        logger.info("Created Docker volume with CephFS backing", volume_name=volume_name)
+
         # Create and start container with persistent volume
         container = client.containers.run(
             f'bitnamilegacy/odoo:{odoo_version}',
@@ -427,7 +512,16 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
             logger.info("Volume cleaned up", volume_name=volume_name)
         except docker.errors.NotFound:
             pass  # Volume doesn't exist
-        
+
+        # Clean up CephFS directory if created
+        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
+        try:
+            if os.path.exists(cephfs_path):
+                shutil.rmtree(cephfs_path)
+                logger.info("CephFS directory cleaned up", path=cephfs_path)
+        except Exception as e:
+            logger.warning("Failed to clean up CephFS directory", path=cephfs_path, error=str(e))
+
         # Remove database if created
         admin_conn = await asyncpg.connect(
             host=os.getenv('POSTGRES_HOST', 'postgres'),

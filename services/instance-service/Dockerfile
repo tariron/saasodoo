@@ -16,6 +16,7 @@ RUN apt-get update \
         curl \
         postgresql-client \
         sudo \
+        attr \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -33,7 +34,8 @@ RUN groupadd -g 1001 docker || true && usermod -a -G docker appuser
 RUN mkdir -p /var/lib/odoo/backups/active /var/lib/odoo/backups/staging /var/lib/odoo/backups/temp \
     && chown -R appuser:appuser /var/lib/odoo
 RUN chown -R appuser:appuser /app
-USER appuser
+# Run as root to allow volume access and Docker operations
+# USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \

@@ -23,7 +23,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # Backup storage paths
-BACKUP_BASE_PATH = "/var/lib/odoo/backups"
+# Using direct CephFS mount for Docker Desktop WSL compatibility
+# In production with native Docker, this can be changed back to /var/lib/odoo/backups
+BACKUP_BASE_PATH = "/mnt/cephfs/odoo_backups"
 BACKUP_ACTIVE_PATH = f"{BACKUP_BASE_PATH}/active"
 BACKUP_STAGING_PATH = f"{BACKUP_BASE_PATH}/staging"
 BACKUP_TEMP_PATH = f"{BACKUP_BASE_PATH}/temp"
@@ -429,18 +431,18 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
                 command=f"tar -czf /backup/{backup_name}_data.tar.gz -C /data .",
                 volumes={
                     volume_name: {'bind': '/data', 'mode': 'ro'},
-                    'odoo-backups': {'bind': '/backup', 'mode': 'rw'}
+                    BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'rw'}
                 },
                 remove=True,
                 detach=False
             )
             logger.info("Docker tar command output", output=result)
-            
+
             # Get file size from within the volume using another container
             size_result = client.containers.run(
                 image="alpine:latest",
                 command=f"stat -c %s /backup/{backup_name}_data.tar.gz",
-                volumes={'odoo-backups': {'bind': '/backup', 'mode': 'ro'}},
+                volumes={BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}},
                 remove=True,
                 detach=False
             )
@@ -547,8 +549,8 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
     try:
         check_result = client.containers.run(
             image="alpine:latest",
-            command=f"test -f /backup/{backup_filename}",
-            volumes={'odoo-backups': {'bind': '/backup', 'mode': 'ro'}},
+            command=f"test -f /backup/active/{backup_filename}",
+            volumes={BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}},
             remove=True,
             detach=False
         )
@@ -576,18 +578,37 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
             logger.info("Existing data volume removed", volume=volume_name)
         except docker.errors.NotFound:
             pass
-        
-        # Create new volume
-        new_volume = client.volumes.create(name=volume_name)
-        logger.info("New data volume created", volume=volume_name)
+
+        # Get storage limit from instance for CephFS quota
+        storage_limit = instance.get('storage_limit', '10G')
+        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
+
+        # Import helper function from provisioning
+        from app.tasks.provisioning import _create_cephfs_directory_with_quota
+
+        # Create CephFS directory with quota
+        _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
+        logger.info("Created CephFS directory with quota for restore", path=cephfs_path, storage_limit=storage_limit)
+
+        # Create new volume backed by CephFS
+        new_volume = client.volumes.create(
+            name=volume_name,
+            driver='local',
+            driver_opts={
+                'type': 'none',
+                'o': 'bind',
+                'device': cephfs_path
+            }
+        )
+        logger.info("New data volume created with CephFS backing", volume=volume_name)
         
         # Extract backup to new volume
         client.containers.run(
             image="alpine:latest",
-            command=f"tar -xzf /backup/{backup_filename} -C /data",
+            command=f"tar -xzf /backup/active/{backup_filename} -C /data",
             volumes={
                 volume_name: {'bind': '/data', 'mode': 'rw'},
-                'odoo-backups': {'bind': '/backup', 'mode': 'ro'}
+                BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}
             },
             remove=True,
             detach=False
