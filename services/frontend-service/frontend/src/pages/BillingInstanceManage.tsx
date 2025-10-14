@@ -635,22 +635,23 @@ const BillingInstanceManage: React.FC = () => {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Subscription Management</h2>
             
             <div className="flex flex-wrap gap-4">
-              <button
+              {/* Pause/Resume functionality temporarily disabled */}
+              {/* <button
                 onClick={handlePauseSubscription}
                 disabled={actionLoading === 'pause' || subscriptionData.subscription.state !== 'ACTIVE'}
                 className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {actionLoading === 'pause' ? 'Pausing...' : 'Pause Subscription'}
               </button>
-              
+
               <button
                 onClick={handleResumeSubscription}
                 disabled={actionLoading === 'resume' || subscriptionData.subscription.state === 'ACTIVE'}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {actionLoading === 'resume' ? 'Resuming...' : 'Resume Subscription'}
-              </button>
-              
+              </button> */}
+
               <button
                 onClick={handleCancelSubscription}
                 disabled={actionLoading === 'cancel' || subscriptionData.subscription.state === 'CANCELLED'}
