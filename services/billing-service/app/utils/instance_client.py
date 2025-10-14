@@ -312,5 +312,46 @@ class InstanceServiceClient:
             logger.error(f"Failed to restart instance {instance_id} with new subscription: {e}")
             return {"status": "error", "message": str(e)}
 
+    async def update_instance_resources(
+        self,
+        instance_id: str,
+        cpu_limit: float,
+        memory_limit: str,
+        storage_limit: str
+    ) -> Dict[str, Any]:
+        """Update instance resource limits in database"""
+        endpoint = f"/api/v1/instances/{instance_id}"
+        payload = {
+            "cpu_limit": cpu_limit,
+            "memory_limit": memory_limit,
+            "storage_limit": storage_limit
+        }
+
+        logger.info(f"Updating instance {instance_id} resources: {cpu_limit} CPU, {memory_limit} RAM, {storage_limit} storage")
+
+        try:
+            result = await self._make_request("PUT", endpoint, json=payload)
+            logger.info(f"Successfully updated instance {instance_id} resource limits in database")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to update instance {instance_id} resources: {e}")
+            raise
+
+    async def apply_resource_upgrade(self, instance_id: str) -> Dict[str, Any]:
+        """Apply live resource upgrades to running container"""
+        endpoint = f"/api/v1/instances/{instance_id}/apply-resources"
+
+        logger.info(f"Applying live resource upgrade to instance {instance_id}")
+
+        try:
+            result = await self._make_request("POST", endpoint)
+            logger.info(f"Successfully applied live resource upgrade to instance {instance_id}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to apply resource upgrade to instance {instance_id}: {e}")
+            raise
+
 # Global instance of the client
 instance_client = InstanceServiceClient()

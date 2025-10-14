@@ -197,3 +197,4 @@ services/{service-name}/
 docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
    fresh-secret" "http://localhost:8080/1.0/kb/tenants/userKeyValue/PUSH_NOTIFICATION_CB"
 - never ever do things manually unless told to do so
+- always include instance-worker when rebuilding instance-service

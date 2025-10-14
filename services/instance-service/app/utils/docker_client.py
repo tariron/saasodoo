@@ -377,6 +377,47 @@ class DockerClientWrapper:
                 'message': f'Health check failed: {str(e)}'
             }
     
+    def update_container_resources(self, container_name: str, cpu_limit: float, memory_bytes: int) -> bool:
+        """Update container resource limits (CPU and memory) with zero downtime
+
+        Args:
+            container_name: Name of the container to update
+            cpu_limit: CPU limit in cores (e.g., 4.0 for 4 CPUs)
+            memory_bytes: Memory limit in bytes
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self._ensure_connection()
+            container = self.client.containers.get(container_name)
+
+            # Update container resources
+            # For update(), we need to use cpu_period and cpu_quota (not nano_cpus)
+            # cpu_period: default is 100000 microseconds (100ms)
+            # cpu_quota: cpu_limit * cpu_period (e.g., 4.0 CPUs * 100000 = 400000)
+            container.update(
+                cpu_period=100000,
+                cpu_quota=int(cpu_limit * 100000),
+                mem_limit=memory_bytes,
+                memswap_limit=memory_bytes  # Set memswap = memory (no swap)
+            )
+
+            logger.info("Successfully updated container resources",
+                       container=container_name,
+                       cpu_limit=cpu_limit,
+                       memory_mb=memory_bytes // (1024 * 1024))
+            return True
+
+        except docker.errors.NotFound:
+            logger.error("Container not found for resource update", container=container_name)
+            return False
+        except Exception as e:
+            logger.error("Failed to update container resources",
+                        container=container_name,
+                        error=str(e))
+            return False
+
     def cleanup_orphaned_containers(self) -> List[str]:
         """Remove containers that don't have corresponding database entries"""
         # This would require database access, so it's a placeholder for now
@@ -385,7 +426,7 @@ class DockerClientWrapper:
         # 2. Query database for corresponding instances
         # 3. Remove containers that don't have database entries
         # 4. Return list of cleaned up container names
-        
+
         logger.info("Orphaned container cleanup not implemented yet")
         return []
 
