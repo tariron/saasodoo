@@ -4,11 +4,15 @@ Handles payment methods and payment processing
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
 import logging
 from pydantic import BaseModel
+from datetime import datetime, timezone
+import uuid
 
 from ..utils.killbill_client import KillBillClient
+from ..utils.paynow_client import get_paynow_client
+from ..utils.database import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +32,41 @@ class RetryPaymentRequest(BaseModel):
     invoice_id: Optional[str] = None
     amount: Optional[float] = None
 
+class PaynowInitiateRequest(BaseModel):
+    invoice_id: str
+    payment_method: Literal["ecocash", "onemoney", "card"]
+    phone: Optional[str] = None  # Required for ecocash/onemoney
+    return_url: Optional[str] = None  # Required for card
+    customer_email: str  # Required for all
+
+
+class PaynowPaymentResponse(BaseModel):
+    payment_id: str
+    reference: str
+    payment_type: Literal["mobile", "redirect"]
+    status: str
+    poll_url: str
+    redirect_url: Optional[str] = None
+    message: str
+
 def get_killbill_client(request: Request) -> KillBillClient:
     """Dependency to get KillBill client"""
     return request.app.state.killbill
+
+def map_paynow_status(paynow_status: str) -> str:
+    """Map Paynow status to our payment_status"""
+    status_map = {
+        "Paid": "paid",
+        "Awaiting Delivery": "paid",
+        "Delivered": "paid",
+        "Created": "pending",
+        "Sent": "pending",
+        "Cancelled": "cancelled",
+        "Failed": "failed",
+        "Disputed": "disputed",
+        "Refunded": "refunded"
+    }
+    return status_map.get(paynow_status, "pending")
 
 @router.post("/payment-methods/")
 async def add_payment_method(
@@ -165,3 +201,208 @@ async def retry_payment(
     except Exception as e:
         logger.error(f"Failed to retry payment for customer {retry_data.customer_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retry payment: {str(e)}")
+
+@router.post("/paynow/initiate", response_model=PaynowPaymentResponse)
+async def initiate_paynow_payment(
+    request: PaynowInitiateRequest,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """
+    Initiate Paynow payment (mobile money or card)
+
+    Mobile Money Flow (EcoCash/OneMoney):
+    - Sends USSD push to customer's phone
+    - Customer approves on phone
+    - Frontend polls status endpoint
+
+    Card Flow:
+    - Returns redirect URL
+    - Customer redirects to Paynow
+    - Customer pays on Paynow page
+    - Paynow redirects back to return_url
+    """
+    try:
+        # Validate request
+        if request.payment_method in ["ecocash", "onemoney"] and not request.phone:
+            raise HTTPException(status_code=400, detail="Phone number required for mobile money payments")
+
+        if request.payment_method == "card" and not request.return_url:
+            raise HTTPException(status_code=400, detail="Return URL required for card payments")
+
+        # Get invoice from KillBill
+        invoice = await killbill.get_invoice_by_id(request.invoice_id)
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+
+        amount = float(invoice.get('balance', 0))
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Invoice already paid or has zero balance")
+
+        # Generate unique reference
+        payment_id = str(uuid.uuid4())
+        reference = f"INV_{request.invoice_id}_{payment_id[:8]}"
+
+        # Initialize Paynow client
+        paynow = get_paynow_client()
+
+        # Initiate payment based on method
+        if request.payment_method in ["ecocash", "onemoney"]:
+            # Mobile money - USSD push
+            paynow_response = await paynow.initiate_mobile_transaction(
+                reference=reference,
+                amount=amount,
+                phone=request.phone,
+                method=request.payment_method,
+                auth_email=request.customer_email,
+                additional_info=f"Invoice {request.invoice_id}"
+            )
+            payment_type = "mobile"
+
+        else:
+            # Card - redirect flow
+            paynow_response = await paynow.initiate_transaction(
+                reference=reference,
+                amount=amount,
+                return_url=request.return_url,
+                auth_email=request.customer_email,
+                additional_info=f"Invoice {request.invoice_id}"
+            )
+            payment_type = "redirect"
+
+        # Check Paynow response
+        if paynow_response.get('status') == 'Error':
+            error_msg = paynow_response.get('error', 'Unknown error')
+            logger.error(f"Paynow initiation failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=f"Payment initiation failed: {error_msg}")
+
+        # Store payment in database
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO payments (
+                    id, subscription_id, amount, currency, payment_method, payment_status,
+                    gateway_transaction_id, paynow_poll_url, paynow_browser_url,
+                    return_url, phone, paynow_status, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            """,
+                payment_id,
+                None,  # subscription_id - link if available
+                amount,
+                'USD',
+                request.payment_method,
+                'pending',
+                reference,  # Our reference
+                paynow_response.get('pollurl'),
+                paynow_response.get('browserurl'),
+                request.return_url,
+                request.phone,
+                paynow_response.get('status'),
+                datetime.now(timezone.utc)
+            )
+
+        logger.info(f"Payment initiated: {payment_id} ({request.payment_method})")
+
+        # Build response
+        response_data = {
+            "payment_id": payment_id,
+            "reference": reference,
+            "payment_type": payment_type,
+            "status": "pending",
+            "poll_url": f"/api/billing/payments/paynow/status/{payment_id}"
+        }
+
+        if payment_type == "redirect":
+            response_data["redirect_url"] = paynow_response.get('browserurl')
+            response_data["message"] = "Redirect customer to payment page"
+        else:
+            response_data["message"] = f"Payment request sent to {request.phone}. Please check your phone."
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error initiating Paynow payment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/paynow/status/{payment_id}")
+async def get_paynow_payment_status(payment_id: str):
+    """
+    Get current payment status - Frontend polls this endpoint
+
+    Returns current status from database.
+    If status is still pending after 30 seconds, polls Paynow for update.
+    """
+    try:
+        pool = get_pool()
+
+        # Get payment from database
+        async with pool.acquire() as conn:
+            payment = await conn.fetchrow("""
+                SELECT id, gateway_transaction_id, amount, payment_method, payment_status,
+                       paynow_reference, paynow_poll_url, paynow_status, phone,
+                       created_at, webhook_received_at
+                FROM payments
+                WHERE id = $1
+            """, payment_id)
+
+        if not payment:
+            raise HTTPException(status_code=404, detail="Payment not found")
+
+        # Check if we should poll Paynow for update
+        should_poll = (
+            payment['payment_status'] == 'pending' and
+            payment['paynow_poll_url'] and
+            (datetime.now(timezone.utc) - payment['created_at']).total_seconds() > 30
+        )
+
+        if should_poll:
+            # Poll Paynow for latest status
+            paynow = get_paynow_client()
+            paynow_status = await paynow.poll_transaction_status(payment['paynow_poll_url'])
+
+            if paynow_status.get('status') not in ['Error']:
+                # Update database with latest status
+                new_status = paynow_status.get('status', 'pending')
+                mapped_status = map_paynow_status(new_status)
+
+                async with pool.acquire() as conn:
+                    await conn.execute("""
+                        UPDATE payments
+                        SET payment_status = $1, paynow_status = $2, paynow_reference = $3
+                        WHERE id = $4
+                    """,
+                        mapped_status,
+                        new_status,
+                        paynow_status.get('paynowreference'),
+                        payment_id
+                    )
+
+                # Reload payment
+                async with pool.acquire() as conn:
+                    payment = await conn.fetchrow("""
+                        SELECT id, gateway_transaction_id, amount, payment_method, payment_status,
+                               paynow_reference, paynow_status, phone,
+                               created_at, webhook_received_at
+                        FROM payments
+                        WHERE id = $1
+                    """, payment_id)
+
+        # Return current status
+        return {
+            "payment_id": str(payment['id']),
+            "reference": payment['gateway_transaction_id'],
+            "status": payment['payment_status'],
+            "paynow_status": payment['paynow_status'],
+            "amount": float(payment['amount']),
+            "payment_method": payment['payment_method'],
+            "phone": payment['phone'],
+            "created_at": payment['created_at'].isoformat() if payment['created_at'] else None,
+            "webhook_received": payment['webhook_received_at'] is not None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting payment status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

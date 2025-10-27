@@ -199,3 +199,4 @@ docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: f
 - never ever do things manually unless told to do so
 - always include instance-worker when rebuilding instance-service
 - you cannot run sudo commands because you cant, advise me on the command you want me to run
+- please be trurhful always

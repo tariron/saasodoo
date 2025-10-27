@@ -8,8 +8,12 @@ import logging
 import json
 import os
 from typing import Dict, Any, Optional
+from datetime import datetime, timezone
+from urllib.parse import parse_qs
 from app.utils.instance_client import instance_client
 from app.utils.killbill_client import KillBillClient
+from app.utils.paynow_client import get_paynow_client
+from app.utils.database import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -1279,10 +1283,144 @@ async def _get_invoice_info(invoice_id: str) -> Optional[Dict[str, Any]]:
     """Get invoice information from KillBill"""
     try:
         killbill = _get_killbill_client()
-        
+
         invoice = await killbill.get_invoice_by_id(invoice_id)
         return invoice
-        
+
     except Exception as e:
         logger.error(f"Error getting invoice info for {invoice_id}: {e}")
         return None
+
+@router.post("/paynow")
+async def handle_paynow_webhook(request: Request, response: Response):
+    """
+    Handle webhook from Paynow
+
+    Paynow sends status updates as URL-encoded POST:
+    reference=X&paynowreference=Y&amount=Z&status=Paid&hash=...
+
+    We validate hash, update payment record, and update KillBill if paid
+    """
+    response.headers["Connection"] = "close"
+
+    try:
+        # Get raw body
+        body = await request.body()
+        body_str = body.decode('utf-8')
+
+        logger.info(f"Received Paynow webhook: {body_str}")
+
+        # Parse URL-encoded payload
+        payload_lists = parse_qs(body_str)
+
+        # Convert lists to single values
+        payload = {k: v[0] if isinstance(v, list) and len(v) > 0 else v
+                  for k, v in payload_lists.items()}
+
+        logger.info(f"Parsed Paynow payload: {payload}")
+
+        # Validate hash
+        paynow = get_paynow_client()
+        if not paynow.validate_hash(payload):
+            logger.error("Invalid hash in Paynow webhook")
+            raise HTTPException(status_code=400, detail="Invalid hash")
+
+        # Extract fields
+        reference = payload.get('reference')  # Our reference
+        paynow_reference = payload.get('paynowreference')
+        amount = payload.get('amount')
+        paynow_status = payload.get('status')
+        poll_url = payload.get('pollurl')
+
+        if not reference:
+            logger.error("No reference in Paynow webhook")
+            raise HTTPException(status_code=400, detail="Missing reference")
+
+        logger.info(f"Paynow webhook: {reference} → {paynow_status}")
+
+        # Find payment by our reference (gateway_transaction_id)
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            payment = await conn.fetchrow("""
+                SELECT id, payment_status, amount as payment_amount, subscription_id
+                FROM payments
+                WHERE gateway_transaction_id = $1
+            """, reference)
+
+        if not payment:
+            logger.warning(f"Payment not found for reference: {reference}")
+            # Return 200 to prevent retries
+            return {"success": True, "message": "Payment not found"}
+
+        payment_id = payment['id']
+
+        # Map Paynow status to our status
+        from .payments import map_paynow_status
+        new_status = map_paynow_status(paynow_status)
+
+        # Update payment in database
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE payments
+                SET payment_status = $1, paynow_status = $2, paynow_reference = $3,
+                    webhook_received_at = $4, processed_at = $5
+                WHERE id = $6
+            """,
+                new_status,
+                paynow_status,
+                paynow_reference,
+                datetime.now(timezone.utc),
+                datetime.now(timezone.utc) if new_status == 'paid' else None,
+                payment_id
+            )
+
+        logger.info(f"Updated payment {payment_id}: {new_status}")
+
+        # If payment successful, update KillBill
+        if new_status == 'paid':
+            logger.info(f"Payment successful, updating KillBill for payment {payment_id}")
+
+            # Extract invoice_id from reference (format: INV_invoice_id_xxxxx)
+            parts = reference.split('_')
+            invoice_id = parts[1] if len(parts) > 1 else None
+
+            if invoice_id:
+                try:
+                    # Get KillBill client
+                    killbill = _get_killbill_client()
+
+                    # Record payment in KillBill
+                    invoice = await killbill.get_invoice_by_id(invoice_id)
+                    if invoice:
+                        account_id = invoice.get('accountId')
+
+                        # Create payment in KillBill
+                        payment_data = {
+                            "accountId": account_id,
+                            "targetInvoiceId": invoice_id,
+                            "purchasedAmount": float(amount)
+                        }
+
+                        kb_payment = await killbill.create_payment(payment_data)
+                        logger.info(f"Created KillBill payment for invoice {invoice_id}")
+
+                        # Instance provisioning will be triggered by KillBill's
+                        # INVOICE_PAYMENT_SUCCESS webhook
+
+                    else:
+                        logger.warning(f"Invoice {invoice_id} not found in KillBill")
+
+                except Exception as kb_error:
+                    logger.error(f"Failed to update KillBill: {kb_error}")
+                    # Don't fail the webhook - payment is recorded locally
+            else:
+                logger.warning(f"Could not extract invoice_id from reference: {reference}")
+
+        return {"success": True, "message": "Webhook processed"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing Paynow webhook: {e}")
+        # Return 200 to prevent Paynow retries
+        return {"success": False, "message": str(e)}

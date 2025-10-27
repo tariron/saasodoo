@@ -138,6 +138,16 @@ class PaynowClient:
             result = {k: v[0] if isinstance(v, list) and len(v) > 0 else v
                      for k, v in response_data.items()}
 
+            # Log raw response for debugging
+            logger.info(f"Paynow response: {result}")
+
+            # Check if this is an error response (no hash field)
+            if 'hash' not in result:
+                # Paynow error responses don't include hash
+                error_msg = result.get('error', result.get('status', 'Unknown error'))
+                logger.warning(f"Paynow returned error (no hash): {error_msg}")
+                return {"status": "Error", "error": error_msg}
+
             # Validate response hash
             if not self.validate_hash(result):
                 logger.error("Invalid hash in Paynow response")
@@ -208,6 +218,16 @@ class PaynowClient:
             # Convert lists to single values
             result = {k: v[0] if isinstance(v, list) and len(v) > 0 else v
                      for k, v in response_data.items()}
+
+            # Log raw response for debugging
+            logger.info(f"Paynow mobile response: {result}")
+
+            # Check if this is an error response (no hash field)
+            if 'hash' not in result:
+                # Paynow error responses don't include hash
+                error_msg = result.get('error', result.get('status', 'Unknown error'))
+                logger.warning(f"Paynow returned error (no hash): {error_msg}")
+                return {"status": "Error", "error": error_msg}
 
             # Validate response hash
             if not self.validate_hash(result):

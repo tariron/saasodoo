@@ -927,3 +927,55 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get unpaid invoices for subscription {subscription_id}: {e}")
             return []
+
+    async def create_payment(self, payment_data: dict) -> dict:
+        """
+        Record external payment in KillBill
+
+        Args:
+            payment_data: {
+                "accountId": "account-uuid",
+                "targetInvoiceId": "invoice-uuid",
+                "purchasedAmount": 100.00
+            }
+
+        Returns:
+            Payment object from KillBill or success dict
+        """
+        invoice_id = payment_data.get('targetInvoiceId')
+        url = f"{self.base_url}/1.0/kb/invoices/{invoice_id}/payments"
+
+        headers = self.headers.copy()
+        headers["Content-Type"] = "application/json"
+        headers["X-Killbill-CreatedBy"] = "billing-service-paynow"
+        headers["X-Killbill-Reason"] = "Paynow payment received"
+        headers["X-Killbill-Comment"] = f"External payment for invoice {invoice_id}"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json=payment_data,
+                    headers=headers,
+                    params={"externalPayment": "true"},
+                    auth=(self.username, self.password),
+                    timeout=30.0
+                )
+
+                if response.status_code in [200, 201]:
+                    logger.info(f"Payment recorded in KillBill for invoice {invoice_id}")
+                    # KillBill returns 201 with empty body or Location header
+                    if response.text:
+                        return response.json()
+                    else:
+                        # Extract payment ID from Location header if available
+                        location = response.headers.get('Location', '')
+                        payment_id = location.split('/')[-2] if location else None
+                        return {"success": True, "payment_id": payment_id}
+                else:
+                    logger.error(f"Failed to record payment in KillBill: {response.status_code} - {response.text}")
+                    return None
+
+        except Exception as e:
+            logger.error(f"Error recording payment in KillBill: {e}")
+            raise
