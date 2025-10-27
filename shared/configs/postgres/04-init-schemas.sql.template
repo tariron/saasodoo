@@ -81,7 +81,16 @@ CREATE TABLE IF NOT EXISTS payments (
     payment_status VARCHAR(50) DEFAULT 'pending',
     gateway_transaction_id VARCHAR(255),
     processed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- Paynow-specific fields
+    paynow_reference VARCHAR(255),
+    paynow_poll_url TEXT,
+    paynow_browser_url TEXT,
+    return_url TEXT,
+    phone VARCHAR(20),
+    paynow_status VARCHAR(50),
+    webhook_received_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Create indexes for billing database
@@ -92,6 +101,9 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_subscription_status ON subscriptions(subscription_status);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status);
+CREATE INDEX IF NOT EXISTS idx_payments_paynow_ref ON payments(paynow_reference);
+CREATE INDEX IF NOT EXISTS idx_payments_gateway_tx_id ON payments(gateway_transaction_id);
+CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone);
 
 
 -- Initialize instance database schema

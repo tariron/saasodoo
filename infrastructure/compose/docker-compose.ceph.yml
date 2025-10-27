@@ -469,10 +469,16 @@ services:
       # Redis Configuration
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      
+
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Paynow Configuration
+      PAYNOW_INTEGRATION_ID: ${PAYNOW_INTEGRATION_ID}
+      PAYNOW_INTEGRATION_KEY: ${PAYNOW_INTEGRATION_KEY}
+      PAYNOW_RESULT_URL: http://billing-service:8004/api/billing/webhooks/paynow
+      PAYNOW_BASE_URL: ${PAYNOW_BASE_URL:-https://www.paynow.co.zw}
     volumes:
       - ../../shared:/app/shared:ro  # Mount shared schemas
     networks:

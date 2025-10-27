@@ -28,8 +28,11 @@ echo "🧹 Cleaning CephFS volumes..."
 echo "Stopping containers..."
 docker compose -f infrastructure/compose/docker-compose.ceph.yml down
 
+# Remove Docker volumes first (releases bind mounts)
+docker volume rm compose_postgres-data 2>/dev/null || true
+
 # Remove data directories
-sudo rm -rf ${CEPH_MOUNT}/postgres_data/*
+sudo find ${CEPH_MOUNT}/postgres_data -mindepth 1 -delete
 sudo rm -rf ${CEPH_MOUNT}/redis_data/*
 sudo rm -rf ${CEPH_MOUNT}/rabbitmq_data/*
 sudo rm -rf ${CEPH_MOUNT}/prometheus_data/*
@@ -37,8 +40,7 @@ sudo rm -rf ${CEPH_MOUNT}/killbill_db_data/*
 sudo rm -rf ${CEPH_MOUNT}/odoo_instances/*
 sudo rm -rf ${CEPH_MOUNT}/odoo_backups/*
 
-# Remove Docker volumes (metadata only)
-docker volume rm compose_postgres-data 2>/dev/null || true
+# Remove remaining Docker volumes (metadata only)
 docker volume rm compose_redis-data 2>/dev/null || true
 docker volume rm compose_rabbitmq-data 2>/dev/null || true
 docker volume rm compose_prometheus-data 2>/dev/null || true

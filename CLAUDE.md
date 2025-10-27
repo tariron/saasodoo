@@ -198,3 +198,4 @@ docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: f
    fresh-secret" "http://localhost:8080/1.0/kb/tenants/userKeyValue/PUSH_NOTIFICATION_CB"
 - never ever do things manually unless told to do so
 - always include instance-worker when rebuilding instance-service
+- you cannot run sudo commands because you cant, advise me on the command you want me to run
