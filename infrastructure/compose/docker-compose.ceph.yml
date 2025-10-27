@@ -54,30 +54,6 @@ services:
     labels:
       - "traefik.enable=false"
 
-  # Database Management
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: saasodoo-pgadmin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@saasodoo.local}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
-      PGADMIN_DISABLE_POSTFIX: true
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
-    volumes:
-      - pgadmin-data:/var/lib/pgadmin
-      - ../../shared/configs/pgadmin/servers.json:/pgadmin4/servers.json:ro
-    networks:
-      - saasodoo-network
-    depends_on:
-      - postgres
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.pgadmin.service=pgadmin"
-      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
-
   # Redis Cache & Session Store
   redis:
     image: redis:7-alpine
@@ -151,58 +127,6 @@ services:
       - "traefik.http.routers.prometheus.service=prometheus"
       - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
 
-  grafana:
-    image: grafana/grafana:latest
-    container_name: saasodoo-grafana
-    restart: unless-stopped
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: false
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ../monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
-    networks:
-      - saasodoo-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`grafana.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.grafana.service=grafana"
-      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
-
-  # Log Management
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
-    container_name: saasodoo-elasticsearch
-    restart: unless-stopped
-    environment:
-      - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-      - xpack.security.enabled=false
-    volumes:
-      - elasticsearch-data:/usr/share/elasticsearch/data
-    networks:
-      - saasodoo-network
-    labels:
-      - "traefik.enable=false"
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.8.0
-    container_name: saasodoo-kibana
-    restart: unless-stopped
-    environment:
-      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
-    networks:
-      - saasodoo-network
-    depends_on:
-      - elasticsearch
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.kibana.rule=Host(`kibana.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.kibana.service=kibana"
-      - "traefik.http.services.kibana.loadbalancer.server.port=5601"
-
   # Development Tools
   mailhog:
     image: mailhog/mailhog:latest
@@ -215,28 +139,6 @@ services:
       - "traefik.http.routers.mailhog.rule=Host(`mail.${BASE_DOMAIN}`)"
       - "traefik.http.routers.mailhog.service=mailhog"
       - "traefik.http.services.mailhog.loadbalancer.server.port=8025"
-
-  # Shared Volume for File Storage
-  minio:
-    image: minio/minio:latest
-    container_name: saasodoo-minio
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
-    volumes:
-      - minio-data:/data
-    networks:
-      - saasodoo-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.minio.rule=Host(`minio.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.minio.service=minio"
-      - "traefik.http.services.minio.loadbalancer.server.port=9001"
-      - "traefik.http.routers.minio-api.rule=Host(`s3.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.minio-api.service=minio-api"
-      - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
 
   # ===== BILLING INFRASTRUCTURE =====
   
@@ -723,34 +625,6 @@ volumes:
       type: none
       o: bind
       device: /mnt/cephfs/prometheus_data
-
-  grafana-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/grafana_data
-
-  elasticsearch-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/elasticsearch_data
-
-  minio-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/minio_data
-
-  pgadmin-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/pgadmin_data
 
   odoo-instances:
     driver: local

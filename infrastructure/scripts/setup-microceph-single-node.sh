@@ -61,6 +61,31 @@ if [ -f /etc/os-release ]; then
     echo -e "${BLUE}Detected OS: $NAME $VERSION_ID${NC}"
 fi
 
+# Step 0: Clean up any existing broken MicroCeph installation
+echo -e "\n${YELLOW}Step 0/7: Checking for existing MicroCeph installation...${NC}"
+if snap list 2>/dev/null | grep -q microceph; then
+    echo -e "${YELLOW}Found existing MicroCeph installation${NC}"
+    read -p "Do you want to remove it and start fresh? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Unmounting CephFS if mounted...${NC}"
+        umount "$MOUNT_POINT" 2>/dev/null || true
+
+        echo -e "${YELLOW}Removing MicroCeph with --purge...${NC}"
+        snap remove --purge microceph
+
+        echo -e "${YELLOW}Cleaning up mount point...${NC}"
+        rm -rf "$MOUNT_POINT"
+
+        echo -e "${GREEN}✓ Cleanup complete${NC}"
+        echo -e "${BLUE}Note: /etc/ceph symlinks will be recreated automatically${NC}"
+    else
+        echo -e "${BLUE}Keeping existing installation${NC}"
+    fi
+else
+    echo -e "${BLUE}No existing MicroCeph installation found${NC}"
+fi
+
 # Step 1: Install MicroCeph
 echo -e "\n${YELLOW}Step 1/7: Installing MicroCeph...${NC}"
 if snap list 2>/dev/null | grep -q microceph; then
@@ -82,6 +107,13 @@ else
     microceph cluster bootstrap
     echo -e "${GREEN}✓ Cluster bootstrapped${NC}"
 fi
+
+# Create /etc/ceph directory and symlinks (needed for ceph commands)
+echo "Setting up /etc/ceph configuration symlinks..."
+mkdir -p /etc/ceph
+ln -sf /var/snap/microceph/current/conf/ceph.conf /etc/ceph/ceph.conf
+ln -sf /var/snap/microceph/current/conf/ceph.client.admin.keyring /etc/ceph/ceph.client.admin.keyring
+echo -e "${GREEN}✓ Configuration symlinks created${NC}"
 
 # Step 3: Add storage
 echo -e "\n${YELLOW}Step 3/7: Adding storage (3x 4GB OSDs)...${NC}"
@@ -148,16 +180,11 @@ else
     echo -e "${BLUE}ceph module already loaded${NC}"
 fi
 
-# Step 6: Setup mount point and config
+# Step 6: Setup mount point
 echo -e "\n${YELLOW}Step 6/7: Setting up mount point...${NC}"
 
 # Create mount directory
 mkdir -p "$MOUNT_POINT"
-
-# Create /etc/ceph directory and symlinks
-mkdir -p /etc/ceph
-ln -sf /var/snap/microceph/current/conf/ceph.conf /etc/ceph/ceph.conf
-ln -sf /var/snap/microceph/current/conf/ceph.client.admin.keyring /etc/ceph/ceph.client.admin.keyring
 
 echo -e "${GREEN}✓ Mount point configured${NC}"
 
