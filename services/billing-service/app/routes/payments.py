@@ -378,6 +378,45 @@ async def get_paynow_payment_status(payment_id: str):
                         payment_id
                     )
 
+                # If payment just became paid, record in KillBill
+                if mapped_status == 'paid':
+                    logger.info(f"Payment {payment_id} status changed to 'paid', recording in KillBill")
+
+                    # Extract invoice_id from reference (format: INV_invoice_id_xxxxx)
+                    reference = payment['gateway_transaction_id']
+                    parts = reference.split('_')
+                    invoice_id = parts[1] if len(parts) > 1 else None
+
+                    if invoice_id:
+                        try:
+                            # Get KillBill client
+                            from ..routes.webhooks import _get_killbill_client
+                            killbill = _get_killbill_client()
+
+                            # Get invoice to find account_id
+                            invoice = await killbill.get_invoice_by_id(invoice_id)
+                            if invoice:
+                                account_id = invoice.get('accountId')
+                                amount_to_pay = float(paynow_status.get('amount', payment['amount']))
+
+                                # Record payment in KillBill
+                                payment_data = {
+                                    "accountId": account_id,
+                                    "targetInvoiceId": invoice_id,
+                                    "purchasedAmount": amount_to_pay
+                                }
+
+                                kb_payment = await killbill.create_payment(payment_data)
+                                logger.info(f"✅ Recorded payment in KillBill for invoice {invoice_id} (amount: {amount_to_pay})")
+                                logger.info(f"KillBill will trigger INVOICE_PAYMENT_SUCCESS webhook to provision instances")
+                            else:
+                                logger.warning(f"Invoice {invoice_id} not found in KillBill")
+                        except Exception as kb_error:
+                            logger.error(f"Failed to record payment in KillBill for invoice {invoice_id}: {kb_error}")
+                            # Don't fail the endpoint - payment is recorded locally
+                    else:
+                        logger.warning(f"Could not extract invoice_id from reference: {reference}")
+
                 # Reload payment
                 async with pool.acquire() as conn:
                     payment = await conn.fetchrow("""
