@@ -28,22 +28,8 @@ const BillingInvoices: React.FC = () => {
     }
   }, [customerId, currentPage]);
 
-  // Handle card payment return from Paynow
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const isPaymentReturn = urlParams.get('payment_return');
-
-    if (isPaymentReturn === 'true') {
-      alert('Payment completed. Checking status...');
-
-      if (customerId) {
-        fetchInvoices();
-      }
-
-      // Clean URL
-      window.history.replaceState({}, '', '/billing/invoices');
-    }
-  }, [customerId]);
+  // Note: Card payment returns now go to /billing/payment-status page
+  // This old handler has been removed as it's no longer needed
 
   const fetchUserProfile = async () => {
     try {

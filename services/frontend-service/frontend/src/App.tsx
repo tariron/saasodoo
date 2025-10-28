@@ -12,6 +12,7 @@ import Profile from './pages/Profile';
 import Billing from './pages/Billing';
 import BillingInvoices from './pages/BillingInvoices';
 import BillingPayment from './pages/BillingPayment';
+import BillingPaymentStatus from './pages/BillingPaymentStatus';
 import BillingInstanceManage from './pages/BillingInstanceManage';
 import AuthGuard from './components/AuthGuard';
 import { TokenManager } from './utils/api';
@@ -120,22 +121,31 @@ function App() {
             } 
           />
           
-          <Route 
-            path="/billing/payment" 
+          <Route
+            path="/billing/payment"
             element={
               <AuthGuard>
                 <BillingPayment />
               </AuthGuard>
-            } 
+            }
           />
-          
-          <Route 
-            path="/billing/instance/:instanceId" 
+
+          <Route
+            path="/billing/payment-status"
+            element={
+              <AuthGuard>
+                <BillingPaymentStatus />
+              </AuthGuard>
+            }
+          />
+
+          <Route
+            path="/billing/instance/:instanceId"
             element={
               <AuthGuard>
                 <BillingInstanceManage />
               </AuthGuard>
-            } 
+            }
           />
           
           {/* User Management routes */}

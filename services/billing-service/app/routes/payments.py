@@ -260,10 +260,15 @@ async def initiate_paynow_payment(
 
         else:
             # Card - redirect flow
+            # Replace PLACEHOLDER in return_url with actual payment_id
+            return_url = request.return_url
+            if return_url and 'PLACEHOLDER' in return_url:
+                return_url = return_url.replace('PLACEHOLDER', payment_id)
+
             paynow_response = await paynow.initiate_transaction(
                 reference=reference,
                 amount=amount,
-                return_url=request.return_url,
+                return_url=return_url,
                 auth_email=request.customer_email,
                 additional_info=f"Invoice {request.invoice_id}"
             )

@@ -113,9 +113,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         request.phone = phoneNumber.replace(/\D/g, '');
       }
 
-      // Add return URL for cards
+      // Add return URL for cards - we'll use a temporary placeholder that backend will replace
       if (selectedPaymentMethod === 'card') {
-        request.return_url = window.location.origin + '/billing/invoices?payment_return=true';
+        request.return_url = window.location.origin + '/billing/payment-status?payment_id=PLACEHOLDER';
       }
 
       const response = await billingAPI.initiatePaynowPayment(request);
@@ -128,6 +128,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         setPollingEnabled(true);
       } else if (paymentData.payment_type === 'redirect' && paymentData.redirect_url) {
         // Redirect to Paynow
+        // Paynow will redirect user back to our return_url (with payment_id) after payment
         window.location.href = paymentData.redirect_url;
       } else {
         setPaymentError('Invalid payment response from server');
