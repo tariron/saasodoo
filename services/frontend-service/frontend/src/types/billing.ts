@@ -271,3 +271,44 @@ export interface PlansResponse {
   success: boolean;
   plans: Plan[];
 }
+
+// ==================== PAYNOW PAYMENT TYPES ====================
+
+/**
+ * Request sent to backend to initiate Paynow payment
+ */
+export interface PaynowPaymentRequest {
+  invoice_id: string;
+  payment_method: 'ecocash' | 'onemoney' | 'card';
+  phone?: string;  // Required for mobile money (ecocash/onemoney)
+  return_url?: string;  // Required for card payments
+  customer_email: string;
+}
+
+/**
+ * Response from backend after initiating Paynow payment
+ */
+export interface PaynowPaymentResponse {
+  payment_id: string;
+  reference: string;
+  payment_type: 'mobile' | 'redirect';
+  status: 'pending' | 'paid' | 'failed';
+  poll_url: string;
+  redirect_url?: string;  // Only present for card payments
+  message: string;
+}
+
+/**
+ * Payment status returned when polling
+ */
+export interface PaynowPaymentStatus {
+  payment_id: string;
+  reference: string;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  paynow_status: string;  // Raw status from Paynow
+  amount: number;
+  payment_method: string;
+  phone?: string;
+  created_at: string;
+  webhook_received: boolean;
+}

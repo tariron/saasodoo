@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { billingAPI, authAPI, UserProfile } from '../utils/api';
-import { BillingOverview, Subscription, Invoice } from '../types/billing';
+import { BillingOverview, Subscription, Invoice, OutstandingInvoice } from '../types/billing';
 import Navigation from '../components/Navigation';
+import PaymentModal from '../components/PaymentModal';
 
 const Billing: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -9,6 +10,10 @@ const Billing: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
+
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     fetchUserProfile();
@@ -58,6 +63,28 @@ const Billing: React.FC = () => {
       month: 'long',
       day: 'numeric',
     });
+  };
+
+  const handlePayInvoice = (invoice: OutstandingInvoice) => {
+    // Convert OutstandingInvoice to Invoice format for PaymentModal
+    const fullInvoice: Invoice = {
+      id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      invoice_date: invoice.invoice_date,
+      amount: invoice.amount,
+      balance: invoice.balance,
+      currency: invoice.currency,
+      status: invoice.status as 'DRAFT' | 'COMMITTED' | 'PAID' | 'VOID' | 'WRITTEN_OFF',
+      // Add missing required fields with default values
+      account_id: '',
+      target_date: invoice.invoice_date,
+      credit_adj: 0,
+      refund_adj: 0,
+      created_at: invoice.invoice_date,
+      updated_at: invoice.invoice_date,
+    };
+    setSelectedInvoice(fullInvoice);
+    setShowPaymentModal(true);
   };
 
   const getSubscriptionStatusColor = (status: string) => {
@@ -311,8 +338,13 @@ const Billing: React.FC = () => {
                         <td className="px-4 py-2 text-sm font-medium text-red-600">
                           {formatCurrency(invoice.balance)}
                         </td>
-                        <td className="px-4 py-2 text-sm text-red-600">
-                          Payment processing not yet implemented
+                        <td className="px-4 py-2 text-sm">
+                          <button
+                            onClick={() => handlePayInvoice(invoice)}
+                            className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 text-xs font-medium"
+                          >
+                            Pay Now
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -708,6 +740,21 @@ const Billing: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedInvoice && profile && (
+        <PaymentModal
+          invoice={selectedInvoice}
+          customerEmail={profile.email}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setSelectedInvoice(null);
+          }}
+          onSuccess={() => {
+            fetchBillingData();
+          }}
+        />
+      )}
       </div>
       </>
     );

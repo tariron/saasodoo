@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { billingAPI, authAPI } from '../utils/api';
 import { Invoice, Payment } from '../types/billing';
 import Navigation from '../components/Navigation';
+import PaymentModal from '../components/PaymentModal';
 
 const BillingInvoices: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);  
@@ -14,7 +15,6 @@ const BillingInvoices: React.FC = () => {
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [processingPayment, setProcessingPayment] = useState(false);
 
   const itemsPerPage = 10;
 
@@ -27,6 +27,23 @@ const BillingInvoices: React.FC = () => {
       fetchInvoices();
     }
   }, [customerId, currentPage]);
+
+  // Handle card payment return from Paynow
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isPaymentReturn = urlParams.get('payment_return');
+
+    if (isPaymentReturn === 'true') {
+      alert('Payment completed. Checking status...');
+
+      if (customerId) {
+        fetchInvoices();
+      }
+
+      // Clean URL
+      window.history.replaceState({}, '', '/billing/invoices');
+    }
+  }, [customerId]);
 
   const fetchUserProfile = async () => {
     try {
@@ -81,23 +98,6 @@ const BillingInvoices: React.FC = () => {
     setShowPaymentModal(true);
   };
 
-  const processPayment = async () => {
-    if (!selectedInvoice) return;
-    
-    setProcessingPayment(true);
-    
-    try {
-      await billingAPI.makePayment(selectedInvoice.id);
-      setShowPaymentModal(false);
-      setSelectedInvoice(null);
-      await fetchInvoices(); // Refresh invoices
-      alert('Payment processed successfully!');
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Payment failed. Please try again.');
-    } finally {
-      setProcessingPayment(false);
-    }
-  };
 
   const formatCurrency = (amount: number, currency: string = 'USD') => {
     return new Intl.NumberFormat('en-US', {
@@ -362,66 +362,18 @@ const BillingInvoices: React.FC = () => {
       </div>
 
       {/* Payment Modal */}
-      {showPaymentModal && selectedInvoice && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Pay Invoice #{selectedInvoice.invoice_number}
-              </h3>
-              
-              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-gray-600">Amount:</span>
-                  <span className="font-medium">
-                    {formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}
-                  </span>
-                </div>
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-gray-600">Balance Due:</span>
-                  <span className="font-medium text-red-600">
-                    {formatCurrency(selectedInvoice.balance, selectedInvoice.currency)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Due Date:</span>
-                  <span className="text-sm">{formatDate(selectedInvoice.target_date)}</span>
-                </div>
-              </div>
-
-              <p className="text-sm text-gray-600 mb-6">
-                Payment will be processed using your default payment method. If you don't have a payment method set up, you'll be redirected to add one.
-              </p>
-
-              <div className="flex space-x-3">
-                <button
-                  onClick={processPayment}
-                  disabled={processingPayment}
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {processingPayment ? (
-                    <span className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Processing...
-                    </span>
-                  ) : (
-                    'Pay Now'
-                  )}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    setSelectedInvoice(null);
-                  }}
-                  disabled={processingPayment}
-                  className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {showPaymentModal && selectedInvoice && profile && (
+        <PaymentModal
+          invoice={selectedInvoice}
+          customerEmail={profile.email}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setSelectedInvoice(null);
+          }}
+          onSuccess={() => {
+            fetchInvoices();
+          }}
+        />
       )}
 
       {/* Back to Billing */}

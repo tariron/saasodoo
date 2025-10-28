@@ -17,6 +17,9 @@ import {
   PaymentsResponse,
   PaymentMethodsResponse,
   PlansResponse,
+  PaynowPaymentRequest,
+  PaynowPaymentResponse,
+  PaynowPaymentStatus,
 } from '../types/billing';
 
 // Types
@@ -431,6 +434,22 @@ export const billingAPI = {
   // Instance reactivation
   reactivateInstance: (data: {customer_id: string, plan_name: string, instance_id: string}): Promise<AxiosResponse<CreateInstanceWithSubscriptionResponse>> =>
     api.post('/billing/api/billing/instances/reactivate', data),
+
+  // ==================== PAYNOW PAYMENTS ====================
+
+  /**
+   * Initiate Paynow payment for an invoice
+   * Supports mobile money (EcoCash/OneMoney) and card payments
+   */
+  initiatePaynowPayment: (request: PaynowPaymentRequest): Promise<AxiosResponse<PaynowPaymentResponse>> =>
+    api.post('/billing/api/billing/payments/paynow/initiate', request),
+
+  /**
+   * Get Paynow payment status
+   * Used for polling payment status until completion
+   */
+  getPaynowPaymentStatus: (paymentId: string): Promise<AxiosResponse<PaynowPaymentStatus>> =>
+    api.get(`/billing/api/billing/payments/paynow/status/${paymentId}`),
 };
 
 export { TokenManager };
