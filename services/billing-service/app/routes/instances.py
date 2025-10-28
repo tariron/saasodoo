@@ -169,16 +169,42 @@ async def create_instance_with_subscription(
             # Don't fail the entire operation for metadata issues, but log it
         
         # Get the generated invoice for payment
+        # Note: KillBill creates invoice async, so we retry a few times
         invoice = None
         try:
-            account_invoices = await killbill._make_request("GET", f"/1.0/kb/accounts/{account_id}/invoices")
-            if account_invoices:
-                # Get the most recent invoice (last in list)
-                latest_invoice = account_invoices[-1]
-                invoice_id = latest_invoice.get("invoiceId")
-                if invoice_id:
-                    invoice = await killbill.get_invoice_by_id(invoice_id)
-                    logger.info(f"Retrieved invoice {invoice_id} for subscription {subscription_id}")
+            import asyncio
+            unpaid_invoices = []
+
+            # Retry up to 3 times with 1 second delay (invoice creation is async in KillBill)
+            for attempt in range(3):
+                unpaid_invoices = await killbill.get_unpaid_invoices_by_subscription(subscription_id)
+                if unpaid_invoices:
+                    break
+                if attempt < 2:  # Don't wait on last attempt
+                    logger.info(f"Invoice not yet available for subscription {subscription_id}, retrying in 1s (attempt {attempt + 1}/3)")
+                    await asyncio.sleep(1)
+
+            if unpaid_invoices:
+                # Transform raw KillBill format to match billing page format
+                raw = unpaid_invoices[0]
+                invoice = {
+                    'id': raw.get('invoiceId'),
+                    'account_id': account_id,
+                    'invoice_number': raw.get('invoiceNumber'),
+                    'invoice_date': raw.get('invoiceDate'),
+                    'target_date': raw.get('targetDate'),
+                    'amount': float(raw.get('amount', 0)),
+                    'balance': float(raw.get('balance', 0)),
+                    'currency': raw.get('currency', 'USD'),
+                    'status': raw.get('status'),
+                    'credit_adj': float(raw.get('creditAdj', 0)),
+                    'refund_adj': float(raw.get('refundAdj', 0)),
+                    'created_at': raw.get('createdDate'),
+                    'updated_at': raw.get('updatedDate')
+                }
+                logger.info(f"Retrieved invoice {invoice['id']} with balance ${invoice['balance']} for subscription {subscription_id}")
+            else:
+                logger.warning(f"No unpaid invoice found for subscription {subscription_id} after 3 attempts")
         except Exception as invoice_error:
             logger.warning(f"Could not retrieve invoice for subscription {subscription_id}: {invoice_error}")
         

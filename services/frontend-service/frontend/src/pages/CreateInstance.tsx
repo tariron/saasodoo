@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { instanceAPI, authAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, UserProfile } from '../utils/api';
-import { Plan } from '../types/billing';
+import { Plan, Invoice } from '../types/billing';
 import Navigation from '../components/Navigation';
+import PaymentModal from '../components/PaymentModal';
 
 const CreateInstance: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -39,6 +40,10 @@ const CreateInstance: React.FC = () => {
   });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -156,15 +161,26 @@ const CreateInstance: React.FC = () => {
         };
         
         const response = await billingAPI.createInstanceWithSubscription(subscriptionData);
-        
+
         // Show success message with payment instructions
         const isTrialStarted = selectedPlan.trial_length > 0 && phaseType === 'TRIAL';
-        const message = isTrialStarted
-          ? `Trial subscription created! Your ${selectedPlan.trial_length}-day trial will start immediately.`
-          : `Subscription created! Please pay the invoice to activate your instance. Invoice amount: $${response.data.invoice?.amount || selectedPlan.price || '5.00'}`;
-        
-        alert(message);
-        navigate(isTrialStarted ? '/instances' : '/billing');
+
+        if (isTrialStarted) {
+          // Trial: Show message and redirect to instances
+          const message = `Trial subscription created! Your ${selectedPlan.trial_length}-day trial will start immediately.`;
+          alert(message);
+          navigate('/instances');
+        } else {
+          // Paid plan: Open payment modal immediately
+          if (response.data.invoice) {
+            setSelectedInvoice(response.data.invoice);
+            setShowPaymentModal(true);
+          } else {
+            // Fallback if invoice not returned (shouldn't happen)
+            alert(`Subscription created! Invoice amount: $${selectedPlan.price || '5.00'}`);
+            navigate('/billing');
+          }
+        }
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 
                           (err.response?.data?.errors ? 
@@ -671,6 +687,24 @@ const CreateInstance: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Payment Modal - Opens immediately after paid instance creation */}
+      {showPaymentModal && selectedInvoice && profile && (
+        <PaymentModal
+          invoice={selectedInvoice}
+          customerEmail={profile.email}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setSelectedInvoice(null);
+            navigate('/billing'); // User can pay later from billing page
+          }}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            setSelectedInvoice(null);
+            navigate('/instances'); // Go see instance being provisioned
+          }}
+        />
+      )}
     </>
   );
 };
