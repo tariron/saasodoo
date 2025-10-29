@@ -175,13 +175,13 @@ async def create_instance_with_subscription(
             import asyncio
             unpaid_invoices = []
 
-            # Retry up to 3 times with 1 second delay (invoice creation is async in KillBill)
-            for attempt in range(3):
+            # Retry up to 5 times with 1 second delay (invoice creation is async in KillBill)
+            for attempt in range(5):
                 unpaid_invoices = await killbill.get_unpaid_invoices_by_subscription(subscription_id)
                 if unpaid_invoices:
                     break
-                if attempt < 2:  # Don't wait on last attempt
-                    logger.info(f"Invoice not yet available for subscription {subscription_id}, retrying in 1s (attempt {attempt + 1}/3)")
+                if attempt < 4:  # Don't wait on last attempt
+                    logger.info(f"Invoice not yet available for subscription {subscription_id}, retrying in 1s (attempt {attempt + 1}/5)")
                     await asyncio.sleep(1)
 
             if unpaid_invoices:
