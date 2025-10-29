@@ -136,9 +136,9 @@ CREATE TABLE IF NOT EXISTS instances (
     subdomain VARCHAR(50), -- Custom subdomain or defaults to database_name
     demo_data BOOLEAN DEFAULT false,
     
-    -- Container information
-    container_id VARCHAR(255),
-    container_name VARCHAR(255),
+    -- Service information (Docker Swarm)
+    service_id VARCHAR(255),
+    service_name VARCHAR(255),
     
     -- Network information
     internal_port INTEGER DEFAULT 8069,
@@ -178,7 +178,7 @@ CREATE INDEX IF NOT EXISTS idx_instances_provisioning_status ON instances(provis
 CREATE INDEX IF NOT EXISTS idx_instances_name ON instances(name);
 CREATE INDEX IF NOT EXISTS idx_instances_created_at ON instances(created_at);
 CREATE INDEX IF NOT EXISTS idx_instances_database_name ON instances(database_name);
-CREATE INDEX IF NOT EXISTS idx_instances_container_id ON instances(container_id);
+CREATE INDEX IF NOT EXISTS idx_instances_service_id ON instances(service_id);
 
 -- Initialize communication database schema
 \c communication;

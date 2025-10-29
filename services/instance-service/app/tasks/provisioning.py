@@ -142,9 +142,9 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
         db_info = await _create_odoo_database(instance)
         logger.info("Database created", database=instance['database_name'])
         
-        # Step 5: Deploy Bitnami Odoo container
+        # Step 5: Deploy Bitnami Odoo service
         container_info = await _deploy_odoo_container(instance, db_info)
-        logger.info("Container deployed", container_id=container_info['container_id'])
+        logger.info("Service deployed", service_id=container_info['service_id'])
         
         # Step 6: Wait for Odoo to start up
         await _wait_for_odoo_startup(container_info, timeout=300)  # 5 minutes
@@ -173,7 +173,7 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
         
         return {
             "status": "success",
-            "container_id": container_info['container_id'],
+            "service_id": container_info['service_id'],
             "external_url": container_info['external_url'],
             "message": "Instance provisioned successfully"
         }
@@ -311,8 +311,9 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
     
     # Use auto-detection for socket connection
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
+
+    # Service naming for Swarm (changed from container_name)
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
     # Generate secure random password for this instance
     generated_password = generate_secure_password()
@@ -368,60 +369,83 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         )
         logger.info("Created Docker volume with CephFS backing", volume_name=volume_name)
 
-        # Create and start container with persistent volume
-        container = client.containers.run(
-            f'bitnamilegacy/odoo:{odoo_version}',
-            name=container_name,
-            environment=environment,
-            mem_limit=mem_limit,
-            cpu_period=100000,  # 100ms CPU period (standard)
-            cpu_quota=int(cpu_limit * 100000),  # cpu_limit cores * 100000 (e.g., 4.0 CPUs = 400000)
-            detach=True,
-            restart_policy={"Name": "unless-stopped"},
-            volumes={
-                volume_name: {'bind': '/bitnami/odoo', 'mode': 'rw'}
-            },
+        # Create Swarm service with persistent volume
+        import asyncio
+
+        # Create resources specification
+        # Convert memory limit from string like "2G" to bytes
+        mem_limit_bytes = _parse_size_to_bytes(mem_limit) if isinstance(mem_limit, str) else mem_limit
+        resources = docker.types.Resources(
+            cpu_limit=int(cpu_limit * 1_000_000_000),  # Convert to nanocpus
+            mem_limit=mem_limit_bytes
+        )
+
+        # Create mount for volume
+        mount = docker.types.Mount(
+            target='/bitnami/odoo',
+            source=volume_name,
+            type='volume'
+        )
+
+        # Create service
+        service = client.services.create(
+            image=f'bitnamilegacy/odoo:{odoo_version}',
+            name=service_name,
+            env=environment,  # Note: env is dict for services, not list
+            resources=resources,
+            mode=docker.types.ServiceMode('replicated', replicas=1),
+            mounts=[mount],
+            networks=['saasodoo-network'],
             labels={
                 'saasodoo.instance.id': str(instance['id']),
                 'saasodoo.instance.name': instance['name'],
                 'saasodoo.customer.id': str(instance['customer_id']),
                 # Traefik labels for automatic routing
                 'traefik.enable': 'true',
-                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
-                f'traefik.http.routers.{container_name}.service': container_name,
-                f'traefik.http.services.{container_name}.loadbalancer.server.port': '8069',
-            }
+                f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
+                f'traefik.http.routers.{service_name}.service': service_name,
+                f'traefik.http.services.{service_name}.loadbalancer.server.port': '8069',
+            },
+            restart_policy=docker.types.RestartPolicy(condition='any')
         )
-        
-        # Connect to network after creation
-        try:
-            network = client.networks.get('saasodoo-network')
-            network.connect(container)
-            logger.info("Container connected to network", container_name=container_name, network='saasodoo-network')
-        except docker.errors.NotFound:
-            logger.warning("Network saasodoo-network not found, skipping network connection")
-        
-        logger.info("Container created and started", container_id=container.id, name=container_name)
-        
-        # Get container network info
-        container.reload()
+
+        logger.info("Service created", service_id=service.id, service_name=service_name)
+
+        # Wait for task to start
+        await asyncio.sleep(5)  # Give Swarm time to schedule
+
+        # Get running task information
+        service.reload()
+        tasks = service.tasks()
+
+        running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+
+        # If no running task yet, wait a bit more
+        if not running_task:
+            max_wait = 60
+            waited = 5
+            while waited < max_wait and not running_task:
+                await asyncio.sleep(5)
+                waited += 5
+                service.reload()
+                tasks = service.tasks()
+                running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+
+        if not running_task:
+            raise Exception(f"Service {service_name} failed to start a running task within {max_wait} seconds")
+
+        # Extract task information
         internal_ip = None
-        if 'saasodoo-network' in container.attrs['NetworkSettings']['Networks']:
-            network_info = container.attrs['NetworkSettings']['Networks']['saasodoo-network']
-            internal_ip = network_info['IPAddress']
-        else:
-            # Fallback to first available network
-            networks = container.attrs['NetworkSettings']['Networks']
-            if networks:
-                first_network = next(iter(networks.values()))
-                internal_ip = first_network['IPAddress']
-        
+        network_attachments = running_task.get('NetworksAttachments', [])
+        if network_attachments and network_attachments[0].get('Addresses'):
+            internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+
         if not internal_ip:
             internal_ip = 'localhost'  # Fallback
-        
+
         return {
-            'container_id': container.id,
-            'container_name': container_name,
+            'service_id': service.id,
+            'service_name': service_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
             'external_url': f'http://{instance.get("subdomain") or instance["database_name"]}.saasodoo.local',
@@ -470,13 +494,13 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
     
     try:
         await conn.execute("""
-            UPDATE instances 
-            SET container_id = $1, container_name = $2, 
+            UPDATE instances
+            SET service_id = $1, service_name = $2,
                 internal_url = $3, external_url = $4, updated_at = $5
             WHERE id = $6
-        """, 
-            container_info['container_id'],
-            container_info['container_name'],
+        """,
+            container_info['service_id'],
+            container_info['service_name'],
             container_info['internal_url'],
             container_info['external_url'],
             datetime.utcnow(),
@@ -493,17 +517,16 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
     logger.info("Starting cleanup", instance_id=instance_id)
     
     try:
-        # Remove Docker container if created
+        # Remove Docker service if created
         client = docker.from_env()
-        container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-        
+        service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
         try:
-            container = client.containers.get(container_name)
-            container.stop(timeout=10)
-            container.remove()
-            logger.info("Container cleaned up", container_name=container_name)
+            service = client.services.get(service_name)
+            service.remove()
+            logger.info("Service cleaned up", service_name=service_name)
         except docker.errors.NotFound:
-            pass  # Container doesn't exist
+            pass  # Service doesn't exist
         
         # Remove Docker volume if created
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"

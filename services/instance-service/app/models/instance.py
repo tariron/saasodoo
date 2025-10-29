@@ -203,9 +203,9 @@ class Instance(InstanceBase):
     billing_status: BillingStatus = Field(default=BillingStatus.PAYMENT_REQUIRED, description="Billing status")
     provisioning_status: ProvisioningStatus = Field(default=ProvisioningStatus.PENDING, description="Provisioning status")
     
-    # Container information
-    container_id: Optional[str] = Field(None, description="Docker container ID")
-    container_name: Optional[str] = Field(None, description="Docker container name")
+    # Service information (Swarm)
+    service_id: Optional[str] = Field(None, description="Docker service ID")
+    service_name: Optional[str] = Field(None, description="Docker service name")
     
     # Network information
     internal_port: int = Field(default=8069, description="Internal Odoo port")

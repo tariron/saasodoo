@@ -4,8 +4,6 @@ services:
   # Reverse Proxy & Load Balancer
   traefik:
     image: traefik:v3.0
-    container_name: saasodoo-traefik
-    restart: unless-stopped
     ports:
       - "80:80"
       - "8080:8080"  # Traefik dashboard
@@ -21,12 +19,17 @@ services:
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.middlewares=auth"
       - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$10$$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
 
   # Database
   postgres:
     image: postgres:15-alpine
-    container_name: saasodoo-postgres
-    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -39,7 +42,7 @@ services:
       POSTGRES_BILLING_SERVICE_PASSWORD: ${POSTGRES_BILLING_SERVICE_PASSWORD}
       POSTGRES_INSTANCE_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - /mnt/cephfs/postgres_data:/var/lib/postgresql/data
       - ../../shared/configs/postgres:/docker-entrypoint-initdb.d
     networks:
       - saasodoo-network
@@ -53,15 +56,25 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=false"
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Redis Cache & Session Store
   redis:
     image: redis:7-alpine
-    container_name: saasodoo-redis
-    restart: unless-stopped
     command: redis-server /etc/redis/redis.conf
     volumes:
-      - redis-data:/data
+      - /mnt/cephfs/redis_data:/data
       - ../../shared/configs/redis.conf:/etc/redis/redis.conf:ro
     networks:
       - saasodoo-network
@@ -75,18 +88,24 @@ services:
       start_period: 5s
     labels:
       - "traefik.enable=false"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Message Queue
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: saasodoo-rabbitmq
-    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-saasodoo}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-saasodoo123}
       RABBITMQ_DEFAULT_VHOST: saasodoo
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
+      - /mnt/cephfs/rabbitmq_data:/var/lib/rabbitmq
     networks:
       - saasodoo-network
     ports:
@@ -103,12 +122,22 @@ services:
       - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE_DOMAIN}`)"
       - "traefik.http.routers.rabbitmq.service=rabbitmq"
       - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Monitoring Stack
   prometheus:
     image: prom/prometheus:latest
-    container_name: saasodoo-prometheus
-    restart: unless-stopped
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -118,7 +147,7 @@ services:
       - '--web.enable-lifecycle'
     volumes:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
+      - /mnt/cephfs/prometheus_data:/prometheus
     networks:
       - saasodoo-network
     labels:
@@ -126,12 +155,14 @@ services:
       - "traefik.http.routers.prometheus.rule=Host(`prometheus.${BASE_DOMAIN}`)"
       - "traefik.http.routers.prometheus.service=prometheus"
       - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
 
   # Development Tools
   mailhog:
     image: mailhog/mailhog:latest
-    container_name: saasodoo-mailhog
-    restart: unless-stopped
     networks:
       - saasodoo-network
     labels:
@@ -139,18 +170,20 @@ services:
       - "traefik.http.routers.mailhog.rule=Host(`mail.${BASE_DOMAIN}`)"
       - "traefik.http.routers.mailhog.service=mailhog"
       - "traefik.http.services.mailhog.loadbalancer.server.port=8025"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
 
   # ===== BILLING INFRASTRUCTURE =====
   
   # KillBill MariaDB Database (with pre-built schemas)
   killbill-db:
     image: killbill/mariadb:0.24
-    container_name: saasodoo-killbill-db
-    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: killbill
     volumes:
-      - killbill-db-data:/var/lib/mysql
+      - /mnt/cephfs/killbill_db_data:/var/lib/mysql
       #- ../../shared/configs/killbill:/docker-entrypoint-initdb.d:ro
     networks:
       - saasodoo-network
@@ -161,20 +194,30 @@ services:
       retries: 5
     labels:
       - "traefik.enable=false"
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # KillBill Billing Engine
   killbill:
     image: killbill/killbill:0.24.15
-    container_name: saasodoo-killbill
-    restart: unless-stopped
     environment:
       # Database Configuration
       KILLBILL_DAO_URL: jdbc:mysql://killbill-db:3306/killbill
       KILLBILL_DAO_USER: root
       KILLBILL_DAO_PASSWORD: killbill
       
-      # API Credentials  
-      KILLBILL_SERVER_MULTITENANT: true
+      # API Credentials
+      KILLBILL_SERVER_MULTITENANT: "true"
       KILLBILL_CONFIG_OSGI_BUNDLE_CACHE_NAME: felix-cache
       
       # API credentials from .env file
@@ -193,16 +236,15 @@ services:
       KILLBILL_NOTIFICATION_QUEUE_CAPACITY: 100
       
       # HTTP Client Configuration - Disable HTTP/2
-      KILLBILL_SERVER_HTTP_CLIENT_ENABLE_HTTP2: false
-      KILLBILL_HTTP_CLIENT_DISABLE_HTTP2: true
-      
+      KILLBILL_SERVER_HTTP_CLIENT_ENABLE_HTTP2: "false"
+      KILLBILL_HTTP_CLIENT_DISABLE_HTTP2: "true"
+
       # Test Mode Configuration - Enable clock manipulation
-      KILLBILL_SERVER_TEST_MODE: true
+      KILLBILL_SERVER_TEST_MODE: "true"
     networks:
       - saasodoo-network
     depends_on:
-      killbill-db:
-        condition: service_healthy
+      - killbill-db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/1.0/healthcheck"]
       interval: 30s
@@ -216,12 +258,15 @@ services:
       - "traefik.http.services.killbill.loadbalancer.server.port=8080"
     ports:
       - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 10s
 
   # Kaui Admin UI for KillBill
   kaui:
     image: killbill/kaui:latest
-    container_name: saasodoo-kaui
-    restart: unless-stopped
     environment:
       # Database Configuration for Kaui
       KAUI_KILLBILL_URL: http://killbill:8080
@@ -242,8 +287,7 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      killbill:
-        condition: service_healthy
+      - killbill
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
@@ -257,16 +301,17 @@ services:
       - "traefik.http.services.kaui.loadbalancer.server.port=8080"
     ports:
       - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 10s
 
   # ===== MICROSERVICES =====
   
   # User Service - Customer Authentication & Management
   user-service:
-    build:
-      context: ../../services/user-service
-      dockerfile: Dockerfile
-    container_name: saasodoo-user-service
-    restart: unless-stopped
+    image: compose-user-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -295,10 +340,8 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - postgres
+      - redis
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
@@ -319,15 +362,19 @@ services:
       - "traefik.http.routers.user-service.middlewares=user-strip"
     ports:
       - "8001:8001"  # Expose user-service port to host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
 
   # Instance Service - Odoo Instance Operations & Lifecycle Management
   instance-service:
-    build:
-      context: ../../services/instance-service
-      dockerfile: Dockerfile
-    container_name: saasodoo-instance-service
-    restart: unless-stopped
+    image: compose-instance-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -363,18 +410,15 @@ services:
     volumes:
       - ../../shared:/app/shared:ro  # Mount shared schemas
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
-      - odoo-instances:/var/lib/odoo/instances  # Instance storage
-      - odoo-backups:/var/lib/odoo/backups  # Backup storage
+      - /mnt/cephfs/odoo_instances:/var/lib/odoo/instances  # Instance storage
+      - /mnt/cephfs/odoo_backups:/var/lib/odoo/backups  # Backup storage
       - /mnt/cephfs:/mnt/cephfs:rw  # CephFS mount for quota management
     networks:
       - saasodoo-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres
+      - redis
+      - rabbitmq
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 30s
@@ -392,14 +436,21 @@ services:
       - "traefik.http.routers.instance-service.middlewares=instance-strip"
     ports:
       - "8003:8003"  # Expose instance-service port to host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Instance Service Worker - Background Task Processing
   instance-worker:
-    build:
-      context: ../../services/instance-service
-      dockerfile: Dockerfile
-    container_name: saasodoo-instance-worker
-    restart: unless-stopped
+    image: compose-instance-worker:latest
+    user: appuser
+    stop_signal: SIGQUIT
+    stop_grace_period: 60s
     command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
     environment:
       # Database Configuration - Service-specific credentials
@@ -430,27 +481,34 @@ services:
     volumes:
       - ../../shared:/app/shared:ro  # Mount shared schemas
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
-      - odoo-backups:/var/lib/odoo/backups  # Backup storage
+      - /mnt/cephfs/odoo_backups:/var/lib/odoo/backups  # Backup storage
       - /mnt/cephfs:/mnt/cephfs:rw  # CephFS mount for quota management
     networks:
       - saasodoo-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - postgres
+      - redis
+      - rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_config inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     labels:
       - "traefik.enable=false"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Billing Service - KillBill Integration & Billing Management
   billing-service:
-    build:
-      context: ../../services/billing-service
-      dockerfile: Dockerfile
-    container_name: saasodoo-billing-service
-    restart: unless-stopped
+    image: compose-billing-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -477,6 +535,7 @@ services:
       # Paynow Configuration
       PAYNOW_INTEGRATION_ID: ${PAYNOW_INTEGRATION_ID}
       PAYNOW_INTEGRATION_KEY: ${PAYNOW_INTEGRATION_KEY}
+      PAYNOW_MERCHANT_EMAIL: ${PAYNOW_MERCHANT_EMAIL}
       PAYNOW_RESULT_URL: http://billing-service:8004/api/billing/webhooks/paynow
       PAYNOW_BASE_URL: ${PAYNOW_BASE_URL:-https://www.paynow.co.zw}
     volumes:
@@ -484,12 +543,9 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      killbill:
-        condition: service_healthy
+      - postgres
+      - redis
+      - killbill
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
       interval: 30s
@@ -507,14 +563,18 @@ services:
       - "traefik.http.routers.billing-service.middlewares=billing-strip"
     ports:
       - "8004:8004"  # Expose billing-service port to host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Frontend Service - React SPA with Flask backend
   frontend-service:
-    build: 
-      context: ../../services/frontend-service
-      dockerfile: Dockerfile
-    container_name: saasodoo-frontend
-    restart: unless-stopped
+    image: compose-frontend-service:latest
     ports:
       - "3000:3000"  # Direct access for debugging
     environment:
@@ -530,20 +590,24 @@ services:
       - "traefik.http.services.frontend.loadbalancer.healthcheck.path=/health"
     networks:
       - saasodoo-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
   # Notification Service - Email and Notification Management
   notification-service:
-    build:
-      context: ../../services/notification-service
-      dockerfile: Dockerfile
-    container_name: saasodoo-notification-service
-    restart: unless-stopped
+    image: compose-notification-service:latest
     environment:
       # SMTP Configuration (Development - MailHog)
       SMTP_HOST: mailhog
       SMTP_PORT: 1025
-      SMTP_USE_TLS: false
-      SMTP_USE_SSL: false
+      SMTP_USE_TLS: "false"
+      SMTP_USE_SSL: "false"
       SMTP_TIMEOUT: 30
       
       # SMTP Authentication (empty for MailHog)
@@ -577,10 +641,8 @@ services:
     networks:
       - saasodoo-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      mailhog:
-        condition: service_started
+      - postgres
+      - mailhog
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s
@@ -593,62 +655,17 @@ services:
       - "traefik.http.routers.notification.service=notification"
       - "traefik.http.services.notification.loadbalancer.server.port=5000"
       - "traefik.http.services.notification.loadbalancer.healthcheck.path=/health"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
 
 networks:
   saasodoo-network:
-    driver: bridge
+    driver: overlay
+    attachable: true
     name: saasodoo-network
-
-volumes:
-  # All volumes now backed by CephFS distributed storage
-  # MicroCeph must be installed and CephFS mounted at /mnt/cephfs
-  # See: infrastructure/docs/MICROCEPH_MIGRATION.md
-
-  postgres-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/postgres_data
-
-  redis-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/redis_data
-
-  rabbitmq-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/rabbitmq_data
-
-  prometheus-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/prometheus_data
-
-  odoo-instances:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/odoo_instances
-
-  odoo-backups:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/odoo_backups
-
-  killbill-db-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/cephfs/killbill_db_data

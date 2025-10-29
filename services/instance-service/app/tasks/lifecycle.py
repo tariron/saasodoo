@@ -264,87 +264,102 @@ async def _unpause_instance_workflow(instance_id: str) -> Dict[str, Any]:
 
 
 async def _restart_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Restart Docker container"""
+    """Restart Docker service (force update)"""
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        container = client.containers.get(container_name)
-        
-        logger.info("Restarting container", container_name=container_name)
-        container.restart(timeout=30)
-        
-        # Wait for container to be running after restart
-        for _ in range(35):
-            container.reload()
-            if container.status == 'running':
-                break
-            await asyncio.sleep(1)
-        else:
-            raise RuntimeError("Container failed to restart within timeout")
-        
-        # Get updated network info
-        internal_ip = _get_container_ip(container)
-        
-        return {
-            'container_id': container.id,
-            'container_name': container_name,
-            'internal_ip': internal_ip,
-            'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
-        }
-        
+        service = client.services.get(service_name)
+
+        logger.info("Restarting service (force update)", service_name=service_name)
+        service.force_update()
+
+        # Wait for new task to be running
+        for _ in range(30):  # 60 second timeout
+            await asyncio.sleep(2)
+            service.reload()
+            tasks = service.tasks(filters={'desired-state': 'running'})
+
+            # Find most recent running task
+            running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+            if running_tasks:
+                newest_task = sorted(running_tasks, key=lambda t: t['CreatedAt'], reverse=True)[0]
+
+                # Extract network IP from task
+                internal_ip = None
+                network_attachments = newest_task.get('NetworksAttachments', [])
+                if network_attachments and network_attachments[0].get('Addresses'):
+                    internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+
+                if not internal_ip:
+                    internal_ip = 'localhost'
+
+                return {
+                    'service_id': service.id,
+                    'service_name': service_name,
+                    'internal_ip': internal_ip,
+                    'internal_url': f'http://{internal_ip}:8069',
+                    'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+                }
+
+        raise RuntimeError("Service failed to restart within timeout")
+
     except docker.errors.NotFound:
-        raise ValueError(f"Container {container_name} not found. Instance may need reprovisioning.")
+        raise ValueError(f"Service {service_name} not found. Instance may need reprovisioning.")
     except Exception as e:
-        logger.error("Failed to restart container", container_name=container_name, error=str(e))
+        logger.error("Failed to restart service", service_name=service_name, error=str(e))
         raise
 
 
 async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Start existing Docker container"""
+    """Start existing Docker service (scale to 1)"""
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        # Try to get existing container
-        container = client.containers.get(container_name)
-        
-        if container.status == 'running':
-            logger.info("Container already running", container_name=container_name)
-        else:
-            logger.info("Starting existing container", container_name=container_name)
-            container.start()
-            
-        # Wait for container to be running
-        for _ in range(30):  # 30 second timeout
-            container.reload()
-            if container.status == 'running':
-                break
-            await asyncio.sleep(1)
-        else:
-            raise RuntimeError("Container failed to start within timeout")
-        
-        # Get network info
-        container.reload()
-        internal_ip = _get_container_ip(container)
-        
-        return {
-            'container_id': container.id,
-            'container_name': container_name,
-            'internal_ip': internal_ip,
-            'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
-        }
-        
+        # Try to get existing service
+        service = client.services.get(service_name)
+
+        logger.info("Starting service (scaling to 1)", service_name=service_name)
+
+        # Scale to 1 replica
+        service.update(mode={'Replicated': {'Replicas': 1}})
+
+        # Wait for task to be running
+        for _ in range(30):  # 60 second timeout
+            await asyncio.sleep(2)
+            service.reload()
+            tasks = service.tasks(filters={'desired-state': 'running'})
+
+            running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+            if running_task:
+                # Extract network IP from task
+                internal_ip = None
+                network_attachments = running_task.get('NetworksAttachments', [])
+                if network_attachments and network_attachments[0].get('Addresses'):
+                    internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+
+                if not internal_ip:
+                    internal_ip = 'localhost'
+
+                return {
+                    'service_id': service.id,
+                    'service_name': service_name,
+                    'internal_ip': internal_ip,
+                    'internal_url': f'http://{internal_ip}:8069',
+                    'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+                }
+
+        raise RuntimeError("Service failed to start within timeout")
+
     except docker.errors.NotFound:
-        # Container doesn't exist - this can happen after termination/reactivation
-        # Fall back to provisioning a new container
-        logger.info("Container not found, falling back to provisioning", container_name=container_name)
+        # Service doesn't exist - this can happen after termination/reactivation
+        # Fall back to provisioning a new service
+        logger.info("Service not found, falling back to provisioning", service_name=service_name)
         from app.tasks.provisioning import _deploy_odoo_container, _create_odoo_database
-        
+
         # Create database if it doesn't exist
         try:
             db_info = await _create_odoo_database(instance)
@@ -352,86 +367,49 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as db_e:
             logger.warning("Database creation failed, assuming it exists", error=str(db_e))
             db_info = {
-                'host': os.getenv('POSTGRES_HOST', 'postgres'),
-                'port': 5432,
-                'database': instance['database_name'],
-                'user': instance['database_name'],
-                'password': instance.get('database_password', 'odoo_pass')
+                'db_host': os.getenv('POSTGRES_HOST', 'postgres'),
+                'db_port': 5432,
+                'db_name': instance['database_name'],
+                'db_user': instance['database_name'],
+                'db_password': instance.get('database_password', 'odoo_pass')
             }
-        
-        # Deploy new container
-        container_result = await _deploy_odoo_container(instance, db_info)
-        logger.info("New container deployed after missing container", container_id=container_result['container_id'])
-        return container_result
+
+        # Deploy new service
+        service_result = await _deploy_odoo_container(instance, db_info)
+        logger.info("New service deployed after missing service", service_id=service_result['service_id'])
+        return service_result
     except Exception as e:
-        logger.error("Failed to start container", container_name=container_name, error=str(e))
+        logger.error("Failed to start service", service_name=service_name, error=str(e))
         raise
 
 
 async def _stop_docker_container(instance: Dict[str, Any]):
-    """Stop Docker container gracefully"""
+    """Stop Docker service gracefully (scale to 0)"""
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        container = client.containers.get(container_name)
-        
-        if container.status not in ['running']:
-            logger.info("Container already stopped", container_name=container_name, status=container.status)
-            return
-        
-        logger.info("Stopping container gracefully", container_name=container_name)
-        container.stop(timeout=30)  # 30 second graceful shutdown
-        
-        # Wait for container to stop
-        for _ in range(35):  # 35 second timeout (30 + 5 buffer)
-            container.reload()
-            if container.status in ['exited', 'stopped']:
-                break
-            await asyncio.sleep(1)
-        else:
-            logger.warning("Container did not stop gracefully, forcing stop", container_name=container_name)
-            container.kill()
-        
-        logger.info("Container stopped", container_name=container_name)
-        
+        service = client.services.get(service_name)
+
+        logger.info("Stopping service (scaling to 0)", service_name=service_name)
+
+        # Scale to 0 replicas
+        service.update(mode={'Replicated': {'Replicas': 0}})
+
+        logger.info("Service stopped successfully", service_name=service_name)
+
     except docker.errors.NotFound:
-        logger.warning("Container not found during stop", container_name=container_name)
+        logger.warning("Service not found during stop", service_name=service_name)
     except Exception as e:
-        logger.error("Failed to stop container", container_name=container_name, error=str(e))
+        logger.error("Failed to stop service", service_name=service_name, error=str(e))
         raise
 
 
 async def _unpause_docker_container(instance: Dict[str, Any]):
-    """Unpause Docker container"""
-    client = docker.from_env()
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    try:
-        container = client.containers.get(container_name)
-        
-        if container.status != 'paused':
-            logger.info("Container is not paused", container_name=container_name, status=container.status)
-            return
-        
-        logger.info("Unpausing container", container_name=container_name)
-        container.unpause()
-        
-        # Wait for container to be running
-        for _ in range(10):
-            container.reload()
-            if container.status == 'running':
-                break
-            await asyncio.sleep(1)
-        else:
-            raise RuntimeError("Container failed to unpause within timeout")
-        
-        logger.info("Container unpaused", container_name=container_name)
-    except docker.errors.NotFound:
-        logger.warning("Container not found during unpause", container_name=container_name)
-    except Exception as e:
-        logger.error("Failed to unpause container", container_name=container_name, error=str(e))
-        raise
+    """Unpause Docker service (Swarm doesn't support pause, so we map to start)"""
+    logger.info("Swarm doesn't support pause/unpause - mapping unpause to start")
+    return await _start_docker_container(instance)
 
 
 def _get_container_ip(container) -> str:

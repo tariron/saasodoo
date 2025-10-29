@@ -22,7 +22,9 @@ class DockerClientWrapper:
         self._last_connection_check = 0
         self._connection_check_interval = 30  # seconds
         
-        # Container name pattern
+        # Service name pattern (changed from container pattern for Swarm)
+        self.service_pattern = re.compile(r'^odoo-([^-]+)-([a-f0-9]{8})$')
+        # Keep old container pattern for backward compatibility during migration
         self.container_pattern = re.compile(r'^odoo_([^_]+)_([a-f0-9]{8})$')
         
     def _ensure_connection(self):
@@ -418,6 +420,334 @@ class DockerClientWrapper:
                         error=str(e))
             return False
 
+    # ========== Swarm Service Methods ==========
+
+    def get_service(self, service_name: str):
+        """Get service by name with error handling"""
+        try:
+            self._ensure_connection()
+            return self.client.services.get(service_name)
+        except docker.errors.NotFound:
+            logger.debug("Service not found", service=service_name)
+            return None
+        except Exception as e:
+            logger.error("Failed to get service", service=service_name, error=str(e))
+            raise
+
+    def get_service_by_label(self, label_key: str, label_value: str):
+        """Get service by label with error handling"""
+        try:
+            self._ensure_connection()
+            services = self.client.services.list(filters={'label': f'{label_key}={label_value}'})
+            if services:
+                return services[0]
+            return None
+        except Exception as e:
+            logger.error("Failed to get service by label", label=f"{label_key}={label_value}", error=str(e))
+            raise
+
+    def get_service_status(self, service_name: str) -> Optional[Dict[str, Any]]:
+        """Get service status with task information"""
+        try:
+            service = self.get_service(service_name)
+            if not service:
+                return None
+
+            service.reload()
+            tasks = service.tasks()
+
+            # Find running task
+            running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+            failed_tasks = [t for t in tasks if t['Status']['State'] == 'failed']
+
+            return {
+                'service_id': service.id,
+                'service_name': service.name,
+                'replicas': len(running_tasks),
+                'desired_replicas': service.attrs['Spec']['Mode'].get('Replicated', {}).get('Replicas', 0),
+                'running_tasks': len(running_tasks),
+                'failed_tasks': len(failed_tasks),
+                'tasks': tasks
+            }
+        except Exception as e:
+            logger.error("Failed to get service status", service=service_name, error=str(e))
+            return None
+
+    def start_service(self, service_name: str, timeout: int = 60) -> Dict[str, Any]:
+        """Start service by scaling to 1 replica"""
+        try:
+            service = self.get_service(service_name)
+            if not service:
+                raise ValueError(f"Service {service_name} not found")
+
+            logger.info("Starting service (scaling to 1)", service=service_name)
+
+            # Scale to 1 replica
+            service.update(mode={'Replicated': {'Replicas': 1}})
+
+            # Wait for task to be running
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                service.reload()
+                tasks = service.tasks(filters={'desired-state': 'running'})
+
+                running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+                if running_task:
+                    logger.info("Service started successfully", service=service_name)
+                    return self._get_service_result(service, running_task)
+
+                time.sleep(2)
+
+            raise TimeoutError(f"Service {service_name} failed to start within {timeout} seconds")
+
+        except Exception as e:
+            logger.error("Failed to start service", service=service_name, error=str(e))
+            raise
+
+    def stop_service(self, service_name: str, timeout: int = 30) -> bool:
+        """Stop service by scaling to 0 replicas"""
+        try:
+            service = self.get_service(service_name)
+            if not service:
+                logger.warning("Service not found for stop", service=service_name)
+                return True
+
+            logger.info("Stopping service (scaling to 0)", service=service_name)
+
+            # Scale to 0 replicas
+            service.update(mode={'Replicated': {'Replicas': 0}})
+
+            logger.info("Service stopped successfully", service=service_name)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to stop service", service=service_name, error=str(e))
+            raise
+
+    def restart_service(self, service_name: str, timeout: int = 60) -> Dict[str, Any]:
+        """Restart service by forcing update"""
+        try:
+            service = self.get_service(service_name)
+            if not service:
+                raise ValueError(f"Service {service_name} not found")
+
+            logger.info("Restarting service (force update)", service=service_name)
+
+            # Force update to restart tasks
+            service.force_update()
+
+            # Wait for new task to be running
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                time.sleep(2)
+                service.reload()
+                tasks = service.tasks(filters={'desired-state': 'running'})
+
+                # Find most recent running task
+                running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+                if running_tasks:
+                    # Sort by creation time and get newest
+                    newest_task = sorted(running_tasks, key=lambda t: t['CreatedAt'], reverse=True)[0]
+                    logger.info("Service restarted successfully", service=service_name)
+                    return self._get_service_result(service, newest_task)
+
+            raise TimeoutError(f"Service {service_name} failed to restart within {timeout} seconds")
+
+        except Exception as e:
+            logger.error("Failed to restart service", service=service_name, error=str(e))
+            raise
+
+    def get_service_logs(self, service_name: str, tail: int = 100) -> Optional[str]:
+        """Get service logs with error handling"""
+        try:
+            service = self.get_service(service_name)
+            if not service:
+                return None
+
+            logs = service.logs(tail=tail, timestamps=True).decode('utf-8')
+            return logs
+
+        except Exception as e:
+            logger.error("Failed to get service logs", service=service_name, error=str(e))
+            return None
+
+    def list_saasodoo_services(self) -> List[Dict[str, Any]]:
+        """List all SaaS Odoo services with metadata"""
+        try:
+            self._ensure_connection()
+
+            # Get services with saasodoo.instance.id label
+            services = self.client.services.list(filters={'label': 'saasodoo.instance.id'})
+            saasodoo_services = []
+
+            for service in services:
+                service_info = self.extract_service_metadata(service.name)
+                if service_info:
+                    tasks = service.tasks()
+                    running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+
+                    service_info.update({
+                        'service_id': service.id,
+                        'created': service.attrs.get('CreatedAt', ''),
+                        'updated': service.attrs.get('UpdatedAt', ''),
+                        'replicas': len(running_tasks),
+                        'labels': service.attrs.get('Spec', {}).get('Labels', {})
+                    })
+                    saasodoo_services.append(service_info)
+
+            logger.debug("Found SaaS Odoo services", count=len(saasodoo_services))
+            return saasodoo_services
+
+        except Exception as e:
+            logger.error("Failed to list SaaS Odoo services", error=str(e))
+            raise
+
+    def is_saasodoo_service(self, service_name: str) -> bool:
+        """Check if service follows SaaS Odoo naming pattern"""
+        return bool(self.service_pattern.match(service_name))
+
+    def extract_service_metadata(self, service_name: str) -> Optional[Dict[str, str]]:
+        """Extract metadata from SaaS Odoo service name"""
+        match = self.service_pattern.match(service_name)
+        if match:
+            database_name, instance_id_hex = match.groups()
+            return {
+                'service_name': service_name,
+                'database_name': database_name,
+                'instance_id_hex': instance_id_hex
+            }
+        return None
+
+    def service_health_check(self, service_name: str) -> Dict[str, Any]:
+        """Perform health check on service"""
+        try:
+            service = self.get_service(service_name)
+            if not service:
+                return {
+                    'healthy': False,
+                    'status': 'not_found',
+                    'message': 'Service not found'
+                }
+
+            service.reload()
+            tasks = service.tasks()
+
+            # Find running tasks
+            running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+            failed_tasks = [t for t in tasks if t['Status']['State'] == 'failed']
+
+            if not running_tasks:
+                return {
+                    'healthy': False,
+                    'status': 'no_running_tasks',
+                    'message': f'No running tasks (failed: {len(failed_tasks)})',
+                    'failed_tasks': len(failed_tasks)
+                }
+
+            # Check most recent running task
+            task = sorted(running_tasks, key=lambda t: t['CreatedAt'], reverse=True)[0]
+
+            # Check task uptime
+            created_at = task.get('CreatedAt')
+            if created_at:
+                try:
+                    from datetime import datetime
+                    create_time = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    uptime = (datetime.now(create_time.tzinfo) - create_time).total_seconds()
+
+                    if uptime < 10:
+                        return {
+                            'healthy': False,
+                            'status': 'starting',
+                            'message': f'Task recently started ({uptime:.1f}s ago)',
+                            'uptime': uptime
+                        }
+                except Exception:
+                    pass
+
+            # Service appears healthy
+            return {
+                'healthy': True,
+                'status': 'running',
+                'message': 'Service has running task',
+                'running_tasks': len(running_tasks),
+                'created_at': created_at
+            }
+
+        except Exception as e:
+            logger.error("Service health check failed", service=service_name, error=str(e))
+            return {
+                'healthy': False,
+                'status': 'error',
+                'message': f'Health check failed: {str(e)}'
+            }
+
+    def update_service_resources(self, service_name: str, cpu_limit: float, memory_bytes: int) -> bool:
+        """Update service resource limits with zero downtime
+
+        Args:
+            service_name: Name of the service to update
+            cpu_limit: CPU limit in cores (e.g., 4.0 for 4 CPUs)
+            memory_bytes: Memory limit in bytes
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self._ensure_connection()
+            service = self.client.services.get(service_name)
+
+            # Create resources specification
+            resources = docker.types.Resources(
+                cpu_limit=int(cpu_limit * 1_000_000_000),  # Convert to nanocpus
+                mem_limit=memory_bytes
+            )
+
+            # Update service with new resources
+            service.update(
+                task_template={
+                    'Resources': resources
+                }
+            )
+
+            logger.info("Successfully updated service resources",
+                       service=service_name,
+                       cpu_limit=cpu_limit,
+                       memory_mb=memory_bytes // (1024 * 1024))
+            return True
+
+        except docker.errors.NotFound:
+            logger.error("Service not found for resource update", service=service_name)
+            return False
+        except Exception as e:
+            logger.error("Failed to update service resources",
+                        service=service_name,
+                        error=str(e))
+            return False
+
+    def _get_service_result(self, service, task) -> Dict[str, Any]:
+        """Get standardized service start/restart result"""
+        # Extract network IP from task
+        internal_ip = None
+        network_attachments = task.get('NetworksAttachments', [])
+        if network_attachments and network_attachments[0].get('Addresses'):
+            internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+
+        # Extract metadata from service name
+        metadata = self.extract_service_metadata(service.name)
+        subdomain = metadata['database_name'] if metadata else 'unknown'
+
+        return {
+            'service_id': service.id,
+            'service_name': service.name,
+            'task_id': task['ID'],
+            'status': task['Status']['State'],
+            'internal_ip': internal_ip,
+            'internal_url': f'http://{internal_ip}:8069' if internal_ip else None,
+            'external_url': f'http://{subdomain}.saasodoo.local',
+            'created_at': task.get('CreatedAt')
+        }
+
     def cleanup_orphaned_containers(self) -> List[str]:
         """Remove containers that don't have corresponding database entries"""
         # This would require database access, so it's a placeholder for now
@@ -429,6 +759,40 @@ class DockerClientWrapper:
 
         logger.info("Orphaned container cleanup not implemented yet")
         return []
+
+    def cleanup_orphaned_services(self, valid_instance_ids: List[str]) -> List[str]:
+        """Remove services that don't have corresponding database entries
+
+        Args:
+            valid_instance_ids: List of valid instance IDs from database
+
+        Returns:
+            List of removed service names
+        """
+        try:
+            self._ensure_connection()
+            removed_services = []
+
+            # Get all SaaS Odoo services
+            services = self.client.services.list(filters={'label': 'saasodoo.instance.id'})
+
+            for service in services:
+                labels = service.attrs.get('Spec', {}).get('Labels', {})
+                instance_id = labels.get('saasodoo.instance.id')
+
+                if instance_id and instance_id not in valid_instance_ids:
+                    logger.info("Removing orphaned service",
+                               service=service.name,
+                               instance_id=instance_id)
+                    service.remove()
+                    removed_services.append(service.name)
+
+            logger.info("Orphaned service cleanup completed", removed_count=len(removed_services))
+            return removed_services
+
+        except Exception as e:
+            logger.error("Failed to cleanup orphaned services", error=str(e))
+            return []
 
 
 # Global instance for reuse

@@ -9,6 +9,7 @@ import logging
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import uuid
+import os
 
 from ..utils.killbill_client import KillBillClient
 from ..utils.paynow_client import get_paynow_client
@@ -248,12 +249,14 @@ async def initiate_paynow_payment(
         # Initiate payment based on method
         if request.payment_method in ["ecocash", "onemoney"]:
             # Mobile money - USSD push
+            # Use merchant email for Paynow test mode (not customer email)
+            merchant_email = os.getenv("PAYNOW_MERCHANT_EMAIL")
             paynow_response = await paynow.initiate_mobile_transaction(
                 reference=reference,
                 amount=amount,
                 phone=request.phone,
                 method=request.payment_method,
-                auth_email=request.customer_email,
+                auth_email=merchant_email,
                 additional_info=f"Invoice {request.invoice_id}"
             )
             payment_type = "mobile"
@@ -265,11 +268,13 @@ async def initiate_paynow_payment(
             if return_url and 'PLACEHOLDER' in return_url:
                 return_url = return_url.replace('PLACEHOLDER', payment_id)
 
+            # Use merchant email for Paynow test mode (not customer email)
+            merchant_email = os.getenv("PAYNOW_MERCHANT_EMAIL")
             paynow_response = await paynow.initiate_transaction(
                 reference=reference,
                 amount=amount,
                 return_url=return_url,
-                auth_email=request.customer_email,
+                auth_email=merchant_email,
                 additional_info=f"Invoice {request.invoice_id}"
             )
             payment_type = "redirect"
