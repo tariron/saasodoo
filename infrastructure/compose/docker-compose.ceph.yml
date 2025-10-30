@@ -9,8 +9,11 @@ services:
       - "8080:8080"  # Traefik dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ../traefik/dynamic:/etc/traefik/dynamic:ro
+    configs:
+      - source: traefik_config
+        target: /etc/traefik/traefik.yml
+      - source: traefik_middlewares
+        target: /etc/traefik/dynamic/middlewares.yml
     networks:
       - saasodoo-network
     labels:
@@ -663,6 +666,12 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+
+configs:
+  traefik_config:
+    file: ../traefik/traefik.yml
+  traefik_middlewares:
+    file: ../traefik/dynamic/middlewares.yml
 
 networks:
   saasodoo-network:
