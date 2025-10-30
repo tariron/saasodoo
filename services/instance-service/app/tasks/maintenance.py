@@ -28,6 +28,32 @@ logger = structlog.get_logger(__name__)
 BACKUP_BASE_PATH = "/mnt/cephfs/odoo_backups"
 BACKUP_ACTIVE_PATH = f"{BACKUP_BASE_PATH}/active"
 BACKUP_STAGING_PATH = f"{BACKUP_BASE_PATH}/staging"
+
+
+def _parse_size_to_bytes(size_str: str) -> int:
+    """
+    Convert size string like '10G' or '512M' to bytes
+
+    Args:
+        size_str: Size string with unit (e.g., '10G', '512M')
+
+    Returns:
+        Size in bytes
+    """
+    size_str = size_str.upper().strip()
+
+    # Extract numeric value and unit
+    value = int(size_str[:-1])
+    unit = size_str[-1]
+
+    # Define multipliers
+    multipliers = {
+        'M': 1024 ** 2,  # Megabytes
+        'G': 1024 ** 3,  # Gigabytes
+        'T': 1024 ** 4   # Terabytes
+    }
+
+    return value * multipliers.get(unit, 1)
 BACKUP_TEMP_PATH = f"{BACKUP_BASE_PATH}/temp"
 
 
@@ -101,7 +127,7 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         
         if was_running:
             logger.info("Stopping instance for consistent backup")
-            await _stop_docker_container(instance)
+            await _stop_docker_service(instance)
             # Wait a moment for clean shutdown
             await asyncio.sleep(5)
         
@@ -125,7 +151,7 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         # Step 7: Restart instance if it was running before backup
         if was_running:
             logger.info("Restarting instance after backup")
-            container_result = await _start_docker_container(instance)
+            container_result = await _start_docker_service(instance)
             await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
             await _update_instance_network_info(instance_id, container_result)
             await _update_instance_status(instance_id, InstanceStatus.RUNNING)
@@ -167,7 +193,7 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         if was_running:
             try:
                 logger.info("Attempting to restart instance after backup failure")
-                container_result = await _start_docker_container(instance)
+                container_result = await _start_docker_service(instance)
                 await _update_instance_network_info(instance_id, container_result)
                 await _update_instance_status(instance_id, InstanceStatus.RUNNING)
             except Exception as restore_error:
@@ -213,7 +239,7 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         # Step 2: Stop instance if running
         was_running = instance['status'] == InstanceStatus.RUNNING.value
         if was_running:
-            await _stop_docker_container(instance)
+            await _stop_docker_service(instance)
             logger.info("Instance stopped for restore")
         
         # Step 3: Restore database from backup
@@ -232,23 +258,15 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         await _restore_data_volume_backup(instance, backup_info)
         logger.info("Data volume restored from backup")
         
-        # Step 5: Always recreate container after restore (since volume was recreated)
-        container_result = await _start_docker_container_for_restore(instance)
-        logger.info("Container recreated after restore")
-        
-        # Step 6: Start the container if instance was running before, otherwise leave it stopped
-        if was_running:
-            await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
-            await _update_instance_network_info(instance_id, container_result)
-            logger.info("Instance restarted after restore with optimized startup")
-            target_status = InstanceStatus.RUNNING
-        else:
-            # Stop the container but keep it available for starting later
-            client = docker.from_env()
-            container = client.containers.get(container_result['container_name'])
-            container.stop()
-            logger.info("Container created but stopped to match previous state")
-            target_status = InstanceStatus.STOPPED
+        # Step 5: Recreate service with restore-optimized configuration and start it
+        container_result = await _start_docker_service_for_restore(instance)
+        logger.info("Service recreated after restore")
+
+        # Step 6: Wait for Odoo to start and update network info (always start after restore)
+        await _wait_for_odoo_startup(container_result, timeout=300)
+        await _update_instance_network_info(instance_id, container_result)
+        logger.info("Instance started after restore")
+        target_status = InstanceStatus.RUNNING
         
         # Step 7: Update status
         await _update_instance_status(instance_id, target_status)
@@ -328,17 +346,17 @@ async def _update_instance_workflow(instance_id: str, target_version: str) -> Di
         # Step 3: Update status to UPDATING
         await _update_instance_status(instance_id, InstanceStatus.MAINTENANCE, f"Updating to {target_version}")
         
-        # Step 4: Stop current container
-        await _stop_docker_container(instance)
+        # Step 4: Stop current service
+        await _stop_docker_service(instance)
         logger.info("Instance stopped for update")
         
         # Step 5: Update instance record with new version
         await _update_instance_version(instance_id, target_version)
         
-        # Step 6: Deploy new container with updated version
+        # Step 6: Deploy new service with updated version
         updated_instance = await _get_instance_from_db(instance_id)
-        container_result = await _deploy_updated_container(updated_instance)
-        logger.info("Updated container deployed", container_id=container_result['container_id'])
+        container_result = await _deploy_updated_service(updated_instance)
+        logger.info("Updated service deployed", service_id=container_result.get('service_id'))
         
         # Step 7: Run database migration if needed
         await _run_database_migration(updated_instance, current_version, target_version)
@@ -413,12 +431,9 @@ async def _create_database_backup(instance: Dict[str, Any], backup_name: str) ->
 async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str) -> tuple[str, int]:
     """Create backup of Odoo data volume"""
     client = docker.from_env()
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
     backup_file = f"{BACKUP_ACTIVE_PATH}/{backup_name}_data.tar.gz"
-    
+
     try:
-        container = client.containers.get(container_name)
-        
         # Create temporary container to access data volume
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
         
@@ -458,8 +473,8 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
             return backup_file, 0
         
     except docker.errors.NotFound:
-        logger.warning("Container not found, skipping data volume backup", container_name=container_name)
-        # Create empty backup file to maintain consistency  
+        logger.warning("Volume not found, skipping data volume backup", volume_name=volume_name)
+        # Create empty backup file to maintain consistency
         Path(backup_file).touch()
         return backup_file, 0
     except Exception as e:
@@ -560,14 +575,16 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
         return
     
     volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
     try:
-        # Remove existing container that might be using the volume
-        container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
+        # Remove existing service that might be using the volume
+        service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
         try:
-            existing_container = client.containers.get(container_name)
-            existing_container.remove(force=True)
-            logger.info("Existing container removed for volume cleanup", container=container_name)
+            existing_service = client.services.get(service_name)
+            existing_service.remove()
+            logger.info("Existing service removed for volume cleanup", service=service_name)
+            # Wait for service to be fully removed
+            await asyncio.sleep(5)
         except docker.errors.NotFound:
             pass
         
@@ -664,24 +681,26 @@ async def _update_instance_version(instance_id: str, target_version: str):
         await conn.close()
 
 
-async def _deploy_updated_container(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Deploy container with updated Odoo version"""
+async def _deploy_updated_service(instance: Dict[str, Any]) -> Dict[str, Any]:
+    """Deploy service with updated Odoo version"""
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
-    # Remove old container if exists
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
+    # Remove old service if exists
     try:
-        old_container = client.containers.get(container_name)
-        old_container.remove(force=True)
-        logger.info("Old container removed", container_name=container_name)
+        old_service = client.services.get(service_name)
+        old_service.remove()
+        logger.info("Old service removed", service_name=service_name)
+        # Wait for service to be fully removed
+        await asyncio.sleep(5)
     except docker.errors.NotFound:
         pass
-    
-    # Deploy new container with updated version
-    # This reuses the container deployment logic from provisioning
-    from app.tasks.provisioning import _deploy_odoo_container
-    
+
+    # Deploy new service with updated version
+    # This reuses the service deployment logic from provisioning
+    from app.tasks.provisioning import _deploy_odoo_service
+
     # Create minimal db_info for deployment
     db_info = {
         'host': os.getenv('POSTGRES_HOST', 'postgres'),
@@ -690,8 +709,8 @@ async def _deploy_updated_container(instance: Dict[str, Any]) -> Dict[str, Any]:
         'user': f"odoo_{instance['database_name']}",
         'password': 'generated_password'  # This should be retrieved from secure storage
     }
-    
-    return await _deploy_odoo_container(instance, db_info)
+
+    return await _deploy_odoo_service(instance, db_info)
 
 
 async def _run_database_migration(instance: Dict[str, Any], from_version: str, to_version: str):
@@ -701,11 +720,25 @@ async def _run_database_migration(instance: Dict[str, Any], from_version: str, t
         return
     
     client = docker.from_env()
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        container = client.containers.get(container_name)
-        
+        # Get the service
+        service = client.services.get(service_name)
+
+        # Get running task from service
+        tasks = service.tasks(filters={'desired-state': 'running'})
+        running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+
+        if not running_task:
+            raise RuntimeError(f"No running task found for service {service_name}")
+
+        # Extract container ID from task
+        container_id = running_task['Status']['ContainerStatus']['ContainerID']
+
+        # Get the actual container to exec into
+        container = client.containers.get(container_id)
+
         # Run Odoo with --update=all to migrate database
         migration_command = [
             "odoo",
@@ -714,18 +747,18 @@ async def _run_database_migration(instance: Dict[str, Any], from_version: str, t
             "--stop-after-init",
             "--log-level=info"
         ]
-        
+
         exec_result = container.exec_run(migration_command, stream=True)
-        
+
         # Monitor migration output
         for line in exec_result.output:
             logger.info("Migration output", line=line.decode().strip())
-        
+
         if exec_result.exit_code != 0:
             raise RuntimeError(f"Database migration failed with exit code {exec_result.exit_code}")
-        
+
         logger.info("Database migration completed successfully")
-        
+
     except Exception as e:
         logger.error("Database migration failed", error=str(e))
         raise
@@ -988,102 +1021,88 @@ async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any
 
 
 # Import functions from lifecycle.py that we need
-async def _stop_docker_container(instance: Dict[str, Any]):
-    """Stop Docker container gracefully"""
+async def _stop_docker_service(instance: Dict[str, Any]):
+    """Stop Docker service gracefully (scale to 0)"""
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        container = client.containers.get(container_name)
-        
-        if container.status not in ['running']:
-            logger.info("Container already stopped", container_name=container_name, status=container.status)
-            return
-        
-        logger.info("Stopping container gracefully", container_name=container_name)
-        container.stop(timeout=30)  # 30 second graceful shutdown
-        
-        # Wait for container to stop
-        for _ in range(35):  # 35 second timeout (30 + 5 buffer)
-            container.reload()
-            if container.status in ['exited', 'stopped']:
-                break
-            await asyncio.sleep(1)
-        else:
-            logger.warning("Container did not stop gracefully, forcing stop", container_name=container_name)
-            container.kill()
-        
-        logger.info("Container stopped", container_name=container_name)
-        
+        service = client.services.get(service_name)
+
+        logger.info("Stopping service (scaling to 0)", service_name=service_name)
+
+        # Scale to 0 replicas
+        service.update(mode={'Replicated': {'Replicas': 0}})
+
+        # Wait for tasks to shutdown
+        for _ in range(30):  # 60 second timeout
+            await asyncio.sleep(2)
+            service.reload()
+            tasks = service.tasks()
+
+            # Check if all tasks are shutdown/complete
+            active_tasks = [t for t in tasks if t['Status']['State'] in ['running', 'starting', 'pending']]
+            if not active_tasks:
+                logger.info("Service stopped successfully", service_name=service_name)
+                return
+
+        logger.warning("Service did not stop within timeout", service_name=service_name)
+
     except docker.errors.NotFound:
-        logger.warning("Container not found during stop", container_name=container_name)
+        logger.warning("Service not found during stop", service_name=service_name)
     except Exception as e:
-        logger.error("Failed to stop container", container_name=container_name, error=str(e))
+        logger.error("Failed to stop service", service_name=service_name, error=str(e))
         raise
 
 
-async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Start existing Docker container"""
+async def _start_docker_service(instance: Dict[str, Any]) -> Dict[str, Any]:
+    """Start existing Docker service (scale to 1)"""
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        # Try to get existing container
-        container = client.containers.get(container_name)
-        
-        if container.status == 'running':
-            logger.info("Container already running", container_name=container_name)
-        else:
-            logger.info("Starting existing container", container_name=container_name)
-            container.start()
-            
-        # Wait for container to be running
-        for _ in range(30):  # 30 second timeout
-            container.reload()
-            if container.status == 'running':
-                break
-            await asyncio.sleep(1)
-        else:
-            raise RuntimeError("Container failed to start within timeout")
-        
-        # Get network info
-        container.reload()
-        internal_ip = _get_container_ip(container)
-        
-        return {
-            'container_id': container.id,
-            'container_name': container_name,
-            'internal_ip': internal_ip,
-            'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
-        }
-        
+        # Try to get existing service
+        service = client.services.get(service_name)
+
+        logger.info("Starting service (scaling to 1)", service_name=service_name)
+
+        # Scale to 1 replica
+        service.update(mode={'Replicated': {'Replicas': 1}})
+
+        # Wait for task to be running
+        for _ in range(30):  # 60 second timeout
+            await asyncio.sleep(2)
+            service.reload()
+            tasks = service.tasks(filters={'desired-state': 'running'})
+
+            running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+            if running_task:
+                # Extract network IP from task
+                internal_ip = None
+                network_attachments = running_task.get('NetworksAttachments', [])
+                if network_attachments and network_attachments[0].get('Addresses'):
+                    internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+
+                logger.info("Service started successfully", service_name=service_name)
+                return {
+                    'service_id': service.id,
+                    'service_name': service_name,
+                    'task_id': running_task['ID'],
+                    'internal_ip': internal_ip,
+                    'internal_url': f'http://{internal_ip}:8069' if internal_ip else None,
+                    'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+                }
+
+        raise RuntimeError("Service failed to start within timeout")
+
     except docker.errors.NotFound:
-        # Container doesn't exist - this shouldn't happen for existing instances
-        raise ValueError(f"Container {container_name} not found. Instance may need reprovisioning.")
+        # Service doesn't exist - this shouldn't happen for existing instances
+        raise ValueError(f"Service {service_name} not found. Instance may need reprovisioning.")
     except Exception as e:
-        logger.error("Failed to start container", container_name=container_name, error=str(e))
+        logger.error("Failed to start service", service_name=service_name, error=str(e))
         raise
-
-
-def _get_container_ip(container) -> str:
-    """Extract container IP address"""
-    container.reload()
-    
-    # Try saasodoo-network first
-    if 'saasodoo-network' in container.attrs['NetworkSettings']['Networks']:
-        network_info = container.attrs['NetworkSettings']['Networks']['saasodoo-network']
-        return network_info['IPAddress']
-    
-    # Fallback to first available network
-    networks = container.attrs['NetworkSettings']['Networks']
-    if networks:
-        first_network = next(iter(networks.values()))
-        return first_network['IPAddress']
-    
-    return 'localhost'  # Final fallback
 
 
 async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 300): #120 seconds
@@ -1122,13 +1141,13 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
     
     try:
         await conn.execute("""
-            UPDATE instances 
-            SET container_id = $1, container_name = $2, 
+            UPDATE instances
+            SET service_id = $1, service_name = $2,
                 internal_url = $3, external_url = $4, updated_at = $5
             WHERE id = $6
-        """, 
-            container_info['container_id'],
-            container_info['container_name'],
+        """,
+            container_info.get('service_id'),
+            container_info.get('service_name'),
             container_info['internal_url'],
             container_info['external_url'],
             datetime.utcnow(),
@@ -1140,32 +1159,39 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
         await conn.close()
 
 
-async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Start Docker container with Bitnami optimization for restore operations"""
+async def _start_docker_service_for_restore(instance: Dict[str, Any]) -> Dict[str, Any]:
+    """Start Docker Swarm service with Bitnami optimization for restore operations"""
+    import asyncio
     client = docker.from_env()
-    
-    container_name = f"odoo_{instance['database_name']}_{instance['id'].hex[:8]}"
-    
+
+    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
     try:
-        # Try to get existing container
-        container = client.containers.get(container_name)
-        
-        # Stop the container if it's running
-        if container.status == 'running':
-            logger.info("Stopping container for restore optimization", container_name=container_name)
-            container.stop(timeout=30)
-        
-        # Remove the existing container to recreate with optimized environment
-        container.remove()
-        logger.info("Container removed for restore optimization", container_name=container_name)
-        
+        # Try to get existing service
+        service = client.services.get(service_name)
+
+        # Update service to scale to 0 replicas first to ensure clean restart
+        logger.info("Scaling service to 0 for restore optimization", service_name=service_name)
+        service.update(mode={'Replicated': {'Replicas': 0}})
+
+        # Wait for tasks to shutdown
+        for _ in range(15):
+            await asyncio.sleep(2)
+            service.reload()
+            tasks = service.tasks()
+            active_tasks = [t for t in tasks if t['Status']['State'] in ['running', 'starting', 'pending']]
+            if not active_tasks:
+                break
+
+        logger.info("Service scaled to 0, will recreate with optimized config", service_name=service_name)
+
     except docker.errors.NotFound:
-        logger.info("No existing container found, will create new one", container_name=container_name)
-    
-    # Create optimized container configuration for restore
+        logger.info("No existing service found, will create new one", service_name=service_name)
+
+    # Create optimized service configuration for restore
     db_user = f"odoo_{instance['database_name']}"
     db_password = f"odoo_pass_{instance['id'].hex[:8]}"
-    
+
     # Environment optimized for restored instance
     environment = {
         'ODOO_DATABASE_HOST': os.getenv('POSTGRES_HOST', 'postgres'),
@@ -1181,68 +1207,112 @@ async def _start_docker_container_for_restore(instance: Dict[str, Any]) -> Dict[
         'ODOO_SKIP_MODULES_UPDATE': 'yes',  # Skip module updates on startup
         'BITNAMI_DEBUG': 'true',  # Enable debug logging for troubleshooting
     }
-    
+
     # Add custom environment variables from instance if any
     if instance.get('environment_vars'):
         environment.update(instance['environment_vars'])
-    
+
     # Resource limits
     mem_limit = instance['memory_limit']
     cpu_limit = instance['cpu_limit']
-    
+
     try:
-        # Create and start optimized container for restore
-        container = client.containers.run(
-            'bitnami/odoo:17',  # Use same version as original
-            name=container_name,
-            environment=environment,
-            mem_limit=mem_limit,
-            cpu_count=int(cpu_limit),
-            detach=True,
-            restart_policy={"Name": "unless-stopped"},
-            labels={
-                'saasodoo.instance.id': str(instance['id']),
-                'saasodoo.instance.name': instance['name'],
-                'saasodoo.tenant.id': str(instance['customer_id']),
-                'saasodoo.restore.optimized': 'true',
-                # Traefik labels for automatic routing
-                'traefik.enable': 'true',
-                f'traefik.http.routers.{container_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
-                f'traefik.http.routers.{container_name}.service': container_name,
-                f'traefik.http.services.{container_name}.loadbalancer.server.port': '8069',
-            },
-            volumes={
-                f'odoo_data_{instance["database_name"]}_{instance["id"].hex[:8]}': {
-                    'bind': '/bitnami/odoo',
-                    'mode': 'rw'
-                }
-            }
+        # Convert memory limit from string like "2G" to bytes
+        mem_limit_bytes = _parse_size_to_bytes(mem_limit) if isinstance(mem_limit, str) else mem_limit
+        resources = docker.types.Resources(
+            cpu_limit=int(cpu_limit * 1_000_000_000),  # Convert to nanocpus
+            mem_limit=mem_limit_bytes
         )
-        
-        # Connect to network after creation
+
+        # Create mount for volume
+        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
+        mount = docker.types.Mount(
+            target='/bitnami/odoo',
+            source=volume_name,
+            type='volume'
+        )
+
+        # Get Odoo version
+        odoo_version = instance.get('odoo_version', '17')
+
         try:
-            network = client.networks.get('saasodoo-network')
-            network.connect(container)
-            logger.info("Restored container connected to network", container_name=container_name, network='saasodoo-network')
+            # Get existing service to update with new environment
+            service = client.services.get(service_name)
+
+            # Update existing service with optimized environment and scale to 1
+            service.update(
+                env=environment,
+                mode={'Replicated': {'Replicas': 1}}
+            )
+            logger.info("Updated existing service with restore optimization", service_name=service_name)
+
         except docker.errors.NotFound:
-            logger.warning("Network saasodoo-network not found, skipping network connection")
-        
-        logger.info("Optimized container created for restore", container_id=container.id, name=container_name)
-        
-        # Get container network info
-        container.reload()
-        internal_ip = _get_container_ip(container)
-        
+            # Create new service if it doesn't exist
+            service = client.services.create(
+                image=f'bitnamilegacy/odoo:{odoo_version}',
+                name=service_name,
+                env=environment,
+                resources=resources,
+                mode=docker.types.ServiceMode('replicated', replicas=1),
+                mounts=[mount],
+                networks=['saasodoo-network'],
+                labels={
+                    'saasodoo.instance.id': str(instance['id']),
+                    'saasodoo.instance.name': instance['name'],
+                    'saasodoo.customer.id': str(instance['customer_id']),
+                    'saasodoo.restore.optimized': 'true',
+                    # Traefik labels for automatic routing
+                    'traefik.enable': 'true',
+                    f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
+                    f'traefik.http.routers.{service_name}.service': service_name,
+                    f'traefik.http.services.{service_name}.loadbalancer.server.port': '8069',
+                },
+                restart_policy=docker.types.RestartPolicy(condition='any')
+            )
+            logger.info("Created new service for restore", service_id=service.id, service_name=service_name)
+
+        # Wait for task to start running
+        await asyncio.sleep(5)  # Give Swarm time to schedule
+
+        # Get running task information
+        max_wait = 60
+        waited = 5
+        running_task = None
+
+        while waited < max_wait:
+            service.reload()
+            tasks = service.tasks(filters={'desired-state': 'running'})
+            running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+
+            if running_task:
+                break
+
+            await asyncio.sleep(5)
+            waited += 5
+
+        if not running_task:
+            raise Exception(f"Service {service_name} failed to start a running task within {max_wait} seconds")
+
+        # Extract task information
+        internal_ip = None
+        network_attachments = running_task.get('NetworksAttachments', [])
+        if network_attachments and network_attachments[0].get('Addresses'):
+            internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+
+        if not internal_ip:
+            internal_ip = 'localhost'  # Fallback
+
         return {
-            'container_id': container.id,
-            'container_name': container_name,
+            'service_id': service.id,
+            'service_name': service_name,
+            'task_id': running_task['ID'],
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
             'external_url': f'http://{instance["database_name"]}.saasodoo.local'
         }
         
     except Exception as e:
-        logger.error("Failed to start optimized container for restore", container_name=container_name, error=str(e))
+        logger.error("Failed to start optimized service for restore", service_name=service_name, error=str(e))
         raise
 
 
