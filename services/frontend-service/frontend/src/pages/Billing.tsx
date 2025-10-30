@@ -751,7 +751,7 @@ const Billing: React.FC = () => {
             setSelectedInvoice(null);
           }}
           onSuccess={() => {
-            fetchBillingData();
+            window.location.href = '/instances';
           }}
         />
       )}

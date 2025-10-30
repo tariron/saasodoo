@@ -35,10 +35,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
     onSuccess: (status) => {
       setPaymentCompleted(true);
       setPollingEnabled(false);
-      // Auto-close after 2 seconds
+      // Redirect after 2 seconds to show success message
       setTimeout(() => {
         onSuccess();
-        onClose();
       }, 2000);
     },
     onFailure: (status) => {
