@@ -91,9 +91,9 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 1: Update status to STARTING
         await _update_instance_status(instance_id, InstanceStatus.STARTING)
         
-        # Step 2: Start Docker container
+        # Step 2: Start Docker service
         container_result = await _start_docker_container(instance)
-        logger.info("Container started", container_id=container_result['container_id'])
+        logger.info("Service started", service_id=container_result.get('service_id'))
         
         # Step 3: Wait for Odoo to be accessible
         await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
@@ -130,7 +130,7 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
         
         return {
             "status": "success",
-            "container_id": container_result['container_id'],
+            "service_id": container_result.get('service_id'),
             "external_url": container_result['external_url'],
             "message": "Instance started successfully"
         }
@@ -212,9 +212,9 @@ async def _restart_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 1: Update status to RESTARTING
         await _update_instance_status(instance_id, InstanceStatus.RESTARTING)
         
-        # Step 2: Restart Docker container
+        # Step 2: Restart Docker service
         container_result = await _restart_docker_container(instance)
-        logger.info("Container restarted", container_id=container_result['container_id'])
+        logger.info("Service restarted", service_id=container_result.get('service_id'))
         
         # Step 3: Wait for Odoo to be accessible
         await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
@@ -228,7 +228,7 @@ async def _restart_instance_workflow(instance_id: str) -> Dict[str, Any]:
         
         return {
             "status": "success",
-            "container_id": container_result['container_id'],
+            "service_id": container_result.get('service_id'),
             "external_url": container_result['external_url'],
             "message": "Instance restarted successfully"
         }
@@ -535,12 +535,12 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
     try:
         await conn.execute("""
             UPDATE instances 
-            SET container_id = $1, container_name = $2, 
+            SET service_id = $1, service_name = $2, 
                 internal_url = $3, external_url = $4, updated_at = $5
             WHERE id = $6
         """, 
-            container_info['container_id'],
-            container_info['container_name'],
+            container_info.get('service_id'),
+            container_info.get('service_name'),
             container_info['internal_url'],
             container_info['external_url'],
             datetime.utcnow(),
