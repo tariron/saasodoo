@@ -34,6 +34,7 @@ ENV/
 .env.development
 .env.staging
 .env.production
+.env.swarm
 
 # IDE
 .vscode/
