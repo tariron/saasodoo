@@ -343,7 +343,10 @@ services:
       
       # Notification Service Configuration
       NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://notification.saasodoo.local}
-      
+
+      # Frontend URL for email links
+      FRONTEND_URL: ${FRONTEND_URL:-http://app.saasodoo.local}
+
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}

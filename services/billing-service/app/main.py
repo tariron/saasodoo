@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
         password=os.getenv("KILLBILL_PASSWORD", "password")
     )
 
+    # Check KillBill health before proceeding - fail fast if not ready
+    logger.info("Checking KillBill health...")
+    health = await app.state.killbill.health_check()
+    if health["status"] != "healthy":
+        raise Exception(f"KillBill is not ready: {health.get('error', 'Unknown error')}")
+    logger.info("KillBill is healthy and ready")
+
     # Check and create KillBill tenant if needed
     try:
         tenant_exists = await app.state.killbill.check_tenant_exists()
