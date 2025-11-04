@@ -180,6 +180,11 @@ services:
       replicas: 1
       restart_policy:
         condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.mailhog.rule=Host(`mail.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.mailhog.service=mailhog"
+        - "traefik.http.services.mailhog.loadbalancer.server.port=8025"
 
   # ===== BILLING INFRASTRUCTURE =====
   

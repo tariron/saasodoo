@@ -13,11 +13,24 @@ export const useConfig = () => {
         setConfig(response.data);
       } catch (err: any) {
         setError('Failed to load configuration');
-        // Use fallback config
+        // Use fallback config based on window.location
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+
+        let apiBaseUrl: string;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          // When accessing via localhost, assume API is at localhost (through Traefik)
+          apiBaseUrl = `${protocol}//localhost/api.saasodoo.local`;
+        } else {
+          // Extract domain from hostname (e.g., app.example.com -> api.example.com)
+          const domain = hostname.replace(/^app\./, '');
+          apiBaseUrl = `${protocol}//api.${domain}`;
+        }
+
         setConfig({
-          BASE_DOMAIN: 'saasodoo.local',
+          BASE_DOMAIN: hostname.replace(/^app\./, ''),
           ENVIRONMENT: 'development',
-          API_BASE_URL: 'http://api.saasodoo.local',
+          API_BASE_URL: apiBaseUrl,
           VERSION: '1.0.0',
           FEATURES: {
             billing: true,

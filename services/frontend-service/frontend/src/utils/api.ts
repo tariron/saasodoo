@@ -164,6 +164,67 @@ export interface AppConfig {
   };
 }
 
+// Configuration management
+class ConfigManager {
+  private static config: AppConfig | null = null;
+  private static initPromise: Promise<void> | null = null;
+
+  static async initialize(): Promise<void> {
+    if (this.config) return; // Already initialized
+    if (this.initPromise) return this.initPromise; // Already initializing
+
+    this.initPromise = (async () => {
+      try {
+        // Fetch config from Flask backend using relative URL
+        const response = await axios.get('/api/config', {
+          timeout: 5000,
+        });
+        this.config = response.data;
+      } catch (error) {
+        console.error('Failed to fetch config from backend, using fallback:', error);
+        // Fallback: derive from window.location
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+
+        let apiBaseUrl: string;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          // When accessing via localhost, assume API is at localhost (through Traefik)
+          apiBaseUrl = `${protocol}//localhost/api.saasodoo.local`;
+        } else {
+          // Extract domain from hostname (e.g., app.example.com -> api.example.com)
+          const domain = hostname.replace(/^app\./, '');
+          apiBaseUrl = `${protocol}//api.${domain}`;
+        }
+
+        this.config = {
+          BASE_DOMAIN: hostname.replace(/^app\./, ''),
+          ENVIRONMENT: 'development',
+          API_BASE_URL: apiBaseUrl,
+          VERSION: '1.0.0',
+          FEATURES: {
+            billing: true,
+            analytics: false,
+            monitoring: true,
+          },
+        };
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  static getConfig(): AppConfig {
+    if (!this.config) {
+      throw new Error('ConfigManager not initialized. Call initialize() first.');
+    }
+    return this.config;
+  }
+
+  static getApiBaseUrl(): string {
+    return this.getConfig().API_BASE_URL;
+  }
+}
+
 // Token management with security
 class TokenManager {
   private static readonly TOKEN_KEY = 'auth_token_data';
@@ -217,14 +278,21 @@ class TokenManager {
   }
 }
 
-// Axios instance configuration - Direct calls to microservices
+// Axios instance configuration - Uses dynamic config from backend
+// Note: The baseURL will be updated after ConfigManager initializes
 const api = axios.create({
-  baseURL: 'http://api.saasodoo.local', // Direct to microservices via Traefik (HTTP for development)
+  baseURL: '', // Will be set dynamically after config loads
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Update axios baseURL after config is loaded
+export const initializeAPI = async (): Promise<void> => {
+  await ConfigManager.initialize();
+  api.defaults.baseURL = ConfigManager.getApiBaseUrl();
+};
 
 // Request interceptor - add auth token
 api.interceptors.request.use(
@@ -252,7 +320,9 @@ api.interceptors.response.use(
       const refreshToken = TokenManager.getRefreshToken();
       if (refreshToken) {
         try {
-          const response = await axios.post('http://api.saasodoo.local/user/auth/refresh-token', {
+          // Use dynamic base URL for refresh token endpoint
+          const baseURL = ConfigManager.getApiBaseUrl();
+          const response = await axios.post(`${baseURL}/user/auth/refresh-token`, {
             refresh_token: refreshToken
           });
           
@@ -452,5 +522,5 @@ export const billingAPI = {
     api.get(`/billing/api/billing/payments/paynow/status/${paymentId}`),
 };
 
-export { TokenManager };
+export { TokenManager, ConfigManager };
 export default api;
