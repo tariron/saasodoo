@@ -49,6 +49,8 @@ services:
       - ../../shared/configs/postgres:/docker-entrypoint-initdb.d
     networks:
       - saasodoo-network
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo_user} -d ${POSTGRES_DB:-odoo}"]
       interval: 10s
@@ -79,6 +81,8 @@ services:
       - ../../shared/configs/redis.conf:/etc/redis/redis.conf:ro
     networks:
       - saasodoo-network
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -156,6 +160,9 @@ services:
       - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       restart_policy:
         condition: any
 
@@ -180,7 +187,7 @@ services:
   killbill-db:
     image: killbill/mariadb:0.24
     environment:
-      MYSQL_ROOT_PASSWORD: killbill
+      MYSQL_ROOT_PASSWORD: ${KILLBILL_MYSQL_ROOT_PASSWORD:-killbill}
     volumes:
       - /mnt/cephfs/killbill_db_data:/var/lib/mysql
       #- ../../shared/configs/killbill:/docker-entrypoint-initdb.d:ro
@@ -191,6 +198,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 120s
     labels:
       - "traefik.enable=false"
     deploy:
@@ -213,7 +221,7 @@ services:
       # Database Configuration
       KILLBILL_DAO_URL: jdbc:mysql://killbill-db:3306/killbill
       KILLBILL_DAO_USER: root
-      KILLBILL_DAO_PASSWORD: killbill
+      KILLBILL_DAO_PASSWORD: ${KILLBILL_MYSQL_ROOT_PASSWORD:-killbill}
       
       # API Credentials
       KILLBILL_SERVER_MULTITENANT: "true"
@@ -275,7 +283,7 @@ services:
       # Kaui Database (shared with KillBill)
       KAUI_CONFIG_DAO_URL: jdbc:mysql://killbill-db:3306/kaui
       KAUI_CONFIG_DAO_USER: root
-      KAUI_CONFIG_DAO_PASSWORD: killbill
+      KAUI_CONFIG_DAO_PASSWORD: ${KILLBILL_MYSQL_ROOT_PASSWORD:-killbill}
       
       # Default admin credentials
       KAUI_ROOT_USERNAME: admin
@@ -564,6 +572,9 @@ services:
       - "8004:8004"  # Expose billing-service port to host
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       restart_policy:
         condition: any
         delay: 5s
