@@ -300,7 +300,7 @@ async def _restart_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
                     'service_name': service_name,
                     'internal_ip': internal_ip,
                     'internal_url': f'http://{internal_ip}:8069',
-                    'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+                    'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
                 }
 
         raise RuntimeError("Service failed to restart within timeout")
@@ -349,7 +349,7 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
                     'service_name': service_name,
                     'internal_ip': internal_ip,
                     'internal_url': f'http://{internal_ip}:8069',
-                    'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+                    'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
                 }
 
         raise RuntimeError("Service failed to start within timeout")

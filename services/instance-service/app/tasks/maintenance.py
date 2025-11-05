@@ -276,7 +276,7 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
             user_info = await _get_user_info(instance['customer_id'])
             if user_info and user_info.get('email'):
                 restore_date = datetime.utcnow().strftime("%B %d, %Y at %I:%M %p UTC")
-                instance_url = f"http://{instance['database_name']}.saasodoo.local"
+                instance_url = f"http://{instance['database_name']}.{os.getenv('BASE_DOMAIN', 'saasodoo.local')}"
                 await send_restore_completed_email(
                     email=user_info['email'],
                     first_name=user_info.get('first_name', 'there'),
@@ -1092,7 +1092,7 @@ async def _start_docker_service(instance: Dict[str, Any]) -> Dict[str, Any]:
                     'task_id': running_task['ID'],
                     'internal_ip': internal_ip,
                     'internal_url': f'http://{internal_ip}:8069' if internal_ip else None,
-                    'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+                    'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
                 }
 
         raise RuntimeError("Service failed to start within timeout")
@@ -1263,7 +1263,7 @@ async def _start_docker_service_for_restore(instance: Dict[str, Any]) -> Dict[st
                     'saasodoo.restore.optimized': 'true',
                     # Traefik labels for automatic routing
                     'traefik.enable': 'true',
-                    f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
+                    f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}`)',
                     f'traefik.http.routers.{service_name}.service': service_name,
                     f'traefik.http.services.{service_name}.loadbalancer.server.port': '8069',
                 },
@@ -1308,7 +1308,7 @@ async def _start_docker_service_for_restore(instance: Dict[str, Any]) -> Dict[st
             'task_id': running_task['ID'],
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.saasodoo.local'
+            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
         }
         
     except Exception as e:

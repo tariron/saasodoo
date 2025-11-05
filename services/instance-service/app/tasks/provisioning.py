@@ -402,7 +402,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
                 'saasodoo.customer.id': str(instance['customer_id']),
                 # Traefik labels for automatic routing
                 'traefik.enable': 'true',
-                f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.saasodoo.local`)',
+                f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}`)',
                 f'traefik.http.routers.{service_name}.service': service_name,
                 f'traefik.http.services.{service_name}.loadbalancer.server.port': '8069',
             },
@@ -448,7 +448,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             'service_name': service_name,
             'internal_ip': internal_ip,
             'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance.get("subdomain") or instance["database_name"]}.saasodoo.local',
+            'external_url': f'http://{instance.get("subdomain") or instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}',
             'admin_password': generated_password  # Return generated password for email
         }
         

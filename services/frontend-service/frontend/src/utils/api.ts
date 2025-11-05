@@ -188,8 +188,8 @@ class ConfigManager {
 
         let apiBaseUrl: string;
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
-          // When accessing via localhost, assume API is at localhost (through Traefik)
-          apiBaseUrl = `${protocol}//localhost/api.saasodoo.local`;
+          // When accessing via localhost, use port-based access
+          apiBaseUrl = `${protocol}//localhost:8003`;
         } else {
           // Extract domain from hostname (e.g., app.example.com -> api.example.com)
           const domain = hostname.replace(/^app\./, '');

@@ -418,10 +418,11 @@ services:
       
       # Monitoring Configuration
       AUTO_START_MONITORING: ${AUTO_START_MONITORING:-true}
-      
+
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BASE_DOMAIN: ${BASE_DOMAIN}
     volumes:
       - ../../shared:/app/shared:ro  # Mount shared schemas
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
@@ -463,7 +464,6 @@ services:
   # Instance Service Worker - Background Task Processing
   instance-worker:
     image: compose-instance-worker:latest
-    user: appuser
     stop_signal: SIGQUIT
     stop_grace_period: 60s
     command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
@@ -493,6 +493,7 @@ services:
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BASE_DOMAIN: ${BASE_DOMAIN}
     volumes:
       - ../../shared:/app/shared:ro  # Mount shared schemas
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management

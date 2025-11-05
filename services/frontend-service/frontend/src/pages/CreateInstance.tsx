@@ -4,8 +4,10 @@ import { instanceAPI, authAPI, billingAPI, CreateInstanceRequest, CreateInstance
 import { Plan, Invoice } from '../types/billing';
 import Navigation from '../components/Navigation';
 import PaymentModal from '../components/PaymentModal';
+import { useConfig } from '../hooks/useConfig';
 
 const CreateInstance: React.FC = () => {
+  const { config } = useConfig();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
@@ -478,7 +480,7 @@ const CreateInstance: React.FC = () => {
                         maxLength={30}
                       />
                       <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
-                        .saasodoo.local
+                        .{config?.BASE_DOMAIN || 'saasodoo.local'}
                       </span>
                     </div>
                     
@@ -512,7 +514,7 @@ const CreateInstance: React.FC = () => {
                     )}
                     
                     <p className="mt-1 text-xs text-gray-500">
-                      This will be your Odoo URL: {formData.subdomain || 'subdomain'}.saasodoo.local
+                      This will be your Odoo URL: {formData.subdomain || 'subdomain'}.{config?.BASE_DOMAIN || 'saasodoo.local'}
                     </p>
                   </div>
                 </div>

@@ -28,8 +28,8 @@ COPY . .
 
 # Create non-root user with Docker access
 RUN groupadd -r appuser && useradd -r -g appuser appuser
-# Add user to docker group (gid 1001) for socket access
-RUN groupadd -g 1001 docker || true && usermod -a -G docker appuser
+# Add user to docker group (gid 988) for socket access
+RUN groupadd -g 988 docker || true && usermod -a -G docker appuser
 # Create backup directories with proper ownership
 RUN mkdir -p /var/lib/odoo/backups/active /var/lib/odoo/backups/staging /var/lib/odoo/backups/temp \
     && chown -R appuser:appuser /var/lib/odoo
