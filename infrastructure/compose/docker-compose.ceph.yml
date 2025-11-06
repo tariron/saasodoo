@@ -295,7 +295,7 @@ services:
   
   # User Service - Customer Authentication & Management
   user-service:
-    image: compose-user-service:latest
+    image: 62.171.153.219:5000/compose-user-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -361,7 +361,7 @@ services:
 
   # Instance Service - Odoo Instance Operations & Lifecycle Management
   instance-service:
-    image: compose-instance-service:latest
+    image: 62.171.153.219:5000/compose-instance-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -435,7 +435,7 @@ services:
 
   # Instance Service Worker - Background Task Processing
   instance-worker:
-    image: compose-instance-worker:latest
+    image: 62.171.153.219:5000/compose-instance-worker:latest
     stop_signal: SIGQUIT
     stop_grace_period: 60s
     command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
@@ -496,7 +496,7 @@ services:
 
   # Billing Service - KillBill Integration & Billing Management
   billing-service:
-    image: compose-billing-service:latest
+    image: 62.171.153.219:5000/compose-billing-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -565,7 +565,7 @@ services:
 
   # Frontend Service - React SPA with Flask backend
   frontend-service:
-    image: compose-frontend-service:latest
+    image: 62.171.153.219:5000/compose-frontend-service:latest
     ports:
       - "3000:3000"  # Direct access for debugging
     environment:
@@ -592,7 +592,7 @@ services:
 
   # Notification Service - Email and Notification Management
   notification-service:
-    image: compose-notification-service:latest
+    image: 62.171.153.219:5000/compose-notification-service:latest
     environment:
       # SMTP Configuration (Development - MailHog)
       SMTP_HOST: mailhog
@@ -600,31 +600,31 @@ services:
       SMTP_USE_TLS: "false"
       SMTP_USE_SSL: "false"
       SMTP_TIMEOUT: 30
-      
+
       # SMTP Authentication (empty for MailHog)
-      SMTP_USERNAME: 
-      SMTP_PASSWORD: 
-      
+      SMTP_USERNAME:
+      SMTP_PASSWORD:
+
       # Email Defaults
       DEFAULT_FROM_EMAIL: noreply@saasodoo.local
       DEFAULT_FROM_NAME: SaaS Odoo Platform
-      
+
       # Rate Limiting
       MAX_EMAILS_PER_MINUTE: 60
       MAX_EMAILS_PER_HOUR: 1000
-      
+
       # Database Configuration
       DB_DATABASE_URL: postgresql://notification_service:notification_service_secure_pass_change_me@postgres:5432/communication
       DB_POOL_SIZE: 10
       DB_MAX_OVERFLOW: 20
-      
+
       # Application Configuration
       APP_DEBUG: ${DEBUG:-true}
       APP_SERVICE_NAME: notification-service
       APP_SERVICE_VERSION: 1.0.0
       APP_API_PREFIX: /api/v1
       APP_TEMPLATES_DIR: app/templates
-      
+
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
@@ -648,6 +648,35 @@ services:
       - "traefik.http.services.notification.loadbalancer.healthcheck.path=/health"
     deploy:
       replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  # Docker Registry - Private image registry for custom services
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+    volumes:
+      - /mnt/cephfs/docker-registry:/var/lib/registry
+    networks:
+      - saasodoo-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/v2/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       restart_policy:
         condition: any
         delay: 5s
