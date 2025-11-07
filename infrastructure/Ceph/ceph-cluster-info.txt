@@ -1,0 +1,31 @@
+===================================
+Ceph Cluster Information
+Generated: Mon Nov  3 10:52:57 CET 2025
+===================================
+
+Cluster ID: a966978b-b89a-11f0-b43f-0050565df5d5
+Manager Node: 10.0.0.2 (vmi2887102)
+
+Dashboard URL: https://vmi2887102.contaboserver.net:8443/
+Username: admin
+Password: ro8aexbrqr
+
+SSH Public Key (add to other nodes):
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQColfiQM3tD5KCNxykJbYArdVt9rUC9OOrFdVRll2AKIRRwCPaFWK9TUtrkUISa5/MusTSQ162P9PzbryltiQ58M39m5tJ9GSqu+ORaFl13cSv6OtaRKq+B0Qi6nhZDfVYh1IFBMLVaxYZeV2EKYOCkr+d/Xg0m1gIqjQL16dUy4M5WH4ojdaS+2HirKNqY/5JzfmfwikeO/ZghvGPsJjV3xCCHTCkLl9rKoyV/38N3L9+trVz0FhiCa0iz78DpM3flv4LEgo8hSJJxYjR340Wj9duNEWd/heWYeS54B4LQ/a2MskWwy8n/+mOtI7F8pG5/5ZXIIGB58453GPHfB+2AiD3GDO+5JdHm1JM9k2J/3QeO62XVpoBJOHrlcl88Kqec+AUQHenjv9rluNpXe/YOKTNVe1xGtDGNN0Yn7JkKZc6VIgRs9VSCzFOvRI4ZJX22x0APIRt9k8DRVnvYhr2Fceu7Z73tKRnE/W6eQl3sEMMn/DdmoXMHwL/tGmns2zE= ceph-a966978b-b89a-11f0-b43f-0050565df5d5
+
+
+===================================
+Next Steps:
+===================================
+1. Copy the SSH public key to nodes 10.0.0.1 and 10.0.0.3:
+   ssh-copy-id -i /etc/ceph/ceph.pub root@10.0.0.1
+   ssh-copy-id -i /etc/ceph/ceph.pub root@10.0.0.3
+
+2. Add nodes to the cluster:
+   ceph orch host add node1 10.0.0.1
+   ceph orch host add node3 10.0.0.3
+
+3. Create OSDs (after adding nodes):
+   ceph orch apply osd --all-available-devices
+
+4. Access the dashboard at the URL above

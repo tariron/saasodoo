@@ -295,7 +295,7 @@ services:
   
   # User Service - Customer Authentication & Management
   user-service:
-    image: 62.171.153.219:5000/compose-user-service:latest
+    image: registry.62.171.153.219.nip.io/compose-user-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -361,7 +361,7 @@ services:
 
   # Instance Service - Odoo Instance Operations & Lifecycle Management
   instance-service:
-    image: 62.171.153.219:5000/compose-instance-service:latest
+    image: registry.62.171.153.219.nip.io/compose-instance-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -435,7 +435,7 @@ services:
 
   # Instance Service Worker - Background Task Processing
   instance-worker:
-    image: 62.171.153.219:5000/compose-instance-worker:latest
+    image: registry.62.171.153.219.nip.io/compose-instance-worker:latest
     stop_signal: SIGQUIT
     stop_grace_period: 60s
     command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
@@ -496,7 +496,7 @@ services:
 
   # Billing Service - KillBill Integration & Billing Management
   billing-service:
-    image: 62.171.153.219:5000/compose-billing-service:latest
+    image: registry.62.171.153.219.nip.io/compose-billing-service:latest
     environment:
       # Database Configuration - Service-specific credentials
       POSTGRES_HOST: postgres
@@ -565,7 +565,7 @@ services:
 
   # Frontend Service - React SPA with Flask backend
   frontend-service:
-    image: 62.171.153.219:5000/compose-frontend-service:latest
+    image: registry.62.171.153.219.nip.io/compose-frontend-service:latest
     ports:
       - "3000:3000"  # Direct access for debugging
     environment:
@@ -573,12 +573,6 @@ services:
       - FLASK_DEBUG=true
       - BASE_DOMAIN=${BASE_DOMAIN}
       - ENVIRONMENT=${ENVIRONMENT}
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`app.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.frontend.service=frontend"
-      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
-      - "traefik.http.services.frontend.loadbalancer.healthcheck.path=/health"
     networks:
       - saasodoo-network
     deploy:
@@ -589,10 +583,16 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.frontend.rule=Host(`app.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.frontend.service=frontend"
+        - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+        - "traefik.http.services.frontend.loadbalancer.healthcheck.path=/health"
 
   # Notification Service - Email and Notification Management
   notification-service:
-    image: 62.171.153.219:5000/compose-notification-service:latest
+    image: registry.62.171.153.219.nip.io/compose-notification-service:latest
     environment:
       # SMTP Configuration (Development - MailHog)
       SMTP_HOST: mailhog
@@ -671,7 +671,10 @@ services:
       retries: 3
       start_period: 10s
     labels:
-      - "traefik.enable=false"
+      - "traefik.enable=true"
+      - "traefik.http.routers.registry.rule=Host(`registry.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.registry.service=registry"
+      - "traefik.http.services.registry.loadbalancer.server.port=5000"
     deploy:
       replicas: 1
       placement:

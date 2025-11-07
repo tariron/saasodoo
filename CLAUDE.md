@@ -1,40 +1,171 @@
-## Architecture Overview
+# CLAUDE.md
 
-### Microservices Architecture
-This is a multi-tenant SaaS platform for provisioning Odoo instances. The system consists of:
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Core Services (FastAPI)**:
-#- `user-service` (port 8001) - Authentication & user management with Supabase integration
-#- `tenant-service` (port 8002) - Tenant management and Docker orchestration  
-#- `instance-service` (port 8003) - Odoo instance lifecycle management
+## Project Overview
 
-**Infrastructure Services**:
-- PostgreSQL with separate databases per service (auth, tenant, instance)
-- Redis for caching and sessions
-- Traefik as reverse proxy with domain-based routing
-- Monitoring stack (Prometheus, Grafana)
+SaaSOdoo is a multi-tenant SaaS platform for provisioning and managing Odoo ERP instances with integrated billing (KillBill), containerized orchestration, and distributed storage (CephFS).
 
-### Database Security Model
-Each service uses its own database user with specific credentials:
-- Services must set `DB_SERVICE_USER` and `DB_SERVICE_PASSWORD` environment variables
-- No shared database users - enforced by shared/utils/database.py
-- Database schemas are centralized in `shared/schemas/`
+## Architecture
 
-### Service Communication
-- Services communicate via HTTP APIs
+### Microservices Structure
+- **user-service** (port 8001) - Authentication & user management
+- **instance-service** (port 8003) - Odoo instance lifecycle management with Celery workers
+- **billing-service** (port 8004) - KillBill integration & subscription management
+- **notification-service** (port 5000) - Email & communication
+- **frontend-service** (port 3000) - React web application
+
+### Key Infrastructure Components
+- **PostgreSQL** - Single server hosting multiple databases:
+  - Platform databases: `auth`, `billing`, `instance`, `communication`
+  - Per-instance databases: `odoo_{customer_id}_{instance_id_short}`
+- **Redis** - Session storage, caching, Celery result backend
+- **RabbitMQ** - Celery task queues (provisioning, operations, maintenance, monitoring)
+- **KillBill + MariaDB** - Billing engine with webhooks driving instance lifecycle
+- **Traefik** - Reverse proxy with domain-based routing
+- **CephFS** - Distributed storage at `/mnt/cephfs` for Odoo instance data
+
+### Service Communication Pattern
+- Services communicate via HTTP/REST APIs
+- Shared utilities in `shared/utils/` (database, logger, security, redis)
 - Shared schemas in `shared/schemas/` for data consistency
-- Common utilities in `shared/utils/` (database, logger, security)
-- Each service has its own Dockerfile and requirements.txt
+- Event-driven: KillBill webhooks trigger instance lifecycle changes
+- Background tasks: Celery workers handle async instance operations
 
-### Development Environment
-- All services run via docker-compose in `infrastructure/compose/docker-compose.dev.yml`
-- Traefik provides routing: `api.localhost/user`, `api.localhost/tenant`, `api.localhost/instance`
-- Direct access available on ports 8001-8003 for debugging
+## Development Commands
 
-## Key Patterns
+### Start Development Environment
+```bash
+docker compose -f infrastructure/compose/docker-compose.dev.yml up --build -d
+```
 
-### FastAPI Service Structure
-Each service follows consistent structure:
+### Stop Environment
+```bash
+docker compose -f infrastructure/compose/docker-compose.dev.yml down
+```
+
+### View Logs
+```bash
+# All services
+docker compose -f infrastructure/compose/docker-compose.dev.yml logs -f
+
+# Specific service
+docker compose -f infrastructure/compose/docker-compose.dev.yml logs -f user-service
+
+# Instance worker (Celery)
+docker compose -f infrastructure/compose/docker-compose.dev.yml logs -f instance-worker
+```
+
+### Rebuild Specific Service
+```bash
+# Always rebuild instance-worker when rebuilding instance-service
+docker compose -f infrastructure/compose/docker-compose.dev.yml up --build -d instance-service instance-worker
+```
+
+### Run Tests
+```bash
+# Service-specific tests
+docker exec saasodoo-user-service pytest tests/
+docker exec saasodoo-billing-service pytest tests/
+
+# Database connectivity test
+docker exec saasodoo-postgres python3 /docker-entrypoint-initdb.d/test_connectivity.py
+```
+
+### Access Service Health Endpoints
+```bash
+curl http://localhost:8001/health          # user-service
+curl http://localhost:8003/health          # instance-service
+curl http://localhost:8004/health          # billing-service
+```
+
+## Database Architecture
+
+### Service-Specific User Pattern
+Each service MUST set environment variables:
+- `DB_SERVICE_USER` - Dedicated database user (e.g., `auth_service`, `billing_service`)
+- `DB_SERVICE_PASSWORD` - Service-specific password
+
+This is enforced by `shared/utils/database.py:DatabaseManager._build_database_url()` which raises ValueError if not set.
+
+### Database Query Commands
+```bash
+# Check instance record
+docker exec saasodoo-postgres psql -U instance_service -d instance -c \
+  "SELECT id, name, status, subscription_id, billing_status FROM instances WHERE id = 'INSTANCE_ID';"
+
+# Check user sessions
+docker exec saasodoo-postgres psql -U auth_service -d auth -c \
+  "SELECT customer_id, created_at, last_used FROM user_sessions WHERE customer_id = 'USER_ID';"
+```
+
+## KillBill Billing Integration
+
+### Essential KillBill Commands
+
+#### Check KillBill Health
+```bash
+docker exec saasodoo-killbill curl -s http://localhost:8080/1.0/healthcheck
+```
+
+#### View Subscription Details
+```bash
+docker exec saasodoo-killbill curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://localhost:8080/1.0/kb/subscriptions/SUBSCRIPTION_ID" | python3 -m json.tool
+```
+
+#### Check Account by External Key (customer_id)
+```bash
+docker exec saasodoo-killbill curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://localhost:8080/1.0/kb/accounts?externalKey=CUSTOMER_ID" | python3 -m json.tool
+```
+
+#### Test Clock Manipulation (Dev/Test Mode Only)
+```bash
+# Check current KillBill time
+docker exec saasodoo-killbill curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  http://localhost:8080/1.0/kb/test/clock
+
+# Advance time to trigger subscription events
+docker exec saasodoo-killbill curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  -X POST "http://localhost:8080/1.0/kb/test/clock?requestedDate=2026-04-01T00:00:00.000Z"
+```
+
+### KillBill Webhook Flow
+1. KillBill fires webhook to `http://billing-service:8004/api/billing/webhooks/killbill`
+2. Billing-service processes event (`SUBSCRIPTION_CREATION`, `SUBSCRIPTION_CANCEL`, `INVOICE_PAYMENT_SUCCESS`, etc.)
+3. Billing-service calls instance-service API to update instance status
+4. Instance-service queues Celery task for provisioning/termination
+
+## Instance Service & Celery Workers
+
+### Celery Task Queues
+- `instance_provisioning` - New instance creation (CPU-intensive, ~30-60s)
+- `instance_operations` - Start/stop/restart (5-45s)
+- `instance_maintenance` - Backups, updates, scaling
+- `instance_monitoring` - Health checks, metrics collection
+
+### Instance Lifecycle States
+**Status**: `creating` → `starting` → `running` → `stopped` | `paused` | `terminated` | `error`
+**Billing Status**: `trial` → `payment_required` → `paid` | `overdue` | `suspended`
+
+### Important Celery Configuration
+- **No automatic retries**: `task_max_retries=0` (manual admin retry only)
+- **Task time limit**: 30 minutes hard, 25 minutes soft
+- **Worker prefetch**: 1 task per worker at a time (`worker_prefetch_multiplier=1`)
+- **Task acknowledgment**: After completion (`task_acks_late=True`)
+
+## FastAPI Service Structure Pattern
+
+Each service follows this structure:
 ```
 services/{service-name}/
 ├── app/
@@ -45,159 +176,79 @@ services/{service-name}/
 │   └── utils/            # Service-specific utilities
 ├── Dockerfile
 ├── requirements.txt
-└── tests/
+└── tests/                # pytest with pytest-asyncio
 ```
 
-### Database Connection Pattern
-- Use `shared.utils.database.DatabaseManager` for SQLAlchemy sessions
-- Environment variables: `DB_SERVICE_USER`, `DB_SERVICE_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_DB`
-- Service-specific database names: `auth`, `tenant`, `instance`
+## Storage & CephFS
 
-### Error Handling
-- Services use FastAPI HTTPException with structured error responses
-- Health checks at `/health` and `/health/database` endpoints
-- Centralized logging configuration via `shared/utils/logger.py`
+### CephFS Mount Point
+`/mnt/cephfs` - Shared across instance-service and instance-worker
 
-## Testing Strategy
-- Each service has its own test suite in `tests/` directory
-- Use pytest with pytest-asyncio for async testing
-- Integration tests via docker-compose test environment
-- Database connectivity tests in `shared/configs/postgres/test_connectivity.py`
+### Directory Structure
+```
+/mnt/cephfs/odoo_instances/
+└── odoo_data_{db_name}_{instance_id}/
+    ├── addons/
+    ├── filestore/
+    └── sessions/
+```
 
-## Current Development Status
-- user-service: Working (authentication, user management)
-- tenant-service: Working (tenant CRUD operations)  
-- instance-service: Working but has known issues
-- Frontend web application: Not yet implemented
-- Billing and notification services: Not yet implemented
-- use  docker compose -f infrastructure/compose/docker-compose.dev.yml up --build up -d to bring up services
+### Quota Management
+Quotas set via `setfattr -n ceph.quota.max_bytes` for per-instance limits
 
- curl -X POST \
-    -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    -H "Content-Type: text/plain" \
-    -H "X-Killbill-CreatedBy: admin" \
-    -d "http://billing-service:8004/api/billing/webhooks/killbill" \
-    "http://localhost:8081/1.0/kb/tenants/userKeyValue/PUSH_NOTIFICATION_CB"
-	
-    	
-	● Here are the commands I used:
+## Service URLs (Development)
 
-  1. Check current KillBill test clock time:
-  docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
-   fresh-secret" http://localhost:8080/1.0/kb/test/clock
+### API Endpoints
+- `http://api.localhost/user` - user-service
+- `http://api.localhost/instance` - instance-service
+- `http://api.localhost/billing` - billing-service
+- `http://localhost:8001/docs` - user-service OpenAPI docs
+- `http://localhost:8003/docs` - instance-service OpenAPI docs
+- `http://localhost:8004/docs` - billing-service OpenAPI docs
 
-  2. Get subscription details (to see end time):
-  docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
-   fresh-secret" "http://localhost:8080/1.0/kb/subscriptions/7b30402a-056c-4c85-8c56-f9b38a23268c" | python3 -m
-  json.tool
+### Admin Interfaces
+- `http://localhost:8080` - Traefik dashboard
+- `http://localhost:9090` - Kaui (KillBill admin UI) - admin/password
+- `http://localhost:3000` - Frontend application
 
-  3. Advance time to specific date (November 4th, 2025):
-  docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
-   fresh-secret" -X POST "http://localhost:8080/1.0/kb/test/clock?requestedDate=2025-11-04T00:00:00.000Z"
+## Known Issues & Patterns
 
-  Provisioning Commands
+### Critical Security Patterns
+- **Session invalidation**: Logout MUST delete session from `user_sessions` table (see ISSUES_LOG.md #001)
+- **Database users**: Each service MUST use service-specific credentials, never shared admin user
 
-  # Add tenant (run once after reset)
-  docker exec saasodoo-killbill curl -v \
-    -X POST \
-    -u admin:password \
-    -H "Content-Type: application/json" \
-    -H "X-Killbill-CreatedBy: admin" \
-    -d '{"apiKey":"fresh-tenant","apiSecret":"fresh-secret"}' \
-    "http://localhost:8080/1.0/kb/tenants"
+### Docker Access Method
+Instance-service and instance-worker use the **Docker SDK for Python** (`docker==7.1.0`) to manage Odoo containers via `DockerClientWrapper` (in `app/utils/docker_client.py`).
 
-  # Upload catalog (using the modified killbill_catalog.xml)
-  docker exec saasodoo-killbill curl -v \
-    -X POST \
-    -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    -H "Content-Type: application/xml" \
-    -H "X-Killbill-CreatedBy: admin" \
-    -d @/var/tmp/killbill_catalog.xml \
-    "http://localhost:8080/1.0/kb/tenants/uploadPluginConfig/killbill-catalog"
+**Current Setup (Dev)**: Unix socket
+- Connection: `DOCKER_HOST=unix:///var/run/docker.sock`
+- Requires: Socket mounted as volume in docker-compose
+- Security concern: Requires docker group GID or root privileges
 
-  Test Clock Commands
+**Production Alternative**: TCP with TLS
+- Connection: `DOCKER_HOST=tcp://docker-host:2376` (TLS) or `tcp://docker-host:2375` (unencrypted)
+- Benefits: No socket mount, no GID issues, network-accessible, certificate-based auth
+- Recommended for Docker Swarm/Kubernetes deployments
 
-  # Check current KillBill time
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    http://localhost:8080/1.0/kb/test/clock
+### Rebuild Requirement
+When modifying instance-service, ALWAYS rebuild instance-worker as well since they share the same codebase.
 
-  # Advance time to specific date
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    -X POST \
-    "http://localhost:8080/1.0/kb/test/clock?requestedDate=2026-04-01T02:00:00.000Z"
+### No Manual Operations
+Do not perform manual operations unless explicitly requested. Follow automated workflows.
 
-  # Reset to current system time
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    -X POST \
-    "http://localhost:8080/1.0/kb/test/clock?requestedDate=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+### Sudo Restrictions
+Cannot run sudo commands. If sudo is needed, inform the user and suggest the command to run.
 
-  Account Commands
+## Code Style Preferences
 
-  # Get account by external key (customer_id)
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    "http://localhost:8080/1.0/kb/accounts?externalKey=CUSTOMER_ID_HERE" | python3 -m json.tool
+- Be concise when discussing code; only provide extensive code when explicitly requested
+- Be truthful always; admit uncertainties
+- Avoid verbosity during discussions unless implementation is requested
 
-  # Get account bundles/subscriptions
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    "http://localhost:8080/1.0/kb/accounts/ACCOUNT_ID_HERE/bundles" | python3 -m json.tool
+## Documentation References
 
-  Subscription Commands
-
-  # Get subscription details
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    "http://localhost:8080/1.0/kb/subscriptions/SUBSCRIPTION_ID_HERE" | python3 -m json.tool
-
-  # Get subscription with grep filters
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    "http://localhost:8080/1.0/kb/subscriptions/SUBSCRIPTION_ID_HERE" | python3 -m json.tool | grep -E
-  "state|cancelledDate|chargedThroughDate|phaseType"
-
-  Bundle Commands
-
-  # Get bundle details
-  docker exec saasodoo-killbill curl -s -u admin:password \
-    -H "X-Killbill-ApiKey: fresh-tenant" \
-    -H "X-Killbill-ApiSecret: fresh-secret" \
-    "http://localhost:8080/1.0/kb/bundles/BUNDLE_ID_HERE" | python3 -m json.tool
-
-  Health Check
-
-  # Check KillBill health
-  docker exec saasodoo-killbill curl -s http://localhost:8080/1.0/healthcheck
-
-  Database Commands
-
-  # Check instance in database
-  docker exec saasodoo-postgres psql -U instance_service -d instance -c \
-    "SELECT id, name, status, subscription_id, updated_at FROM instances WHERE id = 'INSTANCE_ID_HERE';"
-
-  Note: The killbill_catalog.xml file is located at infrastructure/killbill/killbill_catalog.xml and needs to be copied
-  into the KillBill container before uploading.
-
-
-
-docker exec saasodoo-killbill curl -s -u admin:password -H "X-Killbill-ApiKey: fresh-tenant" -H "X-Killbill-ApiSecret:
-   fresh-secret" "http://localhost:8080/1.0/kb/tenants/userKeyValue/PUSH_NOTIFICATION_CB"
-- never ever do things manually unless told to do so
-- always include instance-worker when rebuilding instance-service
-- you cannot run sudo commands because you cant, advise me on the command you want me to run
-- please be trurhful always
-- when we are still discussing dont be too verbose on the code. only be extensive on code when explicitly asked for
+See `docs/` directory for:
+- `SAASODOO_PROJECT_SUMMARY.md` - Complete technical architecture
+- `ISSUES_LOG.md` - Known issues and resolutions
+- `DOCKER_SWARM_MIGRATION_PLAN.md` - Production deployment guide
+- `KUBERNETES_MIGRATION_PLAN.md` - Future Kubernetes migration
