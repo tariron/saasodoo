@@ -106,16 +106,21 @@ class KillBillClient:
             "company": company or "",
             "notes": f"Account created for customer {customer_id}"
         }
-        
+
         try:
             response = await self._make_request("POST", "/1.0/kb/accounts", data=account_data)
             logger.info(f"Created KillBill account for customer {customer_id}")
-            
+
             # KillBill returns 201 with empty body, so fetch the created account
             created_account = await self.get_account_by_external_key(customer_id)
             if not created_account:
                 raise Exception(f"Account was created but could not be retrieved for customer {customer_id}")
-            
+
+            # Set AUTO_PAY_OFF tag to prevent automatic payment attempts
+            account_id = created_account.get("accountId")
+            if account_id:
+                await self.set_auto_pay_off(account_id)
+
             return created_account
         except Exception as e:
             logger.error(f"Failed to create KillBill account for customer {customer_id}: {e}")
@@ -142,6 +147,18 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to get account by ID {account_id}: {e}")
             return None
+
+    async def set_auto_pay_off(self, account_id: str) -> bool:
+        """Set AUTO_PAY_OFF tag on account to prevent automatic payment attempts"""
+        try:
+            # AUTO_PAY_OFF has fixed UUID: 00000000-0000-0000-0000-000000000001
+            tag_uuid = "00000000-0000-0000-0000-000000000001"
+            await self._make_request("POST", f"/1.0/kb/accounts/{account_id}/tags", data=[tag_uuid])
+            logger.info(f"Set AUTO_PAY_OFF tag on account {account_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set AUTO_PAY_OFF tag on account {account_id}: {e}")
+            raise
     
     async def create_subscription(
         self, 
