@@ -444,7 +444,7 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
         try:
             result = client.containers.run(
                 image="alpine:latest",
-                command=f"tar -czf /backup/{backup_name}_data.tar.gz -C /data .",
+                command=f"tar -czf /backup/active/{backup_name}_data.tar.gz -C /data .",
                 volumes={
                     cephfs_path: {'bind': '/data', 'mode': 'ro'},
                     BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'rw'}
@@ -457,7 +457,7 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
             # Get file size from within the volume using another container
             size_result = client.containers.run(
                 image="alpine:latest",
-                command=f"stat -c %s /backup/{backup_name}_data.tar.gz",
+                command=f"stat -c %s /backup/active/{backup_name}_data.tar.gz",
                 volumes={BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}},
                 remove=True,
                 detach=False
