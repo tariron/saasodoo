@@ -434,18 +434,19 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
     backup_file = f"{BACKUP_ACTIVE_PATH}/{backup_name}_data.tar.gz"
 
     try:
-        # Create temporary container to access data volume
+        # Get CephFS path for instance data
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-        
-        # Run tar command in temporary container to backup volume
-        logger.info("Starting data volume backup", volume_name=volume_name, backup_file=backup_file)
-        
+        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
+
+        # Run tar command using direct CephFS path
+        logger.info("Starting data volume backup", volume_name=volume_name, cephfs_path=cephfs_path, backup_file=backup_file)
+
         try:
             result = client.containers.run(
                 image="alpine:latest",
                 command=f"tar -czf /backup/{backup_name}_data.tar.gz -C /data .",
                 volumes={
-                    volume_name: {'bind': '/data', 'mode': 'ro'},
+                    cephfs_path: {'bind': '/data', 'mode': 'ro'},
                     BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'rw'}
                 },
                 remove=True,
@@ -588,14 +589,6 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
         except docker.errors.NotFound:
             pass
         
-        # Remove existing volume if it exists
-        try:
-            existing_volume = client.volumes.get(volume_name)
-            existing_volume.remove(force=True)
-            logger.info("Existing data volume removed", volume=volume_name)
-        except docker.errors.NotFound:
-            pass
-
         # Get storage limit from instance for CephFS quota
         storage_limit = instance.get('storage_limit', '10G')
         cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
@@ -603,28 +596,16 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
         # Import helper function from provisioning
         from app.tasks.provisioning import _create_cephfs_directory_with_quota
 
-        # Create CephFS directory with quota
+        # Create CephFS directory with quota for restore
         _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
         logger.info("Created CephFS directory with quota for restore", path=cephfs_path, storage_limit=storage_limit)
 
-        # Create new volume backed by CephFS
-        new_volume = client.volumes.create(
-            name=volume_name,
-            driver='local',
-            driver_opts={
-                'type': 'none',
-                'o': 'bind',
-                'device': cephfs_path
-            }
-        )
-        logger.info("New data volume created with CephFS backing", volume=volume_name)
-        
-        # Extract backup to new volume
+        # Extract backup to CephFS directory
         client.containers.run(
             image="alpine:latest",
             command=f"tar -xzf /backup/active/{backup_filename} -C /data",
             volumes={
-                volume_name: {'bind': '/data', 'mode': 'rw'},
+                cephfs_path: {'bind': '/data', 'mode': 'rw'},
                 BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}
             },
             remove=True,
@@ -1224,12 +1205,13 @@ async def _start_docker_service_for_restore(instance: Dict[str, Any]) -> Dict[st
             mem_limit=mem_limit_bytes
         )
 
-        # Create mount for volume
+        # Create mount for CephFS directory (direct bind mount)
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
+        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
         mount = docker.types.Mount(
             target='/bitnami/odoo',
-            source=volume_name,
-            type='volume'
+            source=cephfs_path,
+            type='bind'
         )
 
         # Get Odoo version

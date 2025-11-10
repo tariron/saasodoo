@@ -349,25 +349,13 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         storage_limit = instance.get('storage_limit', '10G')
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
 
-        # Create CephFS directory with quota BEFORE Docker volume
+        # Create CephFS directory with quota for direct bind mount
         cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
         _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
-        logger.info("Created CephFS volume with quota",
+        logger.info("Created CephFS directory with quota",
                    volume_name=volume_name,
                    storage_limit=storage_limit,
                    path=cephfs_path)
-
-        # Create Docker volume backed by CephFS with quota
-        volume = client.volumes.create(
-            name=volume_name,
-            driver='local',
-            driver_opts={
-                'type': 'none',
-                'o': 'bind',
-                'device': cephfs_path
-            }
-        )
-        logger.info("Created Docker volume with CephFS backing", volume_name=volume_name)
 
         # Create Swarm service with persistent volume
         import asyncio
@@ -380,11 +368,11 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             mem_limit=mem_limit_bytes
         )
 
-        # Create mount for volume
+        # Create mount for CephFS directory (direct bind mount)
         mount = docker.types.Mount(
             target='/bitnami/odoo',
-            source=volume_name,
-            type='volume'
+            source=cephfs_path,
+            type='bind'
         )
 
         # Create service
@@ -527,15 +515,6 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
             logger.info("Service cleaned up", service_name=service_name)
         except docker.errors.NotFound:
             pass  # Service doesn't exist
-        
-        # Remove Docker volume if created
-        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-        try:
-            volume = client.volumes.get(volume_name)
-            volume.remove()
-            logger.info("Volume cleaned up", volume_name=volume_name)
-        except docker.errors.NotFound:
-            pass  # Volume doesn't exist
 
         # Clean up CephFS directory if created
         cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
