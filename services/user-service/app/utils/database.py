@@ -236,21 +236,41 @@ class CustomerDatabase:
     async def verify_customer_email(customer_id: str) -> bool:
         """
         Mark customer email as verified
-        
+
         Args:
             customer_id: Customer ID
-            
+
         Returns:
             bool: Success status
         """
         query = """
-        UPDATE users 
+        UPDATE users
         SET is_verified = true, updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
         """
-        
+
         result = await db_manager.execute_command(query, customer_id)
         return result == "UPDATE 1"
+
+    @staticmethod
+    async def delete_customer(customer_id: str) -> bool:
+        """
+        Permanently delete customer from database
+
+        Args:
+            customer_id: Customer ID
+
+        Returns:
+            bool: Success status
+        """
+        query = """
+        DELETE FROM users
+        WHERE id = $1
+        """
+
+        result = await db_manager.execute_command(query, customer_id)
+        logger.info(f"Customer deleted from database: {customer_id}")
+        return result == "DELETE 1"
 
     # NOTE: Session and token management has been migrated to Redis
     # See: app/utils/redis_session.py

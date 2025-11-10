@@ -275,15 +275,12 @@ class UserService:
             # 2. Cancel subscriptions
             # 3. Delete all related data
             # 4. Delete customer record
-            
-            # For now, just deactivate the account
-            success = await CustomerDatabase.update_customer(
-                customer_id,
-                {'is_active': False}
-            )
-            
+
+            # Permanently delete the customer record
+            success = await CustomerDatabase.delete_customer(customer_id)
+
             if success:
-                logger.info(f"Customer account deleted: {customer_id}")
+                logger.info(f"Customer account permanently deleted: {customer_id}")
                 return {
                     'success': True,
                     'message': 'Account deleted successfully'
