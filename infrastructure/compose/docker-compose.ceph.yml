@@ -524,7 +524,7 @@ services:
       PAYNOW_INTEGRATION_ID: ${PAYNOW_INTEGRATION_ID}
       PAYNOW_INTEGRATION_KEY: ${PAYNOW_INTEGRATION_KEY}
       PAYNOW_MERCHANT_EMAIL: ${PAYNOW_MERCHANT_EMAIL}
-      PAYNOW_RESULT_URL: http://billing-service:8004/api/billing/webhooks/paynow
+      PAYNOW_RESULT_URL: http://api.${BASE_DOMAIN}/billing/api/billing/webhooks/paynow
       PAYNOW_BASE_URL: ${PAYNOW_BASE_URL:-https://www.paynow.co.zw}
     volumes:
       - ../../shared:/app/shared:ro  # Mount shared schemas

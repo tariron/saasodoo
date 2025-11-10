@@ -41,7 +41,7 @@ async def get_customer_instances(customer_id: str) -> List[Dict[str, Any]]:
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{instance_service_url}/api/v1/instances/",
-                params={"customer_id": customer_id},
+                params={"customer_id": customer_id, "page_size": 25},
                 timeout=10.0
             )
             if response.status_code == 200:
