@@ -104,7 +104,22 @@ class AuthService:
             except Exception as e:
                 logger.error(f"KillBill account creation failed for customer {customer['id']}: {e}")
                 # Billing account creation is required - fail registration if it fails
-                await UserService.delete_customer_account(customer['id'])
+                # Clean up the PostgreSQL customer account
+                try:
+                    customer_id_str = str(customer['id'])  # Ensure string type
+                    logger.info(f"Attempting to clean up customer account {customer_id_str} due to KillBill failure")
+                    cleanup_result = await UserService.delete_customer_account(customer_id_str)
+
+                    if cleanup_result and cleanup_result.get('success'):
+                        logger.info(f"Successfully cleaned up customer account {customer_id_str} from PostgreSQL")
+                    else:
+                        error_msg = cleanup_result.get('error', 'Unknown error') if cleanup_result else 'No result returned'
+                        logger.error(f"Failed to clean up customer account {customer_id_str}: {error_msg}")
+                        # Note: We still raise the original exception but log the cleanup failure
+                except Exception as cleanup_error:
+                    logger.error(f"Exception during customer cleanup for {customer['id']}: {cleanup_error}", exc_info=True)
+                    # Continue to raise the original registration failure
+
                 raise Exception(f"Customer registration failed: Unable to create billing account - {str(e)}")
 
             return {
