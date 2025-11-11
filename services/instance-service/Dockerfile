@@ -20,11 +20,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY services/instance-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy shared utilities and schemas
+COPY shared /app/shared
+
 # Copy application code
-COPY . .
+COPY services/instance-service/ .
 
 # Create non-root user with Docker access
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -45,4 +48,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 EXPOSE 8003
 
 # Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003"] 
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003"]

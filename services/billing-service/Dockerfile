@@ -8,20 +8,23 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-COPY requirements.txt .
+COPY services/billing-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy shared utilities and schemas
+COPY shared /app/shared
+
 # Copy application code
-COPY app/ ./app/
+COPY services/billing-service/app/ ./app/
 
 # Copy tests
-COPY tests/ ./tests/
+COPY services/billing-service/tests/ ./tests/
 
 # Copy overdue configuration
-COPY overdue.xml ./overdue.xml
+COPY services/billing-service/overdue.xml ./overdue.xml
 
 # Copy catalog configuration
-COPY killbill_catalog.xml ./killbill_catalog.xml
+COPY services/billing-service/killbill_catalog.xml ./killbill_catalog.xml
 
 # Expose port
 EXPOSE 8004

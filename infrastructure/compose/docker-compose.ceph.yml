@@ -32,7 +32,7 @@ services:
 
   # Database
   postgres:
-    image: postgres:15-alpine
+    image: registry.62.171.153.219.nip.io/compose-postgres:latest
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -46,7 +46,6 @@ services:
       POSTGRES_INSTANCE_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD}
     volumes:
       - /mnt/cephfs/postgres_data:/var/lib/postgresql/data
-      - ../../shared/configs/postgres:/docker-entrypoint-initdb.d
     networks:
       - saasodoo-network
     ports:
@@ -74,11 +73,10 @@ services:
 
   # Redis Cache & Session Store
   redis:
-    image: redis:7-alpine
+    image: registry.62.171.153.219.nip.io/compose-redis:latest
     command: redis-server /etc/redis/redis.conf
     volumes:
       - /mnt/cephfs/redis_data:/data
-      - ../../shared/configs/redis.conf:/etc/redis/redis.conf:ro
     networks:
       - saasodoo-network
     ports:
@@ -175,7 +173,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 10s
     labels:
       - "traefik.enable=false"
     deploy:
@@ -234,7 +232,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 180s
+      start_period: 120s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.killbill.rule=Host(`billing.${BASE_DOMAIN}`)"
@@ -244,6 +242,9 @@ services:
       - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       restart_policy:
         condition: any
         delay: 10s
@@ -322,8 +323,6 @@ services:
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes:
-      - ../../shared:/app/shared:ro  # Mount shared schemas
     networks:
       - saasodoo-network
     depends_on:
@@ -396,7 +395,6 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BASE_DOMAIN: ${BASE_DOMAIN}
     volumes:
-      - ../../shared:/app/shared:ro  # Mount shared schemas
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
       - /mnt/cephfs/odoo_instances:/var/lib/odoo/instances  # Instance storage
       - /mnt/cephfs/odoo_backups:/var/lib/odoo/backups  # Backup storage
@@ -467,7 +465,6 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BASE_DOMAIN: ${BASE_DOMAIN}
     volumes:
-      - ../../shared:/app/shared:ro  # Mount shared schemas
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
       - /mnt/cephfs/odoo_backups:/var/lib/odoo/backups  # Backup storage
       - /mnt/cephfs:/mnt/cephfs:rw  # CephFS mount for quota management
@@ -526,8 +523,6 @@ services:
       PAYNOW_MERCHANT_EMAIL: ${PAYNOW_MERCHANT_EMAIL}
       PAYNOW_RESULT_URL: http://api.${BASE_DOMAIN}/billing/api/billing/webhooks/paynow
       PAYNOW_BASE_URL: ${PAYNOW_BASE_URL:-https://www.paynow.co.zw}
-    volumes:
-      - ../../shared:/app/shared:ro  # Mount shared schemas
     networks:
       - saasodoo-network
     depends_on:
@@ -627,8 +622,6 @@ services:
 
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes:
-      - ../../shared:/app/shared:ro  # Mount shared schemas
     networks:
       - saasodoo-network
     depends_on:
