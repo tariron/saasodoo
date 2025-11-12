@@ -38,6 +38,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_MULTIPLE_DATABASES}
+      PGDATA: /var/lib/postgresql/data/pgdata
       # Service user passwords for initialization scripts
       POSTGRES_READONLY_PASSWORD: ${POSTGRES_READONLY_PASSWORD}
       POSTGRES_BACKUP_PASSWORD: ${POSTGRES_BACKUP_PASSWORD}
@@ -45,7 +46,7 @@ services:
       POSTGRES_BILLING_SERVICE_PASSWORD: ${POSTGRES_BILLING_SERVICE_PASSWORD}
       POSTGRES_INSTANCE_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD}
     volumes:
-      - /mnt/cephfs/postgres_data:/var/lib/postgresql/data
+      - /mnt/cephfs/postgres_data:/var/lib/postgresql
     networks:
       - saasodoo-network
     ports:
