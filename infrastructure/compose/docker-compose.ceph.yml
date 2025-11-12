@@ -16,12 +16,6 @@ services:
         target: /etc/traefik/dynamic/middlewares.yml
     networks:
       - saasodoo-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`traefik.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=auth"
-      - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$10$$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
     deploy:
       replicas: 1
       placement:
@@ -29,6 +23,12 @@ services:
           - node.role == manager
       restart_policy:
         condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.traefik.rule=Host(`traefik.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.traefik.service=api@internal"
+        - "traefik.http.routers.traefik.middlewares=auth"
+        - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$10$$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
 
   # Database
   postgres:
@@ -118,16 +118,11 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.rabbitmq.service=rabbitmq"
-      - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
     deploy:
       replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
+      #placement:
+      #  constraints:
+      #    - node.role == manager
       restart_policy:
         condition: any
         delay: 5s
@@ -135,17 +130,17 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.rabbitmq.service=rabbitmq"
+        - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
 
   # Development Tools
   mailhog:
     image: mailhog/mailhog:latest
     networks:
       - saasodoo-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.mailhog.rule=Host(`mail.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.mailhog.service=mailhog"
-      - "traefik.http.services.mailhog.loadbalancer.server.port=8025"
     deploy:
       replicas: 1
       restart_policy:
@@ -168,19 +163,19 @@ services:
       #- ../../shared/configs/killbill:/docker-entrypoint-initdb.d:ro
     networks:
       - saasodoo-network
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    #healthcheck:
+    #  test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+    #  interval: 10s
+    #  timeout: 5s
+    #  retries: 5
+    #  start_period: 10s
     labels:
       - "traefik.enable=false"
     deploy:
       replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
+      #placement:
+      #  constraints:
+      #    - node.role == manager
       restart_policy:
         condition: any
         delay: 5s
@@ -233,21 +228,21 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.killbill.rule=Host(`billing.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.killbill.service=killbill"
-      - "traefik.http.services.killbill.loadbalancer.server.port=8080"
     ports:
       - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
     deploy:
       replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
+      #placement:
+      #  constraints:
+      #    - node.role == manager
       restart_policy:
         condition: any
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.killbill.rule=Host(`billing.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.killbill.service=killbill"
+        - "traefik.http.services.killbill.loadbalancer.server.port=8080"
 
   # Kaui Admin UI for KillBill
   kaui:
@@ -279,11 +274,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.kaui.rule=Host(`billing-admin.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.kaui.service=kaui"
-      - "traefik.http.services.kaui.loadbalancer.server.port=8080"
     ports:
       - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
     deploy:
@@ -291,6 +281,11 @@ services:
       restart_policy:
         condition: any
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.kaui.rule=Host(`billing-admin.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.kaui.service=kaui"
+        - "traefik.http.services.kaui.loadbalancer.server.port=8080"
 
   # ===== MICROSERVICES =====
   
@@ -334,18 +329,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    labels:
-      - "traefik.enable=true"
-      # API routes
-      - "traefik.http.routers.user-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/user`)"
-      - "traefik.http.routers.user-service.service=user-service"
-      - "traefik.http.services.user-service.loadbalancer.server.port=8001"
-      # Auth routes  
-      - "traefik.http.routers.user-auth.rule=Host(`auth.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.user-auth.service=user-service"
-      # Strip /user prefix for clean API
-      - "traefik.http.middlewares.user-strip.stripprefix.prefixes=/user"
-      - "traefik.http.routers.user-service.middlewares=user-strip"
     ports:
       - "8001:8001"  # Expose user-service port to host
     deploy:
@@ -356,6 +339,18 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        # API routes
+        - "traefik.http.routers.user-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/user`)"
+        - "traefik.http.routers.user-service.service=user-service"
+        - "traefik.http.services.user-service.loadbalancer.server.port=8001"
+        # Auth routes
+        - "traefik.http.routers.user-auth.rule=Host(`auth.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.user-auth.service=user-service"
+        # Strip /user prefix for clean API
+        - "traefik.http.middlewares.user-strip.stripprefix.prefixes=/user"
+        - "traefik.http.routers.user-service.middlewares=user-strip"
 
 
   # Instance Service - Odoo Instance Operations & Lifecycle Management
@@ -411,15 +406,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    labels:
-      - "traefik.enable=true"
-      # API routes
-      - "traefik.http.routers.instance-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/instance`)"
-      - "traefik.http.routers.instance-service.service=instance-service"
-      - "traefik.http.services.instance-service.loadbalancer.server.port=8003"
-      # Strip /instance prefix for clean API
-      - "traefik.http.middlewares.instance-strip.stripprefix.prefixes=/instance"
-      - "traefik.http.routers.instance-service.middlewares=instance-strip"
     ports:
       - "8003:8003"  # Expose instance-service port to host
     deploy:
@@ -430,6 +416,15 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        # API routes
+        - "traefik.http.routers.instance-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/instance`)"
+        - "traefik.http.routers.instance-service.service=instance-service"
+        - "traefik.http.services.instance-service.loadbalancer.server.port=8003"
+        # Strip /instance prefix for clean API
+        - "traefik.http.middlewares.instance-strip.stripprefix.prefixes=/instance"
+        - "traefik.http.routers.instance-service.middlewares=instance-strip"
 
   # Instance Service Worker - Background Task Processing
   instance-worker:
@@ -480,8 +475,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    labels:
-      - "traefik.enable=false"
     deploy:
       replicas: 1
       restart_policy:
@@ -490,6 +483,8 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=false"
 
   # Billing Service - KillBill Integration & Billing Management
   billing-service:
@@ -535,28 +530,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    labels:
-      - "traefik.enable=true"
-      # API routes
-      - "traefik.http.routers.billing-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/billing`)"
-      - "traefik.http.routers.billing-service.service=billing-service"
-      - "traefik.http.services.billing-service.loadbalancer.server.port=8004"
-      # Strip /billing prefix for clean API
-      - "traefik.http.middlewares.billing-strip.stripprefix.prefixes=/billing"
-      - "traefik.http.routers.billing-service.middlewares=billing-strip"
     ports:
       - "8004:8004"  # Expose billing-service port to host
     deploy:
       replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
+      #placement:
+      #  constraints:
+      #    - node.role == manager
       restart_policy:
         condition: any
         delay: 5s
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        # API routes
+        - "traefik.http.routers.billing-service.rule=Host(`api.${BASE_DOMAIN}`) && PathPrefix(`/billing`)"
+        - "traefik.http.routers.billing-service.service=billing-service"
+        - "traefik.http.services.billing-service.loadbalancer.server.port=8004"
+        # Strip /billing prefix for clean API
+        - "traefik.http.middlewares.billing-strip.stripprefix.prefixes=/billing"
+        - "traefik.http.routers.billing-service.middlewares=billing-strip"
 
   # Frontend Service - React SPA with Flask backend
   frontend-service:
@@ -633,12 +628,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.notification.rule=Host(`notification.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.notification.service=notification"
-      - "traefik.http.services.notification.loadbalancer.server.port=5000"
-      - "traefik.http.services.notification.loadbalancer.healthcheck.path=/health"
     deploy:
       replicas: 1
       restart_policy:
@@ -647,6 +636,12 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.notification.rule=Host(`notification.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.notification.service=notification"
+        - "traefik.http.services.notification.loadbalancer.server.port=5000"
+        - "traefik.http.services.notification.loadbalancer.healthcheck.path=/health"
 
   # Docker Registry - Private image registry for custom services
   registry:
@@ -663,11 +658,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.registry.rule=Host(`registry.${BASE_DOMAIN}`)"
-      - "traefik.http.routers.registry.service=registry"
-      - "traefik.http.services.registry.loadbalancer.server.port=5000"
     deploy:
       replicas: 1
       placement:
@@ -679,6 +669,11 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.registry.rule=Host(`registry.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.registry.service=registry"
+        - "traefik.http.services.registry.loadbalancer.server.port=5000"
 
 configs:
   traefik_config:
