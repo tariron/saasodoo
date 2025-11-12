@@ -80,8 +80,7 @@ services:
       - /mnt/cephfs/redis_data:/data
     networks:
       - saasodoo-network
-    ports:
-      - "6379:6379"
+    # SECURITY: Redis port NOT exposed publicly - only accessible via internal Docker network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
