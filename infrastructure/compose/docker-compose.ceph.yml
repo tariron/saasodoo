@@ -75,6 +75,35 @@ services:
         parallelism: 1
         delay: 10s
 
+  # pgAdmin - PostgreSQL Management UI
+  pgadmin:
+    image: dpage/pgadmin4:9.10
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'True'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - /mnt/cephfs/pgadmin_data:/var/lib/pgadmin
+    networks:
+      - saasodoo-network
+    # SECURITY: pgAdmin port NOT exposed publicly - only accessible via Traefik
+    depends_on:
+      - postgres
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+        delay: 5s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.${BASE_DOMAIN}`)"
+        - "traefik.http.routers.pgadmin.service=pgadmin"
+        - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
   # Redis Cache & Session Store
   redis:
     image: registry.62.171.153.219.nip.io/compose-redis:latest
