@@ -6,7 +6,8 @@ services:
     image: traefik:v3.6.0
     ports:
       - "80:80"
-      - "8080:8080"  # Traefik dashboard
+      # SECURITY: Traefik dashboard port closed - access via traefik.${BASE_DOMAIN} with auth instead
+      # - "8080:8080"  # Traefik dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     configs:
@@ -14,6 +15,8 @@ services:
         target: /etc/traefik/traefik.yml
       - source: traefik_middlewares
         target: /etc/traefik/dynamic/middlewares.yml
+      - source: traefik_dashboard
+        target: /etc/traefik/dynamic/dashboard.yml
     networks:
       - saasodoo-network
     deploy:
@@ -23,12 +26,8 @@ services:
           - node.role == manager
       restart_policy:
         condition: any
-      labels:
-        - "traefik.enable=true"
-        - "traefik.http.routers.traefik.rule=Host(`traefik.${BASE_DOMAIN}`)"
-        - "traefik.http.routers.traefik.service=api@internal"
-        - "traefik.http.routers.traefik.middlewares=auth"
-        - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$10$$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
+      # NOTE: Traefik dashboard routing configured via file provider (dynamic/dashboard.yml)
+      # Labels don't work for self-routing in Swarm mode
 
   # Database
   postgres:
@@ -49,8 +48,9 @@ services:
       - /mnt/cephfs/postgres_data:/var/lib/postgresql
     networks:
       - saasodoo-network
-    ports:
-      - "5432:5432"
+    # SECURITY: PostgreSQL port NOT exposed publicly - only accessible via internal Docker network
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo_user} -d ${POSTGRES_DB:-odoo}"]
       interval: 10s
@@ -109,9 +109,10 @@ services:
       - /mnt/cephfs/rabbitmq_data:/var/lib/rabbitmq
     networks:
       - saasodoo-network
-    ports:
-      - "5672:5672"
-      - "15672:15672"  # Management UI
+    # SECURITY: RabbitMQ ports NOT exposed publicly - only accessible via internal Docker network
+    # ports:
+    #   - "5672:5672"
+    #   - "15672:15672"  # Management UI
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
@@ -228,8 +229,8 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
-    ports:
-      - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
+    # ports:
+    #   - "8081:8080"  # Direct access to KillBill API (avoids Traefik port conflict)
     deploy:
       replicas: 1
       #placement:
@@ -274,8 +275,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
-    ports:
-      - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
+    # ports:
+    #   - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
     deploy:
       replicas: 1
       restart_policy:
@@ -329,8 +330,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    ports:
-      - "8001:8001"  # Expose user-service port to host
+    # ports:
+    #   - "8001:8001"  # Expose user-service port to host
     deploy:
       replicas: 1
       restart_policy:
@@ -406,8 +407,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    ports:
-      - "8003:8003"  # Expose instance-service port to host
+    # ports:
+    #   - "8003:8003"  # Expose instance-service port to host
     deploy:
       replicas: 1
       restart_policy:
@@ -533,8 +534,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    ports:
-      - "8004:8004"  # Expose billing-service port to host
+    # ports:
+    #   - "8004:8004"  # Expose billing-service port to host
     deploy:
       replicas: 1
       #placement:
@@ -559,8 +560,8 @@ services:
   # Frontend Service - React SPA with Flask backend
   frontend-service:
     image: registry.62.171.153.219.nip.io/compose-frontend-service:latest
-    ports:
-      - "3000:3000"  # Direct access for debugging
+    # ports:
+    #   - "3000:3000"  # Direct access for debugging
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=true
@@ -649,8 +650,9 @@ services:
   # Docker Registry - Private image registry for custom services
   registry:
     image: registry:3.0.0
-    ports:
-      - "5000:5000"
+    # SECURITY: Registry port NOT exposed publicly - only accessible via Traefik
+    # ports:
+    #   - "5000:5000"
     volumes:
       - /mnt/cephfs/docker-registry:/var/lib/registry
     networks:
@@ -683,6 +685,8 @@ configs:
     file: ../traefik/traefik.yml
   traefik_middlewares:
     file: ../traefik/dynamic/middlewares.yml
+  traefik_dashboard:
+    file: ../traefik/dynamic/dashboard.yml
 
 networks:
   saasodoo-network:

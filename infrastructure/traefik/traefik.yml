@@ -5,7 +5,7 @@ global:
 api:
   dashboard: true
   debug: true
-  insecure: true
+  insecure: false  # SECURITY: Disable insecure access - require authentication via routing
 
 entryPoints:
   web:
@@ -97,7 +97,7 @@ http:
     auth:
       basicAuth:
         users:
-          - "admin:$2y$10$rQ7yX9kx3bX8rQ7yX9kx3e"  # admin:admin
+          - "admin:$2y$05$5oZvfx9nCqYq7sd0I33XW.ZWYpQdcqAcXIy.npHiRfneEQdvwxRXS"
 
     # IP whitelist for admin interfaces
     admin-whitelist:
