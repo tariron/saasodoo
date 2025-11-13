@@ -1,0 +1,14 @@
+# Environment files with secrets
+.env
+
+# Backup files
+*.bak
+*.backup
+backup-*/
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
