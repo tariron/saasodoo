@@ -1,0 +1,414 @@
+version: '3.8'
+
+# Production HA PostgreSQL Stack for SaaSOdoo
+# Components: Patroni (3 nodes), etcd (3 nodes), PgBouncer (3 instances), HAProxy (2 instances)
+
+services:
+  # ============================================================================
+  # etcd Cluster - Distributed consensus for Patroni
+  # ============================================================================
+
+  etcd1:
+    image: bitnami/etcd:3.5
+    hostname: etcd1
+    networks:
+      - patroni-internal
+    environment:
+      - ETCD_NAME=etcd1
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd1:2380
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd1:2379
+      - ETCD_INITIAL_CLUSTER=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - ETCD_INITIAL_CLUSTER_TOKEN=saasodoo-etcd-cluster
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ALLOW_NONE_AUTHENTICATION=yes
+    volumes:
+      - etcd1-data:/bitnami/etcd
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.etcd == node1
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  etcd2:
+    image: bitnami/etcd:3.5
+    hostname: etcd2
+    networks:
+      - patroni-internal
+    environment:
+      - ETCD_NAME=etcd2
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd2:2380
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd2:2379
+      - ETCD_INITIAL_CLUSTER=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - ETCD_INITIAL_CLUSTER_TOKEN=saasodoo-etcd-cluster
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ALLOW_NONE_AUTHENTICATION=yes
+    volumes:
+      - etcd2-data:/bitnami/etcd
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.etcd == node2
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  etcd3:
+    image: bitnami/etcd:3.5
+    hostname: etcd3
+    networks:
+      - patroni-internal
+    environment:
+      - ETCD_NAME=etcd3
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd3:2380
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd3:2379
+      - ETCD_INITIAL_CLUSTER=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - ETCD_INITIAL_CLUSTER_TOKEN=saasodoo-etcd-cluster
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ALLOW_NONE_AUTHENTICATION=yes
+    volumes:
+      - etcd3-data:/bitnami/etcd
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.etcd == node3
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # ============================================================================
+  # Patroni Cluster - PostgreSQL HA with automatic failover
+  # ============================================================================
+
+  patroni-node1:
+    image: patroni/patroni:latest
+    hostname: patroni-node1
+    networks:
+      - patroni-internal
+      - pgbouncer-backend
+    environment:
+      - PATRONI_NAME=patroni-node1
+      - PATRONI_NAMESPACE=/service
+      - PATRONI_SCOPE=saasodoo-cluster
+      - PATRONI_ETCD3_HOSTS=etcd1:2379,etcd2:2379,etcd3:2379
+      - PATRONI_RESTAPI_LISTEN=0.0.0.0:8008
+      - PATRONI_RESTAPI_CONNECT_ADDRESS=patroni-node1:8008
+      - PATRONI_POSTGRESQL_LISTEN=0.0.0.0:5432
+      - PATRONI_POSTGRESQL_CONNECT_ADDRESS=patroni-node1:5432
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - PATRONI_POSTGRESQL_PGPASS=/tmp/pgpass
+      - PATRONI_SUPERUSER_USERNAME=postgres
+      - PATRONI_REPLICATION_USERNAME=replicator
+      - PATRONI_admin_PASSWORD=${PATRONI_ADMIN_PASSWORD}
+      - PATRONI_SUPERUSER_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
+      - PATRONI_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      # PostgreSQL parameters
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_CONNECTIONS=500
+      - PATRONI_POSTGRESQL_PARAMETERS_SHARED_BUFFERS=4GB
+      - PATRONI_POSTGRESQL_PARAMETERS_EFFECTIVE_CACHE_SIZE=12GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAINTENANCE_WORK_MEM=1GB
+      - PATRONI_POSTGRESQL_PARAMETERS_CHECKPOINT_COMPLETION_TARGET=0.9
+      - PATRONI_POSTGRESQL_PARAMETERS_WAL_BUFFERS=16MB
+      - PATRONI_POSTGRESQL_PARAMETERS_DEFAULT_STATISTICS_TARGET=100
+      - PATRONI_POSTGRESQL_PARAMETERS_RANDOM_PAGE_COST=1.1
+      - PATRONI_POSTGRESQL_PARAMETERS_EFFECTIVE_IO_CONCURRENCY=200
+      - PATRONI_POSTGRESQL_PARAMETERS_WORK_MEM=10MB
+      - PATRONI_POSTGRESQL_PARAMETERS_MIN_WAL_SIZE=2GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_WAL_SIZE=8GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_WORKER_PROCESSES=4
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_WORKERS_PER_GATHER=2
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_WORKERS=4
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_MAINTENANCE_WORKERS=2
+    volumes:
+      - type: bind
+        source: /var/lib/patroni/node1
+        target: /var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.patroni == node1
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          cpus: '4'
+          memory: 16G
+        reservations:
+          cpus: '2'
+          memory: 8G
+
+  patroni-node2:
+    image: patroni/patroni:latest
+    hostname: patroni-node2
+    networks:
+      - patroni-internal
+      - pgbouncer-backend
+    environment:
+      - PATRONI_NAME=patroni-node2
+      - PATRONI_NAMESPACE=/service
+      - PATRONI_SCOPE=saasodoo-cluster
+      - PATRONI_ETCD3_HOSTS=etcd1:2379,etcd2:2379,etcd3:2379
+      - PATRONI_RESTAPI_LISTEN=0.0.0.0:8008
+      - PATRONI_RESTAPI_CONNECT_ADDRESS=patroni-node2:8008
+      - PATRONI_POSTGRESQL_LISTEN=0.0.0.0:5432
+      - PATRONI_POSTGRESQL_CONNECT_ADDRESS=patroni-node2:5432
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - PATRONI_POSTGRESQL_PGPASS=/tmp/pgpass
+      - PATRONI_SUPERUSER_USERNAME=postgres
+      - PATRONI_REPLICATION_USERNAME=replicator
+      - PATRONI_admin_PASSWORD=${PATRONI_ADMIN_PASSWORD}
+      - PATRONI_SUPERUSER_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
+      - PATRONI_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      # Same PostgreSQL parameters as node1
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_CONNECTIONS=500
+      - PATRONI_POSTGRESQL_PARAMETERS_SHARED_BUFFERS=4GB
+      - PATRONI_POSTGRESQL_PARAMETERS_EFFECTIVE_CACHE_SIZE=12GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAINTENANCE_WORK_MEM=1GB
+      - PATRONI_POSTGRESQL_PARAMETERS_CHECKPOINT_COMPLETION_TARGET=0.9
+      - PATRONI_POSTGRESQL_PARAMETERS_WAL_BUFFERS=16MB
+      - PATRONI_POSTGRESQL_PARAMETERS_DEFAULT_STATISTICS_TARGET=100
+      - PATRONI_POSTGRESQL_PARAMETERS_RANDOM_PAGE_COST=1.1
+      - PATRONI_POSTGRESQL_PARAMETERS_EFFECTIVE_IO_CONCURRENCY=200
+      - PATRONI_POSTGRESQL_PARAMETERS_WORK_MEM=10MB
+      - PATRONI_POSTGRESQL_PARAMETERS_MIN_WAL_SIZE=2GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_WAL_SIZE=8GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_WORKER_PROCESSES=4
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_WORKERS_PER_GATHER=2
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_WORKERS=4
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_MAINTENANCE_WORKERS=2
+    volumes:
+      - type: bind
+        source: /var/lib/patroni/node2
+        target: /var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.patroni == node2
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          cpus: '4'
+          memory: 16G
+        reservations:
+          cpus: '2'
+          memory: 8G
+
+  patroni-node3:
+    image: patroni/patroni:latest
+    hostname: patroni-node3
+    networks:
+      - patroni-internal
+      - pgbouncer-backend
+    environment:
+      - PATRONI_NAME=patroni-node3
+      - PATRONI_NAMESPACE=/service
+      - PATRONI_SCOPE=saasodoo-cluster
+      - PATRONI_ETCD3_HOSTS=etcd1:2379,etcd2:2379,etcd3:2379
+      - PATRONI_RESTAPI_LISTEN=0.0.0.0:8008
+      - PATRONI_RESTAPI_CONNECT_ADDRESS=patroni-node3:8008
+      - PATRONI_POSTGRESQL_LISTEN=0.0.0.0:5432
+      - PATRONI_POSTGRESQL_CONNECT_ADDRESS=patroni-node3:5432
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - PATRONI_POSTGRESQL_PGPASS=/tmp/pgpass
+      - PATRONI_SUPERUSER_USERNAME=postgres
+      - PATRONI_REPLICATION_USERNAME=replicator
+      - PATRONI_admin_PASSWORD=${PATRONI_ADMIN_PASSWORD}
+      - PATRONI_SUPERUSER_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
+      - PATRONI_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      # Same PostgreSQL parameters as node1
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_CONNECTIONS=500
+      - PATRONI_POSTGRESQL_PARAMETERS_SHARED_BUFFERS=4GB
+      - PATRONI_POSTGRESQL_PARAMETERS_EFFECTIVE_CACHE_SIZE=12GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAINTENANCE_WORK_MEM=1GB
+      - PATRONI_POSTGRESQL_PARAMETERS_CHECKPOINT_COMPLETION_TARGET=0.9
+      - PATRONI_POSTGRESQL_PARAMETERS_WAL_BUFFERS=16MB
+      - PATRONI_POSTGRESQL_PARAMETERS_DEFAULT_STATISTICS_TARGET=100
+      - PATRONI_POSTGRESQL_PARAMETERS_RANDOM_PAGE_COST=1.1
+      - PATRONI_POSTGRESQL_PARAMETERS_EFFECTIVE_IO_CONCURRENCY=200
+      - PATRONI_POSTGRESQL_PARAMETERS_WORK_MEM=10MB
+      - PATRONI_POSTGRESQL_PARAMETERS_MIN_WAL_SIZE=2GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_WAL_SIZE=8GB
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_WORKER_PROCESSES=4
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_WORKERS_PER_GATHER=2
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_WORKERS=4
+      - PATRONI_POSTGRESQL_PARAMETERS_MAX_PARALLEL_MAINTENANCE_WORKERS=2
+    volumes:
+      - type: bind
+        source: /var/lib/patroni/node3
+        target: /var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.patroni == node3
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          cpus: '4'
+          memory: 16G
+        reservations:
+          cpus: '2'
+          memory: 8G
+
+  # ============================================================================
+  # PgBouncer - Connection pooling
+  # ============================================================================
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    networks:
+      - saasodoo-database-network
+      - pgbouncer-backend
+    environment:
+      - DATABASE_URL=postgres://postgres:${POSTGRES_SUPERUSER_PASSWORD}@patroni-node1:5432/postgres
+      - POOL_MODE=session
+      - MAX_CLIENT_CONN=10000
+      - DEFAULT_POOL_SIZE=25
+      - MIN_POOL_SIZE=10
+      - RESERVE_POOL_SIZE=5
+      - RESERVE_POOL_TIMEOUT=3
+      - MAX_DB_CONNECTIONS=100
+      - SERVER_IDLE_TIMEOUT=600
+      - SERVER_LIFETIME=3600
+      - SERVER_CONNECT_TIMEOUT=15
+      - QUERY_TIMEOUT=0
+      - CLIENT_IDLE_TIMEOUT=0
+      - IGNORE_STARTUP_PARAMETERS=extra_float_digits
+    configs:
+      - source: pgbouncer_ini
+        target: /etc/pgbouncer/pgbouncer.ini
+        mode: 0444
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # ============================================================================
+  # HAProxy - Load balancer for PgBouncer and Patroni health checks
+  # ============================================================================
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    networks:
+      - saasodoo-database-network
+      - pgbouncer-backend
+      - patroni-internal
+    ports:
+      - target: 6432
+        published: 6432
+        protocol: tcp
+        mode: host
+      - target: 5000
+        published: 5000
+        protocol: tcp
+        mode: host
+      - target: 5001
+        published: 5001
+        protocol: tcp
+        mode: host
+      - target: 7000
+        published: 7000
+        protocol: tcp
+        mode: host
+    configs:
+      - source: haproxy_cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
+        mode: 0444
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+# ============================================================================
+# Networks
+# ============================================================================
+
+networks:
+  # External network - application services connect here
+  saasodoo-database-network:
+    driver: overlay
+    attachable: true
+
+  # Internal network - Patroni cluster communication
+  patroni-internal:
+    driver: overlay
+    internal: true
+
+  # Internal network - PgBouncer to Patroni backend
+  pgbouncer-backend:
+    driver: overlay
+    internal: true
+
+# ============================================================================
+# Volumes
+# ============================================================================
+
+volumes:
+  # etcd data volumes (Swarm-managed)
+  etcd1-data:
+  etcd2-data:
+  etcd3-data:
+
+# ============================================================================
+# Configs
+# ============================================================================
+
+configs:
+  haproxy_cfg:
+    file: ./haproxy/haproxy.cfg
+  pgbouncer_ini:
+    file: ./pgbouncer/pgbouncer.ini
