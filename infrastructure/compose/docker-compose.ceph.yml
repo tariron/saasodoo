@@ -8,6 +8,9 @@ services:
       - "80:80"
       # SECURITY: Traefik dashboard port closed - access via traefik.${BASE_DOMAIN} with auth instead
       # - "8080:8080"  # Traefik dashboard
+    environment:
+      - BASE_DOMAIN=${BASE_DOMAIN}
+      - TRAEFIK_DASHBOARD_CREDENTIALS=${TRAEFIK_DASHBOARD_CREDENTIALS}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     configs:

@@ -2,9 +2,15 @@ http:
   routers:
     # Traefik Dashboard Router
     dashboard:
-      rule: "Host(`traefik.62.171.153.219.nip.io`)"
+      rule: "Host(`traefik.{{env "BASE_DOMAIN"}}`)"
       service: api@internal
       middlewares:
-        - admin-auth
+        - dashboard-auth
       entryPoints:
         - web
+
+  middlewares:
+    dashboard-auth:
+      basicAuth:
+        users:
+          - "{{env "TRAEFIK_DASHBOARD_CREDENTIALS"}}"
