@@ -9,7 +9,7 @@ services:
   # ============================================================================
 
   etcd1:
-    image: bitnami/etcd:3.5
+    image: bitnami/etcd:latest
     hostname: etcd1
     networks:
       - patroni-internal
@@ -42,7 +42,7 @@ services:
           memory: 1G
 
   etcd2:
-    image: bitnami/etcd:3.5
+    image: bitnami/etcd:latest
     hostname: etcd2
     networks:
       - patroni-internal
@@ -75,7 +75,7 @@ services:
           memory: 1G
 
   etcd3:
-    image: bitnami/etcd:3.5
+    image: bitnami/etcd:latest
     hostname: etcd3
     networks:
       - patroni-internal
