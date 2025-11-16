@@ -17,6 +17,7 @@ from pathlib import Path
 
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
+from app.utils.database import OdooInstanceDatabaseManager
 from app.utils.notification_client import send_backup_completed_email, send_backup_failed_email, send_restore_completed_email, send_restore_failed_email
 import structlog
 
@@ -393,23 +394,23 @@ def _ensure_backup_directories():
 
 
 async def _create_database_backup(instance: Dict[str, Any], backup_name: str) -> str:
-    """Create PostgreSQL database backup"""
+    """Create PostgreSQL database backup from postgres2"""
     backup_file = f"{BACKUP_ACTIVE_PATH}/{backup_name}_database.sql"
-    
-    # Use pg_dump to create database backup
+
+    # Use pg_dump to create database backup from postgres2
     cmd = [
         "pg_dump",
-        f"--host={os.getenv('POSTGRES_HOST', 'postgres')}",
-        f"--port={os.getenv('POSTGRES_PORT', '5432')}",
-        f"--username={os.getenv('POSTGRES_USER', 'odoo_user')}",
+        f"--host={os.getenv('ODOO_POSTGRES_HOST', 'postgres')}",
+        f"--port={os.getenv('ODOO_POSTGRES_PORT', '5432')}",
+        f"--username={os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin')}",
         f"--dbname={instance['database_name']}",
         f"--file={backup_file}",
         "--verbose",
         "--no-password"
     ]
-    
+
     env = os.environ.copy()
-    env['PGPASSWORD'] = os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
+    env['PGPASSWORD'] = os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
     
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -518,28 +519,28 @@ async def _create_backup_metadata(instance: Dict[str, Any], backup_name: str, db
 # ===== RESTORE OPERATIONS =====
 
 async def _restore_database_backup(instance: Dict[str, Any], backup_info: Dict[str, Any]):
-    """Restore PostgreSQL database from backup"""
+    """Restore PostgreSQL database from backup to postgres2"""
     backup_file = backup_info['database_backup_path']
-    
+
     if not os.path.exists(backup_file):
         raise FileNotFoundError(f"Database backup file not found: {backup_file}")
-    
+
     # Drop existing database and recreate
     await _recreate_database(instance['database_name'])
-    
-    # Restore from backup
+
+    # Restore from backup to postgres2
     cmd = [
         "psql",
-        f"--host={os.getenv('POSTGRES_HOST', 'postgres')}",
-        f"--port={os.getenv('POSTGRES_PORT', '5432')}",
-        f"--username={os.getenv('POSTGRES_USER', 'odoo_user')}",
+        f"--host={os.getenv('ODOO_POSTGRES_HOST', 'postgres')}",
+        f"--port={os.getenv('ODOO_POSTGRES_PORT', '5432')}",
+        f"--username={os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin')}",
         f"--dbname={instance['database_name']}",
         f"--file={backup_file}",
         "--quiet"
     ]
-    
+
     env = os.environ.copy()
-    env['PGPASSWORD'] = os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
+    env['PGPASSWORD'] = os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
     
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -843,14 +844,8 @@ async def _get_backup_record(backup_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def _recreate_database(database_name: str):
-    """Drop and recreate database with proper permissions"""
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=os.getenv('POSTGRES_DEFAULT_DB', 'postgres'),  # Connect to postgres db to drop/create others
-        user=os.getenv('POSTGRES_USER', 'odoo_user'),
-        password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
-    )
+    """Drop and recreate database with proper permissions on postgres2"""
+    conn = await OdooInstanceDatabaseManager.get_admin_connection()
     
     try:
         # Terminate existing connections
@@ -871,17 +866,11 @@ async def _recreate_database(database_name: str):
 
 
 async def _restore_database_permissions(database_name: str, instance: Dict[str, Any]):
-    """Restore proper database permissions for instance user"""
+    """Restore proper database permissions for instance user on postgres2"""
     # Extract database user from instance metadata or derive it
     db_user = f"odoo_{database_name}"
 
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=database_name,
-        user=os.getenv('POSTGRES_USER', 'odoo_user'),
-        password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
-    )
+    conn = await OdooInstanceDatabaseManager.get_instance_db_connection(database_name)
     
     try:
         # Grant all privileges on database to instance user
@@ -912,15 +901,9 @@ async def _restore_database_permissions(database_name: str, instance: Dict[str, 
 
 
 async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any]):
-    """Reset Odoo database state to prevent startup conflicts after restore"""
+    """Reset Odoo database state to prevent startup conflicts after restore on postgres2"""
 
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=database_name,
-        user=os.getenv('POSTGRES_USER', 'odoo_user'),
-        password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
-    )
+    conn = await OdooInstanceDatabaseManager.get_instance_db_connection(database_name)
     
     try:
         # Clear module update flags that can cause startup hangs

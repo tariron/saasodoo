@@ -458,9 +458,69 @@ class InstanceDatabase:
                            existing_count=count)
                 
                 return is_available
-                
+
             except Exception as e:
-                logger.error("Failed to check subdomain availability", 
-                           subdomain=subdomain, 
+                logger.error("Failed to check subdomain availability",
+                           subdomain=subdomain,
                            error=str(e))
                 raise
+
+
+class OdooInstanceDatabaseManager:
+    """
+    Manages connections to postgres2 (ODOO_POSTGRES_HOST) for Odoo instance databases.
+    Used by Celery tasks for creating/managing customer Odoo databases.
+
+    This class separates Odoo instance databases (postgres2) from platform databases (postgres1).
+    """
+
+    @staticmethod
+    async def get_admin_connection():
+        """
+        Get admin connection to postgres database on postgres2.
+        For CREATE/DROP DATABASE operations.
+
+        Returns:
+            asyncpg.Connection: Connection to postgres2 admin database
+
+        Example:
+            conn = await OdooInstanceDatabaseManager.get_admin_connection()
+            try:
+                await conn.execute('CREATE DATABASE odoo_customer_abc')
+            finally:
+                await conn.close()
+        """
+        return await asyncpg.connect(
+            host=os.getenv('ODOO_POSTGRES_HOST', 'postgres'),
+            port=int(os.getenv('ODOO_POSTGRES_PORT', '5432')),
+            database=os.getenv('ODOO_POSTGRES_DEFAULT_DB', 'postgres'),
+            user=os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin'),
+            password=os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
+        )
+
+    @staticmethod
+    async def get_instance_db_connection(database_name: str):
+        """
+        Get connection to specific Odoo instance database on postgres2.
+        For managing Odoo-specific tables (ir_module_module, etc.)
+
+        Args:
+            database_name: The Odoo instance database name (e.g., 'odoo_customer_abc')
+
+        Returns:
+            asyncpg.Connection: Connection to specified Odoo instance database
+
+        Example:
+            conn = await OdooInstanceDatabaseManager.get_instance_db_connection('odoo_customer_abc')
+            try:
+                await conn.execute('UPDATE ir_module_module SET state = $1', 'installed')
+            finally:
+                await conn.close()
+        """
+        return await asyncpg.connect(
+            host=os.getenv('ODOO_POSTGRES_HOST', 'postgres'),
+            port=int(os.getenv('ODOO_POSTGRES_PORT', '5432')),
+            database=database_name,
+            user=os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin'),
+            password=os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
+        )

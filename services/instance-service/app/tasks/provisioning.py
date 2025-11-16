@@ -15,6 +15,7 @@ from uuid import UUID
 from celery import current_task
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
+from app.utils.database import OdooInstanceDatabaseManager
 from app.utils.notification_client import send_instance_provisioning_started_email, send_instance_ready_email, send_instance_provisioning_failed_email
 from app.utils.password_generator import generate_secure_password
 import structlog
@@ -151,7 +152,7 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
         logger.info("Odoo startup confirmed")
         
         # Step 7: Update instance with connection details
-        await _update_instance_network_info(instance_id, container_info)
+        await _update_instance_network_info(instance_id, container_info, db_info)
         
         # Step 8: Mark as RUNNING
         await _update_instance_status(instance_id, InstanceStatus.RUNNING)
@@ -267,16 +268,10 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
 
 
 async def _create_odoo_database(instance: Dict[str, Any]) -> Dict[str, str]:
-    """Create dedicated PostgreSQL database for Odoo instance"""
-    
-    # Connect to PostgreSQL as admin
-    admin_conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=os.getenv('POSTGRES_DEFAULT_DB', 'postgres'),  # Connect to default DB
-        user=os.getenv('POSTGRES_USER', 'saasodoo'),
-        password=os.getenv('POSTGRES_PASSWORD', 'saasodoo123')
-    )
+    """Create dedicated PostgreSQL database for Odoo instance on postgres2"""
+
+    # Connect to postgres2 as admin
+    admin_conn = await OdooInstanceDatabaseManager.get_admin_connection()
     
     try:
         database_name = instance['database_name']
@@ -298,8 +293,8 @@ async def _create_odoo_database(instance: Dict[str, Any]) -> Dict[str, str]:
             "db_name": database_name,
             "db_user": db_user,
             "db_password": db_password,
-            "db_host": os.getenv('POSTGRES_HOST', 'postgres'),
-            "db_port": os.getenv('POSTGRES_PORT', '5432')
+            "db_host": os.getenv('ODOO_POSTGRES_HOST', 'postgres'),
+            "db_port": os.getenv('ODOO_POSTGRES_PORT', '5432')
         }
         
     finally:
@@ -470,8 +465,8 @@ async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 
     raise TimeoutError(f"Odoo did not start within {timeout} seconds")
 
 
-async def _update_instance_network_info(instance_id: str, container_info: Dict[str, Any]):
-    """Update instance with network and container information"""
+async def _update_instance_network_info(instance_id: str, container_info: Dict[str, Any], db_info: Dict[str, str]):
+    """Update instance with network, container, and database information"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
         port=int(os.getenv('POSTGRES_PORT', '5432')),
@@ -479,23 +474,29 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
     )
-    
+
     try:
         await conn.execute("""
             UPDATE instances
             SET service_id = $1, service_name = $2,
-                internal_url = $3, external_url = $4, updated_at = $5
-            WHERE id = $6
+                internal_url = $3, external_url = $4,
+                db_host = $5, db_port = $6, updated_at = $7
+            WHERE id = $8
         """,
             container_info['service_id'],
             container_info['service_name'],
             container_info['internal_url'],
             container_info['external_url'],
+            db_info['db_host'],
+            int(db_info['db_port']),
             datetime.utcnow(),
             UUID(instance_id)
         )
-        
-        logger.info("Instance network info updated", instance_id=instance_id)
+
+        logger.info("Instance network and database info updated",
+                   instance_id=instance_id,
+                   db_host=db_info['db_host'],
+                   db_port=db_info['db_port'])
     finally:
         await conn.close()
 
@@ -525,14 +526,8 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
         except Exception as e:
             logger.warning("Failed to clean up CephFS directory", path=cephfs_path, error=str(e))
 
-        # Remove database if created
-        admin_conn = await asyncpg.connect(
-            host=os.getenv('POSTGRES_HOST', 'postgres'),
-            port=int(os.getenv('POSTGRES_PORT', '5432')),
-            database=os.getenv('POSTGRES_DEFAULT_DB', 'postgres'),
-            user=os.getenv('POSTGRES_USER', 'saasodoo'),
-            password=os.getenv('POSTGRES_PASSWORD', 'saasodoo123')
-        )
+        # Remove database if created on postgres2
+        admin_conn = await OdooInstanceDatabaseManager.get_admin_connection()
         
         try:
             database_name = instance['database_name']
