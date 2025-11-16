@@ -20,6 +20,7 @@ import {
   PaynowPaymentRequest,
   PaynowPaymentResponse,
   PaynowPaymentStatus,
+  TrialEligibilityResponse,
 } from '../types/billing';
 
 // Types
@@ -474,11 +475,15 @@ export const billingAPI = {
     api.put(`/billing/api/billing/payment-methods/${paymentMethodId}/default`, {}),
   
   // Plans
-  getPlans: (): Promise<AxiosResponse<PlansResponse>> => 
+  getPlans: (): Promise<AxiosResponse<PlansResponse>> =>
     api.get('/billing/api/billing/plans/'),
-  
+
+  // Trial Eligibility
+  getTrialEligibility: (customerId: string): Promise<AxiosResponse<TrialEligibilityResponse>> =>
+    api.get(`/billing/api/billing/trial-eligibility/${customerId}`),
+
   // Billing Overview
-  getBillingOverview: (customerId: string): Promise<AxiosResponse<{success: boolean, data: BillingOverview}>> => 
+  getBillingOverview: (customerId: string): Promise<AxiosResponse<{success: boolean, data: BillingOverview}>> =>
     api.get(`/billing/api/billing/accounts/overview/${customerId}`),
   
   // Instance with Subscription Creation

@@ -1,10 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { instanceAPI, authAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, UserProfile } from '../utils/api';
-import { Plan, Invoice } from '../types/billing';
+import { Plan, Invoice, TrialEligibilityResponse } from '../types/billing';
 import Navigation from '../components/Navigation';
 import PaymentModal from '../components/PaymentModal';
 import { useConfig } from '../hooks/useConfig';
+
+/**
+ * Transform plan data for display based on trial eligibility
+ * Implements "trial invisibility" - users who can't access trials never see trial info
+ */
+const transformPlanForDisplay = (plan: Plan, eligibility: TrialEligibilityResponse | null): Plan & { display_trial: boolean } => {
+  // If no eligibility data yet, show original plan
+  if (!eligibility) {
+    return { ...plan, display_trial: plan.trial_length > 0 };
+  }
+
+  // If user cannot see trial info, remove all trial-related fields
+  if (!eligibility.can_show_trial_info) {
+    return {
+      ...plan,
+      trial_length: 0,
+      trial_time_unit: '',
+      display_trial: false
+    };
+  }
+
+  // User is eligible - show trial information
+  return {
+    ...plan,
+    display_trial: plan.trial_length > 0
+  };
+};
 
 const CreateInstance: React.FC = () => {
   const { config } = useConfig();
@@ -12,7 +39,7 @@ const CreateInstance: React.FC = () => {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [phaseType, setPhaseType] = useState<string>('TRIAL');
-  const [trialEligible, setTrialEligible] = useState<boolean>(true);
+  const [trialEligibility, setTrialEligibility] = useState<TrialEligibilityResponse | null>(null);
   const [formData, setFormData] = useState<CreateInstanceRequest>({
     customer_id: '',
     name: '',
@@ -63,17 +90,21 @@ const CreateInstance: React.FC = () => {
           admin_email: profileResponse.data.email
         }));
 
-        // Check trial eligibility
+        // Check trial eligibility using the backend API (single source of truth)
         try {
-          const subscriptionsResponse = await billingAPI.getSubscriptions(profileResponse.data.id);
-          const hasHadTrial = subscriptionsResponse.data.subscriptions.some(sub => 
-            sub.events?.some(event => event.phase?.includes('trial'))
-          );
-          setTrialEligible(!hasHadTrial);
-        } catch (subscriptionError) {
-          console.error('Failed to check trial eligibility:', subscriptionError);
-          // Default to allowing trials if subscription check fails
-          setTrialEligible(true);
+          const eligibilityResponse = await billingAPI.getTrialEligibility(profileResponse.data.id);
+          setTrialEligibility(eligibilityResponse.data);
+        } catch (eligibilityError) {
+          console.error('Failed to check trial eligibility:', eligibilityError);
+          // Default to ineligible if check fails (fail closed)
+          setTrialEligibility({
+            eligible: false,
+            can_show_trial_info: false,
+            trial_days: 0,
+            has_active_subscriptions: false,
+            subscription_count: 0,
+            reason: 'system_error'
+          });
         }
 
         if (plansResponse.data.success) {
@@ -99,10 +130,10 @@ const CreateInstance: React.FC = () => {
 
   // Auto-set phase type when user is not trial eligible
   useEffect(() => {
-    if (!trialEligible && selectedPlan && selectedPlan.trial_length > 0) {
+    if (trialEligibility && !trialEligibility.can_show_trial_info && selectedPlan && selectedPlan.trial_length > 0) {
       setPhaseType('EVERGREEN');
     }
-  }, [trialEligible, selectedPlan]);
+  }, [trialEligibility, selectedPlan]);
 
   // Auto-populate resources from selected plan
   useEffect(() => {
@@ -159,7 +190,8 @@ const CreateInstance: React.FC = () => {
           memory_limit: formData.memory_limit,
           storage_limit: formData.storage_limit,
           custom_addons: formData.custom_addons,
-          phase_type: selectedPlan.trial_length > 0 ? phaseType : undefined,
+          // Always send explicit phase_type (TRIAL or EVERGREEN, never undefined)
+          phase_type: (trialEligibility?.can_show_trial_info && selectedPlan.trial_length > 0 && phaseType === 'TRIAL') ? 'TRIAL' : 'EVERGREEN',
         };
         
         const response = await billingAPI.createInstanceWithSubscription(subscriptionData);
@@ -313,8 +345,10 @@ const CreateInstance: React.FC = () => {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {plans.map((plan) => (
-                      <div 
+                    {plans.map((plan) => {
+                      const displayPlan = transformPlanForDisplay(plan, trialEligibility);
+                      return (
+                      <div
                         key={plan.name}
                         className={`relative rounded-lg border p-4 cursor-pointer hover:bg-gray-50 ${
                           selectedPlan?.name === plan.name ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
@@ -332,10 +366,10 @@ const CreateInstance: React.FC = () => {
                           />
                           <div className="ml-3 flex-1">
                             <label className="block text-sm font-medium text-gray-900">
-                              {plan.product}
-                              {plan.trial_length > 0 && (
-                                <span className="ml-1 text-green-600">
-                                  ({plan.trial_length} day trial)
+                              {displayPlan.product}
+                              {displayPlan.display_trial && (
+                                <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                  ✓ {displayPlan.trial_length}-day trial
                                 </span>
                               )}
                             </label>
@@ -362,15 +396,15 @@ const CreateInstance: React.FC = () => {
                             )}
 
                             <div className="mt-2">
-                              {plan.trial_length > 0 && plan.price === 0 ? (
+                              {displayPlan.display_trial && displayPlan.price === 0 ? (
                                 <span className="text-lg font-semibold text-green-600">Free Trial</span>
-                              ) : plan.trial_length > 0 ? (
+                              ) : displayPlan.display_trial ? (
                                 <div>
                                   <span className="text-sm text-green-600">
-                                    {plan.trial_length} days free
+                                    $0 for {displayPlan.trial_length} days
                                   </span>
                                   <span className="block text-lg font-semibold text-gray-900">
-                                    ${plan.price}/{plan.billing_period.toLowerCase()}
+                                    then ${plan.price}/{plan.billing_period.toLowerCase()}
                                   </span>
                                 </div>
                               ) : (
@@ -387,12 +421,13 @@ const CreateInstance: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 )}
-                
-                {/* Trial/Payment Choice */}
-                {selectedPlan && selectedPlan.trial_length > 0 && trialEligible && (
+
+                {/* Trial/Payment Choice - Only show if user can see trial info */}
+                {selectedPlan && trialEligibility?.can_show_trial_info && selectedPlan.trial_length > 0 && (
                   <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                     <h4 className="text-sm font-medium text-gray-900 mb-2">Billing Options</h4>
                     <div className="space-y-2">
@@ -431,27 +466,11 @@ const CreateInstance: React.FC = () => {
                     </div>
                   </div>
                 )}
-                
-                {/* Trial Not Available Message */}
-                {selectedPlan && selectedPlan.trial_length > 0 && !trialEligible && (
-                  <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-yellow-800">
-                          Trial not available
-                        </h3>
-                        <div className="mt-2 text-sm text-yellow-700">
-                          <p>You have already used your free trial. You can still create an instance with immediate billing.</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+
+                {/* Trial Not Available Message - REMOVED
+                  Users who are ineligible for trials never see trial information at all.
+                  This implements "trial invisibility" - no warning messages needed.
+                */}
               </div>
 
               {/* Basic Information */}
@@ -673,11 +692,11 @@ const CreateInstance: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                {selectedPlan && selectedPlan.trial_length > 0 && phaseType === 'TRIAL' && trialEligible ? 'Creating Trial...' : 'Creating Subscription...'}
+                {selectedPlan && trialEligibility?.can_show_trial_info && selectedPlan.trial_length > 0 && phaseType === 'TRIAL' ? 'Creating Trial...' : 'Creating Subscription...'}
                       </span>
                     ) : (
                       selectedPlan
-                        ? selectedPlan.trial_length > 0 && phaseType === 'TRIAL' && trialEligible
+                        ? trialEligibility?.can_show_trial_info && selectedPlan.trial_length > 0 && phaseType === 'TRIAL'
                           ? `Start ${selectedPlan.trial_length}-Day Trial`
                           : `Create Instance - $${selectedPlan.price}/${selectedPlan.billing_period.toLowerCase()}`
                         : 'Select a Plan'

@@ -9,7 +9,9 @@ import logging
 from pydantic import BaseModel, Field, validator
 from uuid import UUID
 
+from shared.utils.redis_client import RedisClient
 from ..utils.killbill_client import KillBillClient
+from ..services.trial_eligibility_service import TrialEligibilityService
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +69,24 @@ def get_killbill_client(request: Request) -> KillBillClient:
     """Dependency to get KillBill client"""
     return request.app.state.killbill
 
+
+def get_redis_client() -> RedisClient:
+    """Dependency to get Redis client"""
+    return RedisClient()
+
+
+def get_trial_eligibility_service(
+    killbill: KillBillClient = Depends(get_killbill_client),
+    redis: RedisClient = Depends(get_redis_client)
+) -> TrialEligibilityService:
+    """Dependency to get Trial Eligibility Service"""
+    return TrialEligibilityService(killbill, redis)
+
 @router.post("/", response_model=CreateInstanceWithSubscriptionResponse)
 async def create_instance_with_subscription(
     instance_data: CreateInstanceWithSubscriptionRequest,
-    killbill: KillBillClient = Depends(get_killbill_client)
+    killbill: KillBillClient = Depends(get_killbill_client),
+    trial_service: TrialEligibilityService = Depends(get_trial_eligibility_service)
 ):
     """Create a subscription with instance configuration for payment-required instances"""
     try:
@@ -102,25 +118,35 @@ async def create_instance_with_subscription(
         # Only check trial eligibility if user is requesting a trial
         if instance_data.phase_type == "TRIAL":
             logger.info(f"Checking trial eligibility for customer {instance_data.customer_id}")
-            
-            # Get existing subscriptions for trial eligibility check
-            existing_subscriptions = await killbill.get_account_subscriptions(account_id)
-            
-            # Count existing trial subscriptions
-            trial_count = 0
-            for sub in existing_subscriptions:
-                sub_phase = sub.get('phaseType', '')
-                if sub_phase == 'TRIAL':
-                    trial_count += 1
-            
-            if trial_count > 0:
-                logger.warning(f"Trial eligibility check failed - customer {instance_data.customer_id} has {trial_count} existing trial subscriptions")
+
+            # Acquire Redis lock to prevent race conditions (multiple simultaneous trial requests)
+            lock_acquired = trial_service.acquire_trial_creation_lock(instance_data.customer_id)
+
+            if not lock_acquired:
+                logger.warning(f"Unable to acquire trial creation lock for customer {instance_data.customer_id}")
                 raise HTTPException(
-                    status_code=400, 
-                    detail=f"Trial limit exceeded. You already have {trial_count} active trial subscription(s). Only one trial per customer is allowed."
+                    status_code=409,
+                    detail="Another trial creation request is in progress. Please wait and try again."
                 )
-            
-            logger.info(f"Trial eligibility check passed - customer {instance_data.customer_id} has no existing trials")
+
+            try:
+                # Validate trial eligibility using the service (single source of truth)
+                is_eligible = await trial_service.validate_trial_creation(instance_data.customer_id)
+
+                if not is_eligible:
+                    # Get detailed eligibility info for error message
+                    eligibility = await trial_service.check_eligibility(instance_data.customer_id)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Trial not available. Reason: {eligibility.reason}. Only one trial per customer is allowed."
+                    )
+
+                logger.info(f"Trial eligibility check passed - customer {instance_data.customer_id} is eligible")
+
+            finally:
+                # Always release lock, even if validation fails
+                trial_service.release_trial_creation_lock(instance_data.customer_id)
+
         else:
             logger.info(f"Skipping trial eligibility check for customer {instance_data.customer_id} - not requesting trial phase")
         

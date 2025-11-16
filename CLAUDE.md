@@ -216,6 +216,43 @@ Quotas set via `setfattr -n ceph.quota.max_bytes` for per-instance limits
 ### Critical Security Patterns
 - **Session invalidation**: Logout MUST delete session from `user_sessions` table (see ISSUES_LOG.md #001)
 - **Database users**: Each service MUST use service-specific credentials, never shared admin user
+- **Trial eligibility**: Always use backend API (`GET /api/billing/trial-eligibility/{customer_id}`) as single source of truth
+
+### Trial Logic System
+The platform implements a "trial invisibility" pattern where users ineligible for trials never see any trial-related UI or messaging.
+
+**Business Rules:**
+- One trial per customer (lifetime limit)
+- Trial eligibility checked via backend API (single source of truth)
+- Frontend transforms plan data based on eligibility
+- Ineligible users see only paid pricing, no trial badges/warnings
+
+**Implementation:**
+- **Backend**: `TrialEligibilityService` (`services/billing-service/app/services/trial_eligibility_service.py`)
+- **API Endpoint**: `GET /api/billing/trial-eligibility/{customer_id}`
+- **Redis Locking**: Prevents race conditions during trial creation
+- **Error Handling**: Fail closed (deny trials on system errors)
+- **Frontend**: Plan transformation in `CreateInstance.tsx` removes trial info for ineligible users
+
+**Trial Duration:**
+- Production plans: 14 days (configurable via `DEFAULT_TRIAL_DAYS`)
+- Test plans: 1 day
+
+**Environment Variables:**
+```bash
+DEFAULT_TRIAL_DAYS=14
+TRIAL_ELIGIBILITY_FAIL_BEHAVIOR=closed
+TRIAL_WARNING_DAYS=7,3,1
+TRIAL_MONITORING_ENABLED=true
+```
+
+**Key Files:**
+- Backend service: `services/billing-service/app/services/trial_eligibility_service.py`
+- Backend routes: `services/billing-service/app/routes/trial.py`
+- Shared schemas: `shared/schemas/billing.py` (TrialEligibilityResponse)
+- Frontend types: `frontend/src/types/billing.ts`
+- Frontend API: `frontend/src/utils/api.ts` (getTrialEligibility)
+- Frontend page: `frontend/src/pages/CreateInstance.tsx` (transformPlanForDisplay)
 
 ### Docker Access Method
 Instance-service and instance-worker use the **Docker SDK for Python** (`docker==7.1.0`) to manage Odoo containers via `DockerClientWrapper` (in `app/utils/docker_client.py`).

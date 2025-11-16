@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 
-from .routes import accounts, subscriptions, webhooks, payments, invoices, instances, plans
+from .routes import accounts, subscriptions, webhooks, payments, invoices, instances, plans, trial
 from .utils.database import init_db, close_db, get_all_current_entitlements
 from .utils.killbill_client import KillBillClient
 
@@ -147,6 +147,7 @@ app.include_router(payments.router, prefix="/api/billing/payments", tags=["payme
 app.include_router(invoices.router, prefix="/api/billing", tags=["invoices"])
 app.include_router(instances.router, prefix="/api/billing/instances", tags=["instances"])
 app.include_router(plans.router, prefix="/api/billing/plans", tags=["plans"])
+app.include_router(trial.router, prefix="/api/billing/trial-eligibility", tags=["trial"])
 app.include_router(webhooks.router, prefix="/api/billing/webhooks", tags=["webhooks"])
 
 @app.get("/")

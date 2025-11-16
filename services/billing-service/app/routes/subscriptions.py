@@ -48,23 +48,19 @@ async def create_subscription(
         
         # Check trial eligibility - get existing subscriptions
         existing_subscriptions = await killbill.get_account_subscriptions(account_id)
-        
-        # Count existing trial subscriptions
-        trial_count = 0
-        for sub in existing_subscriptions:
-            sub_phase = sub.get('phaseType', '')
-            if sub.get('phaseType') == 'TRIAL':
-                trial_count += 1
-        
-        if sub.get('phaseType') == 'TRIAL' and trial_count > 0: #this is my fix i made
+
+        # Count existing trial subscriptions (check ALL subscriptions for any historical trials)
+        trial_count = sum(1 for sub in existing_subscriptions if sub.get('phaseType') == 'TRIAL')
+
+        # Validate trial eligibility after counting
+        if trial_count > 0:
             logger.warning(f"Trial eligibility check failed - customer {subscription_data.customer_id} has {trial_count} existing trial subscriptions")
-            logger.warning(f"Trial eligibility check failed - customer has {sub_phase} existing trial subscriptions")
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Trial limit exceeded. You already have {trial_count} active trial subscription(s). Only one trial per customer is allowed."
             )
-        
-        logger.info(f"Trial eligibility check passed - customer {subscription_data.customer_id} has {trial_count} existing trials")
+
+        logger.info(f"Trial eligibility check passed - customer {subscription_data.customer_id} has no existing trials")
         
         # Create actual KillBill subscription with instance metadata
         killbill_subscription = await killbill.create_subscription(

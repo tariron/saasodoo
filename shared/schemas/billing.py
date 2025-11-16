@@ -322,30 +322,64 @@ class PaymentMethodSchema(BaseModel):
 class BillingStatsSchema(BaseModel):
     """Schema for billing statistics"""
     model_config = ConfigDict(from_attributes=True)
-    
+
     customer_id: str = Field(..., description="Customer ID")
-    
+
     # Revenue metrics
     total_revenue: Decimal = Field(default=0, description="Total revenue")
     monthly_revenue: Decimal = Field(default=0, description="Monthly revenue")
     yearly_revenue: Decimal = Field(default=0, description="Yearly revenue")
-    
+
     # Payment metrics
     total_payments: int = Field(default=0, description="Total number of payments")
     successful_payments: int = Field(default=0, description="Successful payments")
     failed_payments: int = Field(default=0, description="Failed payments")
-    
+
     # Subscription metrics
     active_subscriptions: int = Field(default=0, description="Active subscriptions")
     cancelled_subscriptions: int = Field(default=0, description="Cancelled subscriptions")
     trial_subscriptions: int = Field(default=0, description="Trial subscriptions")
-    
+
     # Usage metrics
     average_monthly_spend: Decimal = Field(default=0, description="Average monthly spend")
     lifetime_value: Decimal = Field(default=0, description="Customer lifetime value")
-    
+
     # Dates
     first_payment_date: Optional[date] = Field(None, description="First payment date")
     last_payment_date: Optional[date] = Field(None, description="Last payment date")
-    
-    last_updated: datetime = Field(..., description="Statistics last updated") 
+
+    last_updated: datetime = Field(..., description="Statistics last updated")
+
+
+class TrialEligibilityReason(str, Enum):
+    """Trial eligibility reason codes for logging and debugging"""
+    ELIGIBLE = "eligible"
+    HAS_ACTIVE_TRIAL = "has_active_trial"
+    HAS_HISTORICAL_TRIAL = "has_historical_trial"
+    HAS_ACTIVE_SUBSCRIPTION = "has_active_subscription"
+    SYSTEM_ERROR = "system_error"
+    ACCOUNT_NOT_FOUND = "account_not_found"
+
+
+class TrialEligibilityResponse(BaseModel):
+    """Response schema for trial eligibility check"""
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "eligible": True,
+                "can_show_trial_info": True,
+                "trial_days": 14,
+                "has_active_subscriptions": False,
+                "subscription_count": 0,
+                "reason": "eligible"
+            }
+        }
+    )
+
+    eligible: bool = Field(..., description="Whether customer is eligible for a trial")
+    can_show_trial_info: bool = Field(..., description="Whether UI should display trial information")
+    trial_days: int = Field(..., description="Number of trial days available (14 if eligible, 0 if not)")
+    has_active_subscriptions: bool = Field(..., description="Whether customer has any active subscriptions")
+    subscription_count: int = Field(..., description="Total number of subscriptions for this customer")
+    reason: TrialEligibilityReason = Field(..., description="Reason code for eligibility decision") 

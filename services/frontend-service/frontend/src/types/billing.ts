@@ -272,6 +272,24 @@ export interface PlansResponse {
   plans: Plan[];
 }
 
+// Trial Eligibility Types
+export type TrialEligibilityReason =
+  | 'eligible'
+  | 'has_active_trial'
+  | 'has_historical_trial'
+  | 'has_active_subscription'
+  | 'system_error'
+  | 'account_not_found';
+
+export interface TrialEligibilityResponse {
+  eligible: boolean;
+  can_show_trial_info: boolean;
+  trial_days: number;
+  has_active_subscriptions: boolean;
+  subscription_count: number;
+  reason: TrialEligibilityReason;
+}
+
 // ==================== PAYNOW PAYMENT TYPES ====================
 
 /**
