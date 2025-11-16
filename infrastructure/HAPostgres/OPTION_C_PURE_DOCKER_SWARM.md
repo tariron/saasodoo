@@ -192,7 +192,7 @@ This deployment method uses **Docker Swarm for all components**. Everything runs
    - Image: `bitnami/etcd:latest`
    - Registry: Docker Hub
    - Status: ⚠️ Available but migrating to paid model (Aug 2025)
-   - Alternative: `quay.io/coreos/etcd:v3.5`
+   - Alternative: github etcd uses gcr.io/etcd-development/etcd as a primary container registry, and quay.io/coreos/etcd as secondary. VER=v3.6.6
 
 3. **PgBouncer:**
    - Image: `pgbouncer/pgbouncer:latest`

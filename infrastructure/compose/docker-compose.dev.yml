@@ -431,12 +431,19 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: instance
+      POSTGRES_DEFAULT_DB: postgres
       DB_SERVICE_USER: ${POSTGRES_INSTANCE_SERVICE_USER:-instance_service}
       DB_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD:-instance_service_secure_pass_change_me}
-      
+
       # Redis Configuration
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # RabbitMQ Configuration
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: saasodoo
       
       # Docker Configuration (for instance lifecycle management)
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -504,18 +511,23 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: instance
+      POSTGRES_DEFAULT_DB: postgres
       DB_SERVICE_USER: ${POSTGRES_INSTANCE_SERVICE_USER:-instance_service}
       DB_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD:-instance_service_secure_pass_change_me}
-      
+
       # Database Configuration - Admin credentials for creating new databases (SECURITY ISSUE - TO FIX)
       POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
-      
+
       # Redis Configuration
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      
+      REDIS_DB: 0
+
       # RabbitMQ Configuration
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: saasodoo
       RABBITMQ_USER: ${RABBITMQ_USER:-saasodoo}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-saasodoo123}
       

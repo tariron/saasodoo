@@ -368,7 +368,7 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning("Database creation failed, assuming it exists", error=str(db_e))
             db_info = {
                 'db_host': os.getenv('POSTGRES_HOST', 'postgres'),
-                'db_port': 5432,
+                'db_port': int(os.getenv('POSTGRES_PORT', '5432')),
                 'db_name': instance['database_name'],
                 'db_user': instance['database_name'],
                 'db_password': instance.get('database_password', 'odoo_pass')
@@ -436,7 +436,7 @@ async def _get_instance_from_db(instance_id: str) -> Dict[str, Any]:
     """Get instance details from database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -480,7 +480,7 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
     """Update instance status in database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -526,7 +526,7 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
     """Update instance with network and container information"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')

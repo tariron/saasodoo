@@ -204,7 +204,7 @@ async def _get_instance_from_db(instance_id: str) -> Dict[str, Any]:
     """Get instance details from database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -248,7 +248,7 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
     """Update instance status in database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -272,8 +272,8 @@ async def _create_odoo_database(instance: Dict[str, Any]) -> Dict[str, str]:
     # Connect to PostgreSQL as admin
     admin_conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
-        database='postgres',  # Connect to default DB
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
+        database=os.getenv('POSTGRES_DEFAULT_DB', 'postgres'),  # Connect to default DB
         user=os.getenv('POSTGRES_USER', 'saasodoo'),
         password=os.getenv('POSTGRES_PASSWORD', 'saasodoo123')
     )
@@ -299,7 +299,7 @@ async def _create_odoo_database(instance: Dict[str, Any]) -> Dict[str, str]:
             "db_user": db_user,
             "db_password": db_password,
             "db_host": os.getenv('POSTGRES_HOST', 'postgres'),
-            "db_port": "5432"
+            "db_port": os.getenv('POSTGRES_PORT', '5432')
         }
         
     finally:
@@ -474,7 +474,7 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
     """Update instance with network and container information"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -528,8 +528,8 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
         # Remove database if created
         admin_conn = await asyncpg.connect(
             host=os.getenv('POSTGRES_HOST', 'postgres'),
-            port=5432,
-            database='postgres',
+            port=int(os.getenv('POSTGRES_PORT', '5432')),
+            database=os.getenv('POSTGRES_DEFAULT_DB', 'postgres'),
             user=os.getenv('POSTGRES_USER', 'saasodoo'),
             password=os.getenv('POSTGRES_PASSWORD', 'saasodoo123')
         )

@@ -400,7 +400,7 @@ async def _create_database_backup(instance: Dict[str, Any], backup_name: str) ->
     cmd = [
         "pg_dump",
         f"--host={os.getenv('POSTGRES_HOST', 'postgres')}",
-        f"--port=5432",
+        f"--port={os.getenv('POSTGRES_PORT', '5432')}",
         f"--username={os.getenv('POSTGRES_USER', 'odoo_user')}",
         f"--dbname={instance['database_name']}",
         f"--file={backup_file}",
@@ -531,7 +531,7 @@ async def _restore_database_backup(instance: Dict[str, Any], backup_info: Dict[s
     cmd = [
         "psql",
         f"--host={os.getenv('POSTGRES_HOST', 'postgres')}",
-        f"--port=5432",
+        f"--port={os.getenv('POSTGRES_PORT', '5432')}",
         f"--username={os.getenv('POSTGRES_USER', 'odoo_user')}",
         f"--dbname={instance['database_name']}",
         f"--file={backup_file}",
@@ -644,7 +644,7 @@ async def _update_instance_version(instance_id: str, target_version: str):
     """Update instance version in database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -685,7 +685,7 @@ async def _deploy_updated_service(instance: Dict[str, Any]) -> Dict[str, Any]:
     # Create minimal db_info for deployment
     db_info = {
         'host': os.getenv('POSTGRES_HOST', 'postgres'),
-        'port': 5432,
+        'port': int(os.getenv('POSTGRES_PORT', '5432')),
         'database': instance['database_name'],
         'user': f"odoo_{instance['database_name']}",
         'password': 'generated_password'  # This should be retrieved from secure storage
@@ -751,7 +751,7 @@ async def _get_instance_from_db(instance_id: str) -> Dict[str, Any]:
     """Get instance details from database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -793,7 +793,7 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
     """Update instance status in database"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -846,8 +846,8 @@ async def _recreate_database(database_name: str):
     """Drop and recreate database with proper permissions"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
-        database='postgres',  # Connect to postgres db to drop/create others
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
+        database=os.getenv('POSTGRES_DEFAULT_DB', 'postgres'),  # Connect to postgres db to drop/create others
         user=os.getenv('POSTGRES_USER', 'odoo_user'),
         password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
     )
@@ -874,10 +874,10 @@ async def _restore_database_permissions(database_name: str, instance: Dict[str, 
     """Restore proper database permissions for instance user"""
     # Extract database user from instance metadata or derive it
     db_user = f"odoo_{database_name}"
-    
+
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=database_name,
         user=os.getenv('POSTGRES_USER', 'odoo_user'),
         password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
@@ -913,10 +913,10 @@ async def _restore_database_permissions(database_name: str, instance: Dict[str, 
 
 async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any]):
     """Reset Odoo database state to prevent startup conflicts after restore"""
-    
+
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=database_name,
         user=os.getenv('POSTGRES_USER', 'odoo_user'),
         password=os.getenv('POSTGRES_PASSWORD', 'secure_password_change_me')
@@ -1114,7 +1114,7 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
     """Update instance with network and container information"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=5432,
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
         database=os.getenv('POSTGRES_DB', 'instance'),
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
@@ -1176,7 +1176,7 @@ async def _start_docker_service_for_restore(instance: Dict[str, Any]) -> Dict[st
     # Environment optimized for restored instance
     environment = {
         'ODOO_DATABASE_HOST': os.getenv('POSTGRES_HOST', 'postgres'),
-        'ODOO_DATABASE_PORT_NUMBER': '5432',
+        'ODOO_DATABASE_PORT_NUMBER': os.getenv('POSTGRES_PORT', '5432'),
         'ODOO_DATABASE_NAME': instance['database_name'],
         'ODOO_DATABASE_USER': db_user,
         'ODOO_DATABASE_PASSWORD': db_password,
