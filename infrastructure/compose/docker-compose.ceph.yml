@@ -134,7 +134,7 @@ services:
     depends_on:
       - postgres
     deploy:
-      replicas: 1
+      replicas: 0
       placement:
         constraints:
           - node.role == manager
@@ -175,7 +175,7 @@ services:
 
   # Message Queue
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:4.2.0-management-alpine
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-saasodoo}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-saasodoo123}
@@ -206,6 +206,13 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${BASE_DOMAIN}`)"
@@ -353,7 +360,7 @@ services:
     # ports:
     #   - "9090:8080"  # Direct access to Kaui Admin (avoids Grafana port conflict)
     deploy:
-      replicas: 1
+      replicas: 0
       restart_policy:
         condition: any
         delay: 10s

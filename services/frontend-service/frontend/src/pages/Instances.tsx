@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useLocation } from 'react-router-dom';
 import { instanceAPI, authAPI, Instance, UserProfile } from '../utils/api';
 import Navigation from '../components/Navigation';
 import RestoreModal from '../components/RestoreModal';
@@ -13,6 +13,7 @@ const Instances: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [restoreInstance, setRestoreInstance] = useState<Instance | null>(null);
+  const location = useLocation();
 
   const fetchInitialData = async () => {
     try {
@@ -34,8 +35,31 @@ const Instances: React.FC = () => {
     }
   };
 
+  // Fetch instances on mount and whenever we navigate back to this page
   useEffect(() => {
     fetchInitialData();
+  }, [location.key]); // Re-fetch when location.key changes (new navigation)
+
+  // Also refresh when the component becomes visible (e.g., after tab switch)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchInitialData();
+      }
+    };
+
+    // Also refresh when window gains focus
+    const handleFocus = () => {
+      fetchInitialData();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const handleInstanceAction = async (instanceId: string, action: string, parameters?: any) => {

@@ -223,6 +223,7 @@ The platform implements a "trial invisibility" pattern where users ineligible fo
 
 **Business Rules:**
 - One trial per customer (lifetime limit)
+- Customers with active paid subscriptions cannot get trials
 - Trial eligibility checked via backend API (single source of truth)
 - Frontend transforms plan data based on eligibility
 - Ineligible users see only paid pricing, no trial badges/warnings
