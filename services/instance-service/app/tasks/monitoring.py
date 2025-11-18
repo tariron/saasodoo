@@ -36,10 +36,19 @@ class DockerEventMonitor:
         self.last_event_time = {}  # For deduplication
         self.processed_events: Set[str] = set()  # Event deduplication
         
-        # Container name pattern: odoo_{database_name}_{instance_id.hex[:8]}
+        # Service name pattern for Swarm: odoo-{database_name}-{instance_id.hex[:8]}
+        self.service_pattern = re.compile(r'^odoo-([^-]+)-([a-f0-9]{8})$')
+        # Deprecated: Old container pattern (keep for compatibility)
         self.container_pattern = re.compile(r'^odoo_([^_]+)_([a-f0-9]{8})$')
-        
-        # Event to status mapping
+
+        # Service event to status mapping (Swarm mode)
+        self.service_event_map = {
+            'create': InstanceStatus.CREATING,
+            'remove': InstanceStatus.TERMINATED,
+            # 'update' requires checking task states - handled separately
+        }
+
+        # Legacy container event mapping (deprecated)
         self.event_status_map = {
             'start': InstanceStatus.RUNNING,
             'die': InstanceStatus.STOPPED,
@@ -62,8 +71,20 @@ class DockerEventMonitor:
             logger.error("Failed to initialize Docker client", error=str(e))
             raise
     
+    def _is_saasodoo_service(self, service_name: str) -> Optional[Dict[str, str]]:
+        """Check if service is a SaaS Odoo instance and extract metadata"""
+        match = self.service_pattern.match(service_name)
+        if match:
+            database_name, instance_id_hex = match.groups()
+            return {
+                'database_name': database_name,
+                'instance_id_hex': instance_id_hex,
+                'service_name': service_name
+            }
+        return None
+
     def _is_saasodoo_container(self, container_name: str) -> Optional[Dict[str, str]]:
-        """Check if container is a SaaS Odoo instance and extract metadata"""
+        """DEPRECATED: Check if container is a SaaS Odoo instance (legacy)"""
         match = self.container_pattern.match(container_name)
         if match:
             database_name, instance_id_hex = match.groups()
@@ -142,80 +163,168 @@ class DockerEventMonitor:
         
         return True
     
+    def _process_service_event(self, event: Dict[str, Any]):
+        """Process a Docker Swarm service event"""
+        try:
+            event_type = event.get('Action', '').lower()
+            service_name = event.get('Actor', {}).get('Attributes', {}).get('name', '')
+            event_id = event.get('id', '')
+
+            # LOG ALL SERVICE EVENTS
+            logger.info("SERVICE EVENT RECEIVED",
+                       event_type=event_type,
+                       service=service_name,
+                       event_id=event_id[:8] if event_id else 'none')
+
+            if not service_name or not event_type:
+                logger.debug("Event missing name/type", event_type=event_type, service=service_name)
+                return
+
+            # Check if this is a SaaS Odoo service
+            service_info = self._is_saasodoo_service(service_name)
+            if not service_info:
+                logger.debug("Event ignored - not SaaS service",
+                            event_type=event_type,
+                            service=service_name)
+                return
+
+            logger.info("SaaS service event detected",
+                       event_type=event_type,
+                       service=service_name,
+                       instance_hex=service_info['instance_id_hex'])
+
+            # Deduplication check
+            if not self._should_process_event(event_id, service_name, event_type):
+                logger.debug("Event deduplicated",
+                            event_type=event_type,
+                            service=service_name,
+                            event_id=event_id[:8] if event_id else 'none')
+                return
+
+            logger.info("Event passed deduplication",
+                       event_type=event_type,
+                       service=service_name)
+
+            # Get full instance ID
+            instance_id = self._get_instance_id_from_hex(service_info['instance_id_hex'])
+            if not instance_id:
+                logger.warning("Could not resolve instance ID from service",
+                             service=service_name,
+                             hex=service_info['instance_id_hex'])
+                return
+
+            # Handle service events
+            if event_type == 'create':
+                new_status = InstanceStatus.CREATING
+                logger.info("Service created - setting status to CREATING",
+                           service=service_name,
+                           instance_id=instance_id)
+                update_instance_status_from_event.delay(
+                    instance_id,
+                    new_status.value,
+                    event_type,
+                    service_name,
+                    event.get('time', datetime.utcnow().isoformat())
+                )
+
+            elif event_type == 'remove':
+                new_status = InstanceStatus.TERMINATED
+                logger.info("Service removed - setting status to TERMINATED",
+                           service=service_name,
+                           instance_id=instance_id)
+                update_instance_status_from_event.delay(
+                    instance_id,
+                    new_status.value,
+                    event_type,
+                    service_name,
+                    event.get('time', datetime.utcnow().isoformat())
+                )
+
+            elif event_type == 'update':
+                # For 'update' events, we need to check task states
+                # Schedule a reconciliation for this specific instance
+                logger.info("Service updated - triggering reconciliation",
+                           service=service_name,
+                           instance_id=instance_id)
+                reconcile_instance_statuses_task.delay()
+
+        except Exception as e:
+            logger.error("Failed to process service event", error=str(e), event=event)
+
     def _process_container_event(self, event: Dict[str, Any]):
-        """Process a single container event"""
+        """DEPRECATED: Process container event (legacy compatibility)"""
         try:
             event_type = event.get('Action', '').lower()
             container_name = event.get('Actor', {}).get('Attributes', {}).get('name', '')
             event_id = event.get('id', '')
-            
+
             # LOG ALL EVENTS - including destroy events
-            logger.info("RAW EVENT RECEIVED", 
-                       event_type=event_type, 
+            logger.info("CONTAINER EVENT RECEIVED (DEPRECATED)",
+                       event_type=event_type,
                        container=container_name,
-                       event_id=event_id[:8])  # Short event ID
-            
+                       event_id=event_id[:8] if event_id else 'none')
+
             if not container_name or not event_type:
                 logger.debug("Event missing name/type", event_type=event_type, container=container_name)
                 return
-            
+
             # Check if this is a SaaS Odoo container
             container_info = self._is_saasodoo_container(container_name)
             if not container_info:
-                logger.debug("Event ignored - not SaaS container", 
-                            event_type=event_type, 
+                logger.debug("Event ignored - not SaaS container",
+                            event_type=event_type,
                             container=container_name)
                 return
 
-            logger.info("SaaS container event detected", 
-                       event_type=event_type, 
+            logger.info("SaaS container event detected",
+                       event_type=event_type,
                        container=container_name,
                        instance_hex=container_info['instance_id_hex'])
-            
+
             # Deduplication check
             if not self._should_process_event(event_id, container_name, event_type):
-                logger.debug("Event deduplicated", 
-                            event_type=event_type, 
+                logger.debug("Event deduplicated",
+                            event_type=event_type,
                             container=container_name,
-                            event_id=event_id[:8])
+                            event_id=event_id[:8] if event_id else 'none')
                 return
 
-            logger.info("Event passed deduplication", 
-                       event_type=event_type, 
+            logger.info("Event passed deduplication",
+                       event_type=event_type,
                        container=container_name)
-            
+
             # Map event to status
             if event_type not in self.event_status_map:
-                logger.warning("DESTROY EVENT MISSING?", 
-                              event_type=event_type, 
+                logger.warning("Unknown container event type",
+                              event_type=event_type,
                               container=container_name,
                               available_events=list(self.event_status_map.keys()))
                 return
-            
+
             new_status = self.event_status_map[event_type]
-            logger.info("Event mapped to status", 
-                       event_type=event_type, 
+            logger.info("Event mapped to status",
+                       event_type=event_type,
                        container=container_name,
                        new_status=new_status.value)
-            
-            logger.info("Processing container event", 
-                       event_type=event_type, 
-                       container=container_name, 
+
+            logger.info("Processing container event",
+                       event_type=event_type,
+                       container=container_name,
                        new_status=new_status.value,
                        instance_hex=container_info['instance_id_hex'])
-            
+
             # Get full instance ID
             instance_id = self._get_instance_id_from_hex(container_info['instance_id_hex'])
             if not instance_id:
-                logger.warning("Could not resolve instance ID from container", 
-                             container=container_name, 
+                logger.warning("Could not resolve instance ID from container",
+                             container=container_name,
                              hex=container_info['instance_id_hex'])
                 return
-            
+
             # Schedule database update task
             update_instance_status_from_event.delay(
-                instance_id, 
-                new_status.value, 
+                instance_id,
+                new_status.value,
                 event_type,
                 container_name,
                 event.get('time', datetime.utcnow().isoformat())
@@ -265,21 +374,21 @@ class DockerEventMonitor:
     def _monitor_events(self):
         """Main event monitoring loop (runs in separate thread)"""
         try:
-            # Listen for container events only
+            # Listen for service events (Swarm mode)
             event_filters = {
-                'type': 'container',
-                'event': ['start', 'stop', 'die', 'restart', 'pause', 'unpause', 'destroy'] #return kill
+                'type': 'service',
+                'event': ['create', 'update', 'remove']
             }
-            
-            logger.info("Starting Docker event stream", filters=event_filters)
-            
+
+            logger.info("Starting Docker Swarm service event stream", filters=event_filters)
+
             # Start event stream
             for event in self.client.events(decode=True, filters=event_filters):
                 if self.stop_event.is_set():
                     logger.info("Stop event received, exiting monitor loop")
                     break
-                
-                self._process_container_event(event)
+
+                self._process_service_event(event)
                 
         except Exception as e:
             logger.error("Docker event monitoring failed", error=str(e))
@@ -473,11 +582,11 @@ def reconcile_instance_statuses_task(self):
 
 
 async def _reconcile_instance_statuses() -> Dict[str, Any]:
-    """Reconcile database instance statuses with actual Docker container states"""
+    """Reconcile database instance statuses with actual Docker Swarm service states"""
     try:
         # Initialize Docker client
         client = docker.from_env()
-        
+
         # Get database connection
         db_config = {
             'host': os.getenv('POSTGRES_HOST', 'postgres'),
@@ -486,105 +595,109 @@ async def _reconcile_instance_statuses() -> Dict[str, Any]:
             'user': os.getenv('DB_SERVICE_USER', 'instance_service'),
             'password': os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me'),
         }
-        
+
         conn = await asyncpg.connect(**db_config)
         try:
             # Get all non-terminated instances
             instances = await conn.fetch("""
-                SELECT id, status, database_name, container_name 
-                FROM instances 
+                SELECT id, status, database_name, service_name
+                FROM instances
                 WHERE status != 'terminated'
             """)
-            
+
             total_checked = len(instances)
             updated_count = 0
             mismatched = []
-            
-            container_pattern = re.compile(r'^odoo_([^_]+)_([a-f0-9]{8})$')
-            
+
             for instance in instances:
                 instance_id = instance['id']
                 db_status = instance['status']
                 database_name = instance['database_name']
-                
-                # Generate expected container name
-                expected_container_name = f"odoo_{database_name}_{instance_id.hex[:8]}"
-                
+
+                # Generate expected service name (hyphen-separated for Swarm)
+                expected_service_name = f"odoo-{database_name}-{instance_id.hex[:8]}"
+
                 try:
-                    # Check if container exists and get its status
-                    container = client.containers.get(expected_container_name)
-                    docker_status = container.status.lower()
-                    
-                    # Map Docker status to our status
-                    status_map = {
-                        'running': InstanceStatus.RUNNING.value,
-                        'exited': InstanceStatus.STOPPED.value,
-                        'stopped': InstanceStatus.STOPPED.value,
-                        'paused': InstanceStatus.PAUSED.value,
-                        'restarting': InstanceStatus.RESTARTING.value,
-                        'dead': InstanceStatus.ERROR.value,
-                    }
-                    
-                    expected_db_status = status_map.get(docker_status, InstanceStatus.ERROR.value)
-                    
+                    # Check if service exists and get its task status
+                    service = client.services.get(expected_service_name)
+                    tasks = service.tasks()
+
+                    # Find running tasks
+                    running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+                    failed_tasks = [t for t in tasks if t['Status']['State'] == 'failed']
+                    shutdown_tasks = [t for t in tasks if t['Status']['State'] == 'shutdown']
+
+                    # Determine expected status based on task states
+                    if running_tasks:
+                        expected_db_status = InstanceStatus.RUNNING.value
+                    elif failed_tasks:
+                        expected_db_status = InstanceStatus.ERROR.value
+                    elif shutdown_tasks or not tasks:
+                        expected_db_status = InstanceStatus.STOPPED.value
+                    else:
+                        # Tasks exist but none running/failed/shutdown (preparing/starting)
+                        expected_db_status = InstanceStatus.STARTING.value
+
                     # Check for mismatch
                     if db_status != expected_db_status:
                         # Never override TERMINATED status - it's intentionally set
                         if db_status == InstanceStatus.TERMINATED.value:
-                            logger.info("Skipping status update for terminated instance", 
+                            logger.info("Skipping status update for terminated instance",
                                       instance_id=str(instance_id),
                                       db_status=db_status,
-                                      docker_status=docker_status)
+                                      task_status=expected_db_status)
                             continue
-                            
-                        logger.info("Status mismatch detected", 
+
+                        logger.info("Status mismatch detected",
                                   instance_id=str(instance_id),
                                   db_status=db_status,
-                                  docker_status=docker_status,
-                                  expected_status=expected_db_status)
-                        
+                                  expected_status=expected_db_status,
+                                  running_tasks=len(running_tasks),
+                                  failed_tasks=len(failed_tasks))
+
                         # Update database status
                         await conn.execute("""
-                            UPDATE instances 
+                            UPDATE instances
                             SET status = $1, updated_at = $2, last_health_check = $3
                             WHERE id = $4
                         """, expected_db_status, datetime.utcnow(), datetime.utcnow(), instance_id)
-                        
+
                         updated_count += 1
                         mismatched.append({
                             'instance_id': str(instance_id),
                             'old_status': db_status,
                             'new_status': expected_db_status,
-                            'docker_status': docker_status
+                            'running_tasks': len(running_tasks),
+                            'failed_tasks': len(failed_tasks)
                         })
-                
+
                 except docker.errors.NotFound:
-                    # Container doesn't exist but instance is not terminated or already marked as missing
+                    # Service doesn't exist but instance is not terminated or already marked as missing
                     if db_status not in [InstanceStatus.CONTAINER_MISSING.value]:
-                        logger.warning("Container not found for active instance", 
+                        logger.warning("Service not found for active instance",
                                      instance_id=str(instance_id),
-                                     expected_container=expected_container_name,
+                                     expected_service=expected_service_name,
                                      current_status=db_status)
-                        
+
                         # Mark as container missing
                         await conn.execute("""
-                            UPDATE instances 
+                            UPDATE instances
                             SET status = $1, error_message = $2, updated_at = $3
                             WHERE id = $4
-                        """, InstanceStatus.CONTAINER_MISSING.value, "Container not found", datetime.utcnow(), instance_id)
-                        
+                        """, InstanceStatus.CONTAINER_MISSING.value, "Service not found", datetime.utcnow(), instance_id)
+
                         updated_count += 1
                         mismatched.append({
                             'instance_id': str(instance_id),
                             'old_status': db_status,
                             'new_status': InstanceStatus.CONTAINER_MISSING.value,
-                            'reason': 'container_not_found'
+                            'reason': 'service_not_found'
                         })
-                
+
                 except Exception as e:
-                    logger.error("Error checking container status", 
+                    logger.error("Error checking service status",
                                instance_id=str(instance_id),
-                               container=expected_container_name,
+                               service=expected_service_name,
                                error=str(e))
             
             return {
