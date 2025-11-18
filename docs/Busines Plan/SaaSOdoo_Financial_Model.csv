@@ -1,0 +1,209 @@
+# SaaSOdoo Financial Model & Pod Specification
+# Use this in Excel/Google Sheets - Multiple sections below
+
+### SHEET 1: POD SPECIFICATIONS & INFRASTRUCTURE COSTS ###
+
+Phase,Customers,Architecture,Node Type,Quantity,vCPU/Node,RAM/Node,Storage/Node,Price/Node,Monthly Cost,Total Monthly Infra
+MVP - Option A,0-25,CephFS Day 1,Compute: CLOUD VPS 20,1,6,12GB,100GB NVMe,$7.95,$7.95,
+,,,Storage: STORAGE VPS 10,3,2,4GB,300GB SSD,$4.95,$14.85,
+,,,Private Network,4 nodes,-,-,-,$2.99,$11.96,
+,,,FTP Backup 100GB,1,-,-,100GB,$5.79,$5.79,
+,,,TOTAL MVP-A,,,,,,,$40.55
+
+MVP - Option B (Recommended),0-50,Local Storage,Compute: CLOUD VPS 30,1,8,24GB,200GB NVMe,$15.00,$15.00,
+,,,FTP Backup 100GB,1,-,-,100GB,$5.79,$5.79,
+,,,TOTAL MVP-B,,,,,,,$20.79
+
+Phase 2: Growth,50-150,CephFS + Multi-Node,Compute: CLOUD VPS 40,2,12,48GB,250GB NVMe,$26.00,$52.00,
+,,,Storage: STORAGE VPS 30,3,6,18GB,1TB SSD,$15.00,$45.00,
+,,,Platform: CLOUD VPS 20,1,6,12GB,100GB NVMe,$7.95,$7.95,
+,,,Private Network,6 nodes,-,-,-,$2.99,$17.94,
+,,,FTP Backup 500GB,1,-,-,500GB,$18.39,$18.39,
+,,,TOTAL PHASE 2,,,,,,,$141.28
+
+Phase 3: Scale,150-500,CephFS + VDS Compute,Compute: CLOUD VDS M,4,4 phys,32GB,240GB NVMe,$68.99,$275.96,
+,,,Storage: STORAGE VPS 40,3,8,30GB,1.2TB SSD,$26.00,$78.00,
+,,,Platform: CLOUD VPS 30,1,8,24GB,200GB NVMe,$15.00,$15.00,
+,,,Load Balancer: CLOUD VPS 10,1,3,8GB,75GB NVMe,$4.95,$4.95,
+,,,Private Network,9 nodes,-,-,-,$2.99,$26.91,
+,,,FTP Backup 2TB,1,-,-,2TB,$45.99,$45.99,
+,,,TOTAL PHASE 3,,,,,,,$446.81
+
+### SHEET 2: CUSTOMER PRICING & RESOURCE ALLOCATION ###
+
+Tier,Price/Month,Annual Price,Annual Discount %,Advertised vCPU,Advertised RAM,Advertised Storage,Actual Avg RAM Usage,Actual Avg CPU Usage,Actual Avg Storage,Oversell Ratio RAM,Oversell Ratio CPU
+Hustler,$8.00,$80.00,16.7%,1,2GB,10GB,400MB,0.2 cores,5GB,5:1,5:1
+SME,$18.00,$180.00,16.7%,2,4GB,20GB,800MB,0.4 cores,12GB,5:1,5:1
+Business,$35.00,$350.00,16.7%,4,8GB,50GB,1.6GB,0.8 cores,30GB,5:1,5:1
+
+### SHEET 3: CUSTOMER MIX ASSUMPTIONS BY PHASE ###
+
+Phase,Total Customers,Hustler Count,Hustler %,SME Count,SME %,Business Count,Business %,Enterprise Count,Enterprise %
+Year 1 - Month 3,10,7,70%,3,30%,0,0%,0,0%
+Year 1 - Month 6,30,20,67%,8,27%,2,7%,0,0%
+Year 1 - Month 9,70,42,60%,24,34%,4,6%,0,0%
+Year 1 - Month 12,150,90,60%,52,35%,8,5%,0,0%
+Year 2 - Month 15,225,112,50%,90,40%,20,9%,3,1%
+Year 2 - Month 18,300,150,50%,120,40%,27,9%,3,1%
+Year 2 - Month 21,375,187,50%,150,40%,34,9%,4,1%
+Year 2 - Month 24,500,250,50%,200,40%,45,9%,5,1%
+Year 3 - Month 30,750,300,40%,337,45%,97,13%,16,2%
+Year 3 - Month 36,1000,400,40%,450,45%,130,13%,20,2%
+
+### SHEET 4: MONTHLY REVENUE PROJECTIONS (YEAR 1) ###
+
+Month,New Customers,Churned Customers,Total Customers,Hustler Rev,SME Rev,Business Rev,Enterprise Rev,Total MRR,ARR,MRR Growth %,Notes
+1,5,0,5,$40,$0,$0,$0,$40,$480,-,Early adopters
+2,7,0,12,$88,$24,$0,$0,$112,$1344,180%,Manual outreach
+3,10,1,21,$144,$72,$0,$0,$216,$2592,93%,First marketing push
+4,12,1,32,$224,$90,$0,$0,$314,$3768,45%,Trial conversions
+5,15,2,45,$296,$144,$35,$0,$475,$5700,51%,Word of mouth
+6,18,3,60,$384,$198,$70,$0,$652,$7824,37%,Referral program starts
+7,20,3,77,$488,$252,$70,$0,$810,$9720,24%,Content marketing
+8,18,4,91,$552,$306,$105,$0,$963,$11556,19%,Paid ads launch
+9,20,5,106,$624,$378,$105,$0,$1107,$13284,15%,Partnership deals
+10,22,6,122,$696,$432,$140,$0,$1268,$15216,15%,SEO traffic
+11,20,7,135,$744,$486,$140,$0,$1370,$16440,8%,Holiday slowdown
+12,25,10,150,$720,$936,$280,$0,$1936,$23232,41%,Year-end push + upgrades
+
+### SHEET 5: COGS & GROSS MARGIN BY TIER ###
+
+Tier,Revenue/Month,Infra Cost,Storage Cost,Backup Cost,Bandwidth,Payment Processing 2.5%,Support Allocated,Platform Overhead,Total COGS,Gross Profit,Gross Margin %
+Hustler,$8.00,$0.50,$0.20,$0.15,$0.05,$0.20,$1.00,$0.40,$2.50,$5.50,68.8%
+SME,$18.00,$1.00,$0.50,$0.30,$0.10,$0.45,$2.00,$0.65,$5.00,$13.00,72.2%
+Business,$35.00,$2.00,$1.50,$0.75,$0.20,$0.88,$5.00,$1.17,$11.50,$23.50,67.1%
+Weighted Average,$14.55,$1.09,$0.53,$0.30,$0.11,$0.36,$2.18,$0.63,$5.20,$9.35,64.3%
+
+Note: Weighted average assumes 50% Hustler 35% SME 15% Business mix
+
+### SHEET 6: OPERATING EXPENSES BY PHASE ###
+
+Category,Year 1 - Monthly Avg,Year 2 - Monthly Avg,Year 3 - Monthly Avg,Notes
+Infrastructure,$21,$141,$447,Server hosting backup VPN
+Software/Services,$50,$100,$200,Email (SendGrid) monitoring domain SSL
+Personnel - Technical,$500,$2000,$4500,Y1: Part-time; Y2: 1 FT dev; Y3: 3 devs + DevOps
+Personnel - Support,$300,$800,$1500,Y1: Part-time; Y2: 1 FT; Y3: 2 FT agents + manager
+Personnel - Sales/Marketing,$0,$500,$1500,Y1: Founder; Y2: PT contractor; Y3: Sales manager + AE
+Marketing & Advertising,$250,$1000,$2000,Ads content events sponsorships
+Admin Legal Insurance,$100,$300,$500,Accounting legal compliance insurance
+TOTAL OPEX,$1221,$4841,$10647,
+TOTAL ANNUAL OPEX,$14652,$58092,$127764,
+
+### SHEET 7: 3-YEAR PROFIT & LOSS SUMMARY ###
+
+Metric,Year 1,Year 2,Year 3,Notes
+Starting Customers,0,150,500,
+Ending Customers,150,500,1000,
+Avg MRR (Year Avg),$726,$3564,$11516,Average across 12 months
+Total Revenue (Cash Basis),$24300,$105000,$350000,Includes annual prepays
+Annual Contract Value,20%,25%,30%,% of customers on annual plans
+COGS - Variable,$7290,$31500,$105000,~30% of revenue
+Gross Profit,$17010,$73500,$245000,
+Gross Margin %,70%,70%,70%,
+Operating Expenses,$14652,$58092,$127764,Personnel marketing infra etc
+EBITDA,$2358,$15408,$117236,Gross Profit - OpEx
+EBITDA Margin %,9.7%,14.7%,33.5%,
+Net Profit,$2358,$15408,$117236,No depreciation/interest/tax initially
+Net Margin %,9.7%,14.7%,33.5%,
+Cash Flow from Operations,$8358,$25408,$147236,Net Profit + Annual prepayments boost
+Ending Cash Balance,$7358,$32766,$179002,Assumes $1000 starting cash
+
+### SHEET 8: UNIT ECONOMICS DASHBOARD ###
+
+Metric,Value,Calculation,Benchmark,Status
+Average Revenue Per User (ARPU),$14.55,Weighted avg across tiers,SaaS: $10-50,Good
+Customer Lifetime (months),24,1 / Monthly Churn Rate,SaaS: 18-36 months,Good
+Monthly Churn Rate,4.2%,Assumed Year 1 (improve to 2.5% by Year 3),SaaS: 3-5%,Target
+Annual Retention Rate,60%,1 - (1 - Monthly Churn)^12,SaaS: 80-95%,Needs improvement
+Customer Lifetime Value (LTV),$244.44,ARPU × Lifetime × Gross Margin (70%),SaaS: $200-1000,Fair
+Customer Acquisition Cost (CAC),$60,Marketing Spend / New Customers,SaaS: $50-200,Good
+LTV:CAC Ratio,4.1:1,LTV / CAC,Target: >3:1,Excellent
+Payback Period (months),4.1,CAC / (ARPU × Gross Margin),Target: <12 months,Excellent
+Monthly Revenue Churn (%),$3.0%,Revenue lost from churned customers,Target: <5%,Good
+Net Revenue Retention (NRR),102%,Includes expansion - churn,Target: >100%,Good
+Rule of 40,48%,Growth Rate % + EBITDA Margin %,Target: >40%,Healthy
+Months of Runway,6.0,Cash Balance / Monthly Burn,Target: >6 months,Adequate
+
+### SHEET 9: BREAK-EVEN ANALYSIS ###
+
+Scenario,Fixed Costs/Month,Avg Revenue/Customer,Avg COGS/Customer,Contribution Margin,Break-Even Customers,Break-Even MRR,Current Customers,Margin of Safety
+Year 1 (Bootstrap),$1221,$14.55,$4.37,$10.18,120,$1747,150,25%
+Year 2 (1 FT Dev + Support),$4841,$14.55,$4.37,$10.18,476,$6926,500,5%
+Year 3 (Full Team),$10647,$14.55,$4.37,$10.18,1046,$15219,1000,-4%
+
+Note: Year 3 needs >1046 customers to break even with full team OR increase prices/reduce costs
+
+### SHEET 10: SENSITIVITY ANALYSIS - IMPACT ON YEAR 1 NET PROFIT ###
+
+Variable,Base Case,Scenario -20%,Profit Impact -20%,Scenario +20%,Profit Impact +20%,Sensitivity
+Customer Acquisition,150,120,-$3090,180,$3090,High
+Average Revenue/Customer,$14.55,$11.64,-$4365,$17.46,$4365,Very High
+Monthly Churn Rate,4.2%,3.4%,$1200,5.0%,-$1200,Medium
+CAC,$60,$48,$720,$72,-$720,Medium
+Infrastructure Cost/Customer,$0.50,$0.40,$150,$0.60,-$150,Low
+Support Cost/Customer,$2.18,$1.74,$660,$2.62,-$660,Low
+
+### SHEET 11: CAPACITY PLANNING BY POD ###
+
+Pod Configuration,Total RAM,System Overhead,Available for Customers,Hustler Instances (400MB),SME Instances (800MB),Business Instances (1.6GB),Mixed Capacity,Max Customers,Revenue at Capacity
+MVP-A: 1×VPS20 + 3×Storage,12GB,3GB,9GB,22,11,5,~18-25,25,$364
+MVP-B: 1×VPS30,24GB,4GB,20GB,50,25,12,~26-35,35,$509
+Phase 2: 2×VPS40 + Storage,96GB,16GB,80GB,200,100,50,~100-150,150,$2182
+Phase 3: 4×VDS-M + Storage,128GB,20GB,108GB,270,135,67,~400-500,500,$7275
+
+### SHEET 12: QUARTERLY CASH FLOW (YEAR 1) ###
+
+Quarter,Starting Cash,Revenue,COGS,OpEx,Net Cash Flow,Annual Prepays,Total Cash In,Ending Cash,Notes
+Q1,$1000,$900,$270,$3663,-$3033,$400,$1300,-$1733,Need funding or delay hiring
+Q2,-$1733,$3600,$1080,$3663,-$1143,$800,$4400,$1467,Break-even approached
+Q3,$1467,$7200,$2160,$3663,$1377,$1200,$8400,$7644,Profitable!
+Q4,$7644,$12600,$3780,$3663,$5157,$2000,$14600,$18801,Strong growth
+
+Note: Annual prepay boost critical for positive cash flow in Q1-Q2
+
+### SHEET 13: PRICING COMPARISON - SAASODOO VS COMPETITORS ###
+
+Provider,Tier Name,vCPU,RAM,Storage,Price/Month,Price/GB RAM,Price/vCPU,Support,Zimbabwe Features,Notes
+SaaSOdoo,Hustler,1,2GB,10GB,$8.00,$4.00,$8.00,Email + KB,Ecocash ZIMRA Local,BEST VALUE
+SaaSOdoo,SME,2,4GB,20GB,$18.00,$4.50,$9.00,Email + WhatsApp,Ecocash ZIMRA Local,COMPETITIVE
+SaaSOdoo,Business,4,8GB,50GB,$35.00,$4.38,$8.75,Priority + WhatsApp,Ecocash ZIMRA Local,PREMIUM VALUE
+CloudClusters,Express,2,2GB,60GB,$6.99,$3.50,$3.50,Email,None,Cheaper but basic
+CloudClusters,Basic,3,4GB,100GB,$12.99,$3.25,$4.33,Email,None,Close competitor
+CloudClusters,Professional,4,8GB,160GB,$23.99,$3.00,$6.00,24/7,None,Comparable
+CloudPepper,Small,1,2GB,50GB,$70.00,$35.00,$70.00,Email,None,Too expensive
+Odoo.sh,Minimum,N/A,N/A,1GB,$72.25,N/A,N/A,Email,None,Enterprise-focused
+DIY Contabo,VPS 30,8,24GB,200GB,$15.00,$0.63,$1.88,None,DIY,Requires expertise
+
+Value Proposition: Professional managed service with Zimbabwe localization at CloudClusters prices
+
+### SHEET 14: KEY PERFORMANCE INDICATORS (KPIs) TARGETS ###
+
+KPI,Month 3,Month 6,Month 12,Month 24,Month 36,Notes
+Total Customers,10,30,150,500,1000,Growth target
+MRR,$100,$450,$1936,$7275,$14550,Revenue target
+MRR Growth % (MoM),50%,40%,20%,15%,10%,Slows as you scale
+Logo Churn % (Monthly),7%,5%,4%,3%,2.5%,Improve retention over time
+Net Revenue Retention,95%,98%,102%,105%,110%,Expansion revenue kicks in
+CAC,$80,$70,$60,$50,$45,Efficiency improves
+LTV,$180,$220,$280,$380,$480,Better retention + upsells
+LTV:CAC Ratio,2.3:1,3.1:1,4.7:1,7.6:1,10.7:1,Healthy economics
+Customer Support Tickets/Day,5,15,60,200,400,Scale support team accordingly
+Uptime %,99.0%,99.5%,99.7%,99.9%,99.95%,Infrastructure maturity
+NPS Score,40,45,50,55,60,Customer satisfaction
+
+### END OF FINANCIAL MODEL ###
+
+INSTRUCTIONS FOR USE:
+1. Copy this entire file into Excel or Google Sheets
+2. Use "Text to Columns" with comma delimiter to separate into proper columns
+3. Each "### SHEET X ###" section can be a separate worksheet tab
+4. Add formulas to link sheets together (e.g., revenue sheet feeds P&L)
+5. Create charts: MRR growth, customer acquisition, cash flow waterfall
+6. Customize assumptions (churn rate, CAC, pricing) based on your market research
+7. Run scenarios: What if churn is 6%? What if you price Hustler at $10?
+
+NEXT STEPS:
+1. Validate pricing with 20+ customer interviews
+2. Test CAC assumptions with $500 ad spend pilot
+3. Build financial dashboard in Google Sheets with live data connection
+4. Set up monthly financial review cadence (compare actuals vs. projections)
