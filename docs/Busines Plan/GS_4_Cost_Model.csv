@@ -1,0 +1,58 @@
+SHEET 4: COST MODEL (COGS + Operating Expenses)
+
+Month,Hustler Count,SME Count,Business Count,Enterprise Count,Hustler COGS,SME COGS,Business COGS,Enterprise COGS,Variable COGS,Fixed Infra,Fixed Software,Fixed Personnel,Fixed Marketing,Fixed Admin,Total Fixed OpEx,Total Costs,Year
+1,='2. Customer Mix'!I3,='2. Customer Mix'!J3,='2. Customer Mix'!K3,='2. Customer Mix'!L3,=B3*2.5,=C3*5,=D3*11.5,=E3*30.5,=SUM(F3:I3),$21,$50,$800,$250,$100,=SUM(K3:O3),=J3+P3,1
+2,='2. Customer Mix'!I4,='2. Customer Mix'!J4,='2. Customer Mix'!K4,='2. Customer Mix'!L4,=B4*2.5,=C4*5,=D4*11.5,=E4*30.5,=SUM(F4:I4),$21,$50,$800,$250,$100,=SUM(K4:O4),=J4+P4,1
+3,='2. Customer Mix'!I5,='2. Customer Mix'!J5,='2. Customer Mix'!K5,='2. Customer Mix'!L5,=B5*2.5,=C5*5,=D5*11.5,=E5*30.5,=SUM(F5:I5),$21,$50,$800,$250,$100,=SUM(K5:O5),=J5+P5,1
+4,='2. Customer Mix'!I6,='2. Customer Mix'!J6,='2. Customer Mix'!K6,='2. Customer Mix'!L6,=B6*2.5,=C6*5,=D6*11.5,=E6*30.5,=SUM(F6:I6),$21,$50,$800,$250,$100,=SUM(K6:O6),=J6+P6,1
+5,='2. Customer Mix'!I7,='2. Customer Mix'!J7,='2. Customer Mix'!K7,='2. Customer Mix'!L7,=B7*2.5,=C7*5,=D7*11.5,=E7*30.5,=SUM(F7:I7),$21,$50,$800,$250,$100,=SUM(K7:O7),=J7+P7,1
+6,='2. Customer Mix'!I8,='2. Customer Mix'!J8,='2. Customer Mix'!K8,='2. Customer Mix'!L8,=B8*2.5,=C8*5,=D8*11.5,=E8*30.5,=SUM(F8:I8),$21,$50,$800,$250,$100,=SUM(K8:O8),=J8+P8,1
+7,='2. Customer Mix'!I9,='2. Customer Mix'!J9,='2. Customer Mix'!K9,='2. Customer Mix'!L9,=B9*2.5,=C9*5,=D9*11.5,=E9*30.5,=SUM(F9:I9),$21,$50,$800,$250,$100,=SUM(K9:O9),=J9+P9,1
+8,='2. Customer Mix'!I10,='2. Customer Mix'!J10,='2. Customer Mix'!K10,='2. Customer Mix'!L10,=B10*2.5,=C10*5,=D10*11.5,=E10*30.5,=SUM(F10:I10),$21,$50,$800,$250,$100,=SUM(K10:O10),=J10+P10,1
+9,='2. Customer Mix'!I11,='2. Customer Mix'!J11,='2. Customer Mix'!K11,='2. Customer Mix'!L11,=B11*2.5,=C11*5,=D11*11.5,=E11*30.5,=SUM(F11:I11),$21,$50,$800,$250,$100,=SUM(K11:O11),=J11+P11,1
+10,='2. Customer Mix'!I12,='2. Customer Mix'!J12,='2. Customer Mix'!K12,='2. Customer Mix'!L12,=B12*2.5,=C12*5,=D12*11.5,=E12*30.5,=SUM(F12:I12),$21,$50,$800,$250,$100,=SUM(K12:O12),=J12+P12,1
+11,='2. Customer Mix'!I13,='2. Customer Mix'!J13,='2. Customer Mix'!K13,='2. Customer Mix'!L13,=B13*2.5,=C13*5,=D13*11.5,=E13*30.5,=SUM(F13:I13),$21,$50,$800,$250,$100,=SUM(K13:O13),=J13+P13,1
+12,='2. Customer Mix'!I14,='2. Customer Mix'!J14,='2. Customer Mix'!K14,='2. Customer Mix'!L14,=B14*2.5,=C14*5,=D14*11.5,=E14*30.5,=SUM(F14:I14),$21,$50,$800,$250,$100,=SUM(K14:O14),=J14+P14,1
+13,='2. Customer Mix'!I15,='2. Customer Mix'!J15,='2. Customer Mix'!K15,='2. Customer Mix'!L15,=B15*2.5,=C15*5,=D15*11.5,=E15*30.5,=SUM(F15:I15),$141,$100,$2800,$1000,$300,=SUM(K15:O15),=J15+P15,2
+14,='2. Customer Mix'!I16,='2. Customer Mix'!J16,='2. Customer Mix'!K16,='2. Customer Mix'!L16,=B16*2.5,=C16*5,=D16*11.5,=E16*30.5,=SUM(F16:I16),$141,$100,$2800,$1000,$300,=SUM(K16:O16),=J16+P16,2
+15,='2. Customer Mix'!I17,='2. Customer Mix'!J17,='2. Customer Mix'!K17,='2. Customer Mix'!L17,=B17*2.5,=C17*5,=D17*11.5,=E17*30.5,=SUM(F17:I17),$141,$100,$2800,$1000,$300,=SUM(K17:O17),=J17+P17,2
+16,='2. Customer Mix'!I18,='2. Customer Mix'!J18,='2. Customer Mix'!K18,='2. Customer Mix'!L18,=B18*2.5,=C18*5,=D18*11.5,=E18*30.5,=SUM(F18:I18),$141,$100,$2800,$1000,$300,=SUM(K18:O18),=J18+P18,2
+17,='2. Customer Mix'!I19,='2. Customer Mix'!J19,='2. Customer Mix'!K19,='2. Customer Mix'!L19,=B19*2.5,=C19*5,=D19*11.5,=E19*30.5,=SUM(F19:I19),$141,$100,$2800,$1000,$300,=SUM(K19:O19),=J19+P19,2
+18,='2. Customer Mix'!I20,='2. Customer Mix'!J20,='2. Customer Mix'!K20,='2. Customer Mix'!L20,=B20*2.5,=C20*5,=D20*11.5,=E20*30.5,=SUM(F20:I20),$141,$100,$2800,$1000,$300,=SUM(K20:O20),=J20+P20,2
+19,='2. Customer Mix'!I21,='2. Customer Mix'!J21,='2. Customer Mix'!K21,='2. Customer Mix'!L21,=B21*2.5,=C21*5,=D21*11.5,=E21*30.5,=SUM(F21:I21),$141,$100,$2800,$1000,$300,=SUM(K21:O21),=J21+P21,2
+20,='2. Customer Mix'!I22,='2. Customer Mix'!J22,='2. Customer Mix'!K22,='2. Customer Mix'!L22,=B22*2.5,=C22*5,=D22*11.5,=E22*30.5,=SUM(F22:I22),$141,$100,$2800,$1000,$300,=SUM(K22:O22),=J22+P22,2
+21,='2. Customer Mix'!I23,='2. Customer Mix'!J23,='2. Customer Mix'!K23,='2. Customer Mix'!L23,=B23*2.5,=C23*5,=D23*11.5,=E23*30.5,=SUM(F23:I23),$141,$100,$2800,$1000,$300,=SUM(K23:O23),=J23+P23,2
+22,='2. Customer Mix'!I24,='2. Customer Mix'!J24,='2. Customer Mix'!K24,='2. Customer Mix'!L24,=B24*2.5,=C24*5,=D24*11.5,=E24*30.5,=SUM(F24:I24),$141,$100,$2800,$1000,$300,=SUM(K24:O24),=J24+P24,2
+23,='2. Customer Mix'!I25,='2. Customer Mix'!J25,='2. Customer Mix'!K25,='2. Customer Mix'!L25,=B25*2.5,=C25*5,=D25*11.5,=E25*30.5,=SUM(F25:I25),$141,$100,$2800,$1000,$300,=SUM(K25:O25),=J25+P25,2
+24,='2. Customer Mix'!I26,='2. Customer Mix'!J26,='2. Customer Mix'!K26,='2. Customer Mix'!L26,=B26*2.5,=C26*5,=D26*11.5,=E26*30.5,=SUM(F26:I26),$141,$100,$2800,$1000,$300,=SUM(K26:O26),=J26+P26,2
+25,='2. Customer Mix'!I27,='2. Customer Mix'!J27,='2. Customer Mix'!K27,='2. Customer Mix'!L27,=B27*2.5,=C27*5,=D27*11.5,=E27*30.5,=SUM(F27:I27),$447,$200,$6000,$2000,$500,=SUM(K27:O27),=J27+P27,3
+26,='2. Customer Mix'!I28,='2. Customer Mix'!J28,='2. Customer Mix'!K28,='2. Customer Mix'!L28,=B28*2.5,=C28*5,=D28*11.5,=E28*30.5,=SUM(F28:I28),$447,$200,$6000,$2000,$500,=SUM(K28:O28),=J28+P28,3
+27,='2. Customer Mix'!I29,='2. Customer Mix'!J29,='2. Customer Mix'!K29,='2. Customer Mix'!L29,=B29*2.5,=C29*5,=D29*11.5,=E29*30.5,=SUM(F29:I29),$447,$200,$6000,$2000,$500,=SUM(K29:O29),=J29+P29,3
+28,='2. Customer Mix'!I30,='2. Customer Mix'!J30,='2. Customer Mix'!K30,='2. Customer Mix'!L30,=B30*2.5,=C30*5,=D30*11.5,=E30*30.5,=SUM(F30:I30),$447,$200,$6000,$2000,$500,=SUM(K30:O30),=J30+P30,3
+29,='2. Customer Mix'!I31,='2. Customer Mix'!J31,='2. Customer Mix'!K31,='2. Customer Mix'!L31,=B31*2.5,=C31*5,=D31*11.5,=E31*30.5,=SUM(F31:I31),$447,$200,$6000,$2000,$500,=SUM(K31:O31),=J31+P31,3
+30,='2. Customer Mix'!I32,='2. Customer Mix'!J32,='2. Customer Mix'!K32,='2. Customer Mix'!L32,=B32*2.5,=C32*5,=D32*11.5,=E32*30.5,=SUM(F32:I32),$447,$200,$6000,$2000,$500,=SUM(K32:O32),=J32+P32,3
+31,='2. Customer Mix'!I33,='2. Customer Mix'!J33,='2. Customer Mix'!K33,='2. Customer Mix'!L33,=B33*2.5,=C33*5,=D33*11.5,=E33*30.5,=SUM(F33:I33),$447,$200,$6000,$2000,$500,=SUM(K33:O33),=J33+P33,3
+32,='2. Customer Mix'!I34,='2. Customer Mix'!J34,='2. Customer Mix'!K34,='2. Customer Mix'!L34,=B34*2.5,=C34*5,=D34*11.5,=E34*30.5,=SUM(F34:I34),$447,$200,$6000,$2000,$500,=SUM(K34:O34),=J34+P34,3
+33,='2. Customer Mix'!I35,='2. Customer Mix'!J35,='2. Customer Mix'!K35,='2. Customer Mix'!L35,=B35*2.5,=C35*5,=D35*11.5,=E35*30.5,=SUM(F35:I35),$447,$200,$6000,$2000,$500,=SUM(K35:O35),=J35+P35,3
+34,='2. Customer Mix'!I36,='2. Customer Mix'!J36,='2. Customer Mix'!K36,='2. Customer Mix'!L36,=B36*2.5,=C36*5,=D36*11.5,=E36*30.5,=SUM(F36:I36),$447,$200,$6000,$2000,$500,=SUM(K36:O36),=J36+P36,3
+35,='2. Customer Mix'!I37,='2. Customer Mix'!J37,='2. Customer Mix'!K37,='2. Customer Mix'!L37,=B37*2.5,=C37*5,=D37*11.5,=E37*30.5,=SUM(F37:I37),$447,$200,$6000,$2000,$500,=SUM(K37:O37),=J37+P37,3
+36,='2. Customer Mix'!I38,='2. Customer Mix'!J38,='2. Customer Mix'!K38,='2. Customer Mix'!L38,=B38*2.5,=C38*5,=D38*11.5,=E38*30.5,=SUM(F38:I38),$447,$200,$6000,$2000,$500,=SUM(K38:O38),=J38+P38,3
+
+COST BREAKDOWN PER TIER (Reference from Assumptions)
+Tier,Infra,Storage,Backup,Bandwidth,Payment 2.5%,Support,Platform,Total COGS
+Hustler,$0.50,$0.20,$0.15,$0.05,Varies,$1.00,$0.40,$2.50 + payment%
+SME,$1.00,$0.50,$0.30,$0.10,Varies,$2.00,$0.65,$5.00 + payment%
+Business,$2.00,$1.50,$0.75,$0.20,Varies,$5.00,$1.17,$11.50 + payment%
+Enterprise,$5.00,$5.00,$2.00,$0.50,Varies,$15.00,$3.00,$30.50 + payment%
+
+Note: Payment processing (2.5% of revenue) included in variable COGS calculation
+Hustler: $8 × 2.5% = $0.20 → Total = $2.70
+SME: $18 × 2.5% = $0.45 → Total = $5.45
+Business: $35 × 2.5% = $0.88 → Total = $12.38
+Enterprise: $150 × 2.5% = $3.75 → Total = $34.25
+
+FORMULAS:
+Customer counts from Customer Mix sheet
+Variable COGS = Customers × COGS per tier (simplified to $2.5 $5 $11.5 $30.5 including payment processing average)
+Fixed costs change by year (Year 1: months 1-12 Year 2: months 13-24 Year 3: months 25-36)
+Total Costs = Variable COGS + Fixed OpEx

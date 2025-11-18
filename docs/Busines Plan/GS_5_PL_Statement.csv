@@ -1,0 +1,54 @@
+SHEET 5: P&L STATEMENT (Profit & Loss)
+
+Month,Total Customers,MRR,Monthly Revenue,Variable COGS,Fixed OpEx,Total Costs,Gross Profit,Gross Margin %,Operating Profit,Operating Margin %,Year
+1,='2. Customer Mix'!M3,='3. Revenue Model'!J3,='3. Revenue Model'!L3,='4. Cost Model'!J3,='4. Cost Model'!P3,='4. Cost Model'!Q3,=D3-E3,=H3/D3,=D3-G3,=J3/D3,1
+2,='2. Customer Mix'!M4,='3. Revenue Model'!J4,='3. Revenue Model'!L4,='4. Cost Model'!J4,='4. Cost Model'!P4,='4. Cost Model'!Q4,=D4-E4,=H4/D4,=D4-G4,=J4/D4,1
+3,='2. Customer Mix'!M5,='3. Revenue Model'!J5,='3. Revenue Model'!L5,='4. Cost Model'!J5,='4. Cost Model'!P5,='4. Cost Model'!Q5,=D5-E5,=H5/D5,=D5-G5,=J5/D5,1
+4,='2. Customer Mix'!M6,='3. Revenue Model'!J6,='3. Revenue Model'!L6,='4. Cost Model'!J6,='4. Cost Model'!P6,='4. Cost Model'!Q6,=D6-E6,=H6/D6,=D6-G6,=J6/D6,1
+5,='2. Customer Mix'!M7,='3. Revenue Model'!J7,='3. Revenue Model'!L7,='4. Cost Model'!J7,='4. Cost Model'!P7,='4. Cost Model'!Q7,=D7-E7,=H7/D7,=D7-G7,=J7/D7,1
+6,='2. Customer Mix'!M8,='3. Revenue Model'!J8,='3. Revenue Model'!L8,='4. Cost Model'!J8,='4. Cost Model'!P8,='4. Cost Model'!Q8,=D8-E8,=H8/D8,=D8-G8,=J8/D8,1
+7,='2. Customer Mix'!M9,='3. Revenue Model'!J9,='3. Revenue Model'!L9,='4. Cost Model'!J9,='4. Cost Model'!P9,='4. Cost Model'!Q9,=D9-E9,=H9/D9,=D9-G9,=J9/D9,1
+8,='2. Customer Mix'!M10,='3. Revenue Model'!J10,='3. Revenue Model'!L10,='4. Cost Model'!J10,='4. Cost Model'!P10,='4. Cost Model'!Q10,=D10-E10,=H10/D10,=D10-G10,=J10/D10,1
+9,='2. Customer Mix'!M11,='3. Revenue Model'!J11,='3. Revenue Model'!L11,='4. Cost Model'!J11,='4. Cost Model'!P11,='4. Cost Model'!Q11,=D11-E11,=H11/D11,=D11-G11,=J11/D11,1
+10,='2. Customer Mix'!M12,='3. Revenue Model'!J12,='3. Revenue Model'!L12,='4. Cost Model'!J12,='4. Cost Model'!P12,='4. Cost Model'!Q12,=D12-E12,=H12/D12,=D12-G12,=J12/D12,1
+11,='2. Customer Mix'!M13,='3. Revenue Model'!J13,='3. Revenue Model'!L13,='4. Cost Model'!J13,='4. Cost Model'!P13,='4. Cost Model'!Q13,=D13-E13,=H13/D13,=D13-G13,=J13/D13,1
+12,='2. Customer Mix'!M14,='3. Revenue Model'!J14,='3. Revenue Model'!L14,='4. Cost Model'!J14,='4. Cost Model'!P14,='4. Cost Model'!Q14,=D14-E14,=H14/D14,=D14-G14,=J14/D14,1
+13,='2. Customer Mix'!M15,='3. Revenue Model'!J15,='3. Revenue Model'!L15,='4. Cost Model'!J15,='4. Cost Model'!P15,='4. Cost Model'!Q15,=D15-E15,=H15/D15,=D15-G15,=J15/D15,2
+14,='2. Customer Mix'!M16,='3. Revenue Model'!J16,='3. Revenue Model'!L16,='4. Cost Model'!J16,='4. Cost Model'!P16,='4. Cost Model'!Q16,=D16-E16,=H16/D16,=D16-G16,=J16/D16,2
+15,='2. Customer Mix'!M17,='3. Revenue Model'!J17,='3. Revenue Model'!L17,='4. Cost Model'!J17,='4. Cost Model'!P17,='4. Cost Model'!Q17,=D17-E17,=H17/D17,=D17-G17,=J17/D17,2
+16,='2. Customer Mix'!M18,='3. Revenue Model'!J18,='3. Revenue Model'!L18,='4. Cost Model'!J18,='4. Cost Model'!P18,='4. Cost Model'!Q18,=D18-E18,=H18/D18,=D18-G18,=J18/D18,2
+17,='2. Customer Mix'!M19,='3. Revenue Model'!J19,='3. Revenue Model'!L19,='4. Cost Model'!J19,='4. Cost Model'!P19,='4. Cost Model'!Q19,=D19-E19,=H19/D19,=D19-G19,=J19/D19,2
+18,='2. Customer Mix'!M20,='3. Revenue Model'!J20,='3. Revenue Model'!L20,='4. Cost Model'!J20,='4. Cost Model'!P20,='4. Cost Model'!Q20,=D20-E20,=H20/D20,=D20-G20,=J20/D20,2
+19,='2. Customer Mix'!M21,='3. Revenue Model'!J21,='3. Revenue Model'!L21,='4. Cost Model'!J21,='4. Cost Model'!P21,='4. Cost Model'!Q21,=D21-E21,=H21/D21,=D21-G21,=J21/D21,2
+20,='2. Customer Mix'!M22,='3. Revenue Model'!J22,='3. Revenue Model'!L22,='4. Cost Model'!J22,='4. Cost Model'!P22,='4. Cost Model'!Q22,=D22-E22,=H22/D22,=D22-G22,=J22/D22,2
+21,='2. Customer Mix'!M23,='3. Revenue Model'!J23,='3. Revenue Model'!L23,='4. Cost Model'!J23,='4. Cost Model'!P23,='4. Cost Model'!Q23,=D23-E23,=H23/D23,=D23-G23,=J23/D23,2
+22,='2. Customer Mix'!M24,='3. Revenue Model'!J24,='3. Revenue Model'!L24,='4. Cost Model'!J24,='4. Cost Model'!P24,='4. Cost Model'!Q24,=D24-E24,=H24/D24,=D24-G24,=J24/D24,2
+23,='2. Customer Mix'!M25,='3. Revenue Model'!J25,='3. Revenue Model'!L25,='4. Cost Model'!J25,='4. Cost Model'!P25,='4. Cost Model'!Q25,=D25-E25,=H25/D25,=D25-G25,=J25/D25,2
+24,='2. Customer Mix'!M26,='3. Revenue Model'!J26,='3. Revenue Model'!L26,='4. Cost Model'!J26,='4. Cost Model'!P26,='4. Cost Model'!Q26,=D26-E26,=H26/D26,=D26-G26,=J26/D26,2
+25,='2. Customer Mix'!M27,='3. Revenue Model'!J27,='3. Revenue Model'!L27,='4. Cost Model'!J27,='4. Cost Model'!P27,='4. Cost Model'!Q27,=D27-E27,=H27/D27,=D27-G27,=J27/D27,3
+26,='2. Customer Mix'!M28,='3. Revenue Model'!J28,='3. Revenue Model'!L28,='4. Cost Model'!J28,='4. Cost Model'!P28,='4. Cost Model'!Q28,=D28-E28,=H28/D28,=D28-G28,=J28/D28,3
+27,='2. Customer Mix'!M29,='3. Revenue Model'!J29,='3. Revenue Model'!L29,='4. Cost Model'!J29,='4. Cost Model'!P29,='4. Cost Model'!Q29,=D29-E29,=H29/D29,=D29-G29,=J29/D29,3
+28,='2. Customer Mix'!M30,='3. Revenue Model'!J30,='3. Revenue Model'!L30,='4. Cost Model'!J30,='4. Cost Model'!P30,='4. Cost Model'!Q30,=D30-E30,=H30/D30,=D30-G30,=J30/D30,3
+29,='2. Customer Mix'!M31,='3. Revenue Model'!J31,='3. Revenue Model'!L31,='4. Cost Model'!J31,='4. Cost Model'!P31,='4. Cost Model'!Q31,=D31-E31,=H31/D31,=D31-G31,=J31/D31,3
+30,='2. Customer Mix'!M32,='3. Revenue Model'!J32,='3. Revenue Model'!L32,='4. Cost Model'!J32,='4. Cost Model'!P32,='4. Cost Model'!Q32,=D32-E32,=H32/D32,=D32-G32,=J32/D32,3
+31,='2. Customer Mix'!M33,='3. Revenue Model'!J33,='3. Revenue Model'!L33,='4. Cost Model'!J33,='4. Cost Model'!P33,='4. Cost Model'!Q33,=D33-E33,=H33/D33,=D33-G33,=J33/D33,3
+32,='2. Customer Mix'!M34,='3. Revenue Model'!J34,='3. Revenue Model'!L34,='4. Cost Model'!J34,='4. Cost Model'!P34,='4. Cost Model'!Q34,=D34-E34,=H34/D34,=D34-G34,=J34/D34,3
+33,='2. Customer Mix'!M35,='3. Revenue Model'!J35,='3. Revenue Model'!L35,='4. Cost Model'!J35,='4. Cost Model'!P35,='4. Cost Model'!Q35,=D35-E35,=H35/D35,=D35-G35,=J35/D35,3
+34,='2. Customer Mix'!M36,='3. Revenue Model'!J36,='3. Revenue Model'!L36,='4. Cost Model'!J36,='4. Cost Model'!P36,='4. Cost Model'!Q36,=D36-E36,=H36/D36,=D36-G36,=J36/D36,3
+35,='2. Customer Mix'!M37,='3. Revenue Model'!J37,='3. Revenue Model'!L37,='4. Cost Model'!J37,='4. Cost Model'!P37,='4. Cost Model'!Q37,=D37-E37,=H37/D37,=D37-G37,=J37/D37,3
+36,='2. Customer Mix'!M38,='3. Revenue Model'!J38,='3. Revenue Model'!L38,='4. Cost Model'!J38,='4. Cost Model'!P38,='4. Cost Model'!Q38,=D38-E38,=H38/D38,=D38-G38,=J38/D38,3
+
+ANNUAL SUMMARY
+Year,Revenue,COGS,Gross Profit,Gross Margin %,OpEx,Operating Profit,Operating Margin %
+Year 1,=SUM(D3:D14),=SUM(E3:E14),=SUM(H3:H14),=B41/A41,=SUM(F3:F14),=SUM(J3:J14),=F41/A41
+Year 2,=SUM(D15:D26),=SUM(E15:E26),=SUM(H15:H26),=B42/A42,=SUM(F15:F26),=SUM(J15:J26),=F42/A42
+Year 3,=SUM(D27:D38),=SUM(E27:E38),=SUM(H27:H38),=B43/A43,=SUM(F27:F38),=SUM(J27:J38),=F43/A43
+
+FORMULAS:
+Monthly Revenue from Revenue Model sheet (includes cash revenue)
+Variable COGS from Cost Model
+Fixed OpEx from Cost Model
+Gross Profit = Revenue - COGS
+Gross Margin % = Gross Profit / Revenue
+Operating Profit = Revenue - Total Costs
+Operating Margin % = Operating Profit / Revenue
