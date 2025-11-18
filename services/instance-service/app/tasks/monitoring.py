@@ -523,11 +523,11 @@ async def _update_instance_status_from_event(instance_id: str, status: str, even
                            status=status)
                 return {"updated": False, "reason": "status_unchanged"}
             
-            # Update instance status and container info
+            # Update instance status and service info
             await conn.execute("""
-                UPDATE instances 
-                SET status = $1, 
-                    container_name = $2,
+                UPDATE instances
+                SET status = $1,
+                    service_name = $2,
                     updated_at = $3,
                     last_health_check = $4,
                     error_message = NULL

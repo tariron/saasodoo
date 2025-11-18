@@ -4,6 +4,7 @@ Celery configuration for instance service background tasks
 
 import os
 from celery import Celery
+from kombu import Queue
 
 # Create Celery app
 celery_app = Celery(
@@ -11,6 +12,14 @@ celery_app = Celery(
     broker=f"amqp://{os.getenv('RABBITMQ_USER', 'saasodoo')}:{os.getenv('RABBITMQ_PASSWORD', 'saasodoo123')}@{os.getenv('RABBITMQ_HOST', 'rabbitmq')}:{os.getenv('RABBITMQ_PORT', '5672')}/{os.getenv('RABBITMQ_VHOST', 'saasodoo')}",
     backend=f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}",
     include=['app.tasks.provisioning', 'app.tasks.lifecycle', 'app.tasks.maintenance', 'app.tasks.monitoring']
+)
+
+# Explicitly define queues as quorum queues
+celery_app.conf.task_queues = (
+    Queue('instance_provisioning', queue_arguments={'x-queue-type': 'quorum'}),
+    Queue('instance_operations', queue_arguments={'x-queue-type': 'quorum'}),
+    Queue('instance_maintenance', queue_arguments={'x-queue-type': 'quorum'}),
+    Queue('instance_monitoring', queue_arguments={'x-queue-type': 'quorum'}),
 )
 
 # Configuration
