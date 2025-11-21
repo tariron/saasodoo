@@ -37,6 +37,94 @@ cd /root
 
 ---
 
+### Step 1.5: Configure SSH Keys for Passwordless Access
+
+**IMPORTANT**: This step must be completed before adding worker nodes to ensure Ceph scripts work without password prompts.
+
+#### On Manager Node (10.0.0.2):
+
+**1. Generate SSH key pair:**
+```bash
+# Generate 4096-bit RSA key for Ceph cluster
+ssh-keygen -t rsa -b 4096 -f /etc/ceph/ceph -N "" -C "ceph-$(cat /etc/ceph/ceph.conf | grep fsid | awk '{print $3}')"
+
+# Verify both keys exist
+ls -la /etc/ceph/ceph*
+```
+
+**2. Configure SSH to use this key:**
+```bash
+# Create SSH config
+mkdir -p ~/.ssh
+cat >> ~/.ssh/config << 'EOF'
+Host 10.0.0.1 10.0.0.2 10.0.0.3
+    IdentityFile /etc/ceph/ceph
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+EOF
+chmod 600 ~/.ssh/config
+```
+
+**3. Display the public key (you'll need this for workers):**
+```bash
+cat /etc/ceph/ceph.pub
+```
+
+#### On Each Worker Node (10.0.0.1, 10.0.0.3):
+
+**CRITICAL**: The SSH public key MUST be on a single line in authorized_keys. Line wrapping will break authentication.
+
+**Method 1 - Using nano (Recommended):**
+```bash
+# On each worker, edit authorized_keys with nano (disables line wrapping)
+nano -w ~/.ssh/authorized_keys
+
+# Paste the public key from manager (/etc/ceph/ceph.pub)
+# It should be ONE complete line starting with "ssh-rsa"
+# Press Ctrl+X, Y, Enter to save
+
+# Set correct permissions
+chmod 600 ~/.ssh/authorized_keys
+chmod 700 ~/.ssh
+```
+
+**Method 2 - Using scp from workers:**
+```bash
+# If you can SSH from worker to manager
+scp root@10.0.0.2:/etc/ceph/ceph.pub /tmp/manager_key.pub
+cat /tmp/manager_key.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+**4. Verify SSH key was added correctly:**
+```bash
+# On each worker, check the key fingerprint
+ssh-keygen -lf ~/.ssh/authorized_keys
+
+# Should show a 4096-bit RSA key matching the manager's fingerprint
+```
+
+#### Back on Manager - Test Passwordless SSH:
+
+```bash
+# Test SSH to both workers
+ssh root@10.0.0.1 'echo "SSH to worker 1 SUCCESS"'
+ssh root@10.0.0.3 'echo "SSH to worker 2 SUCCESS"'
+
+# Test Ceph script (should not ask for password)
+cd /root/saasodoo/infrastructure/Ceph
+./ceph-operations.sh status
+```
+
+**Expected Result**: All SSH commands work without password prompts.
+
+**Troubleshooting**:
+- If SSH still asks for password, verify the key fingerprints match
+- Ensure authorized_keys has the key on ONE line (not wrapped)
+- Check permissions: 600 on authorized_keys, 700 on ~/.ssh directory
+
+---
+
 ### Step 2: Prepare Worker Nodes
 
 Run the worker setup script on **each node** (including manager):
@@ -485,7 +573,7 @@ All Odoo data will now be stored on CephFS at `/mnt/cephfs/`.
 1. **Minimum 3 Nodes**: Ceph requires at least 3 nodes for proper replication
 2. **Network Stability**: All nodes must be on the same private network
 3. **Time Sync**: Ensure all nodes have synchronized time (NTP)
-4. **SSH Keys**: Manager automatically distributes SSH keys to workers
+4. **SSH Keys**: Must be manually configured on manager and distributed to workers (see Step 1.5)
 5. **Loop Devices**: Persist across reboots via `/etc/rc.local`
 6. **Sparse Files**: OSD files grow dynamically as data is added
 7. **Replication**: Data is replicated 3x by default (configurable)
@@ -497,12 +585,13 @@ All Odoo data will now be stored on CephFS at `/mnt/cephfs/`.
 
 **Initial Setup** (3 nodes):
 1. `./ceph-cluster-manager.sh --reinstall` (manager)
-2. `./ceph-worker-setup.sh` (all 3 nodes)
-3. `./ceph-operations.sh add-node <ip>` (2 workers)
-4. `./ceph-operations.sh add-osd <hostname>` (all 3 nodes)
-5. `./ceph-operations.sh setup-cephfs`
-6. `./ceph-operations.sh mount-cephfs [ip]` (all 3 nodes)
-7. `./ceph-operations.sh setup-odoo-storage`
+2. **Configure SSH keys** (manager + all workers) - **Step 1.5**
+3. `./ceph-worker-setup.sh` (all 3 nodes)
+4. `./ceph-operations.sh add-node <ip>` (2 workers)
+5. `./ceph-operations.sh add-osd <hostname>` (all 3 nodes)
+6. `./ceph-operations.sh setup-cephfs`
+7. `./ceph-operations.sh mount-cephfs [ip]` (all 3 nodes)
+8. `./ceph-operations.sh setup-odoo-storage`
 
 **Adding Nodes** (later):
 1. `./ceph-worker-setup.sh` (new node)

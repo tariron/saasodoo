@@ -50,19 +50,28 @@ This script automates the removal and installation of a Ceph cluster on the mana
 
 ## After Installation
 
-### 1. Copy SSH Key to Other Nodes
-The SSH public key is saved in `/etc/ceph/ceph.pub`. Copy it to the other nodes:
+### 1. Configure SSH Keys for Passwordless Access
 
-```bash
-# Display the key
-cat /etc/ceph/ceph.pub
+**IMPORTANT**: SSH keys must be properly configured for Ceph operations to work without password prompts.
 
-# Copy to other nodes (if SSH password auth is enabled)
-ssh-copy-id -i /etc/ceph/ceph.pub root@10.0.0.1
-ssh-copy-id -i /etc/ceph/ceph.pub root@10.0.0.3
-```
+The SSH key pair is saved in `/etc/ceph/ceph` (private) and `/etc/ceph/ceph.pub` (public).
 
-Or manually add the key to `/root/.ssh/authorized_keys` on each node.
+**Complete instructions are in CEPH-SETUP-GUIDE.md, Step 1.5**
+
+**Quick Summary:**
+1. Generate SSH key pair on manager (if not already created during bootstrap)
+2. Configure SSH to use `/etc/ceph/ceph` key for cluster nodes
+3. Manually copy public key to each worker's `~/.ssh/authorized_keys`
+4. **CRITICAL**: Key must be on ONE line in authorized_keys (no line wrapping)
+5. Test passwordless SSH before proceeding
+
+**Why manual setup?**
+- `ssh-copy-id` often fails due to SSH daemon restrictions
+- Echo/printf commands can wrap long 4096-bit keys across lines
+- Line-wrapped keys in authorized_keys break authentication
+- Manual setup with `nano -w` ensures key stays on single line
+
+See detailed instructions in **CEPH-SETUP-GUIDE.md Section "Step 1.5"**
 
 ### 2. Add Nodes to Cluster
 ```bash
