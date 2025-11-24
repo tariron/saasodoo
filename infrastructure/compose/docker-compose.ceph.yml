@@ -527,8 +527,8 @@ services:
   instance-worker:
     image: registry.62.171.153.219.nip.io/compose-instance-worker:latest
     stop_signal: SIGQUIT
-    stop_grace_period: 60s
-    command: celery -A app.celery_config worker --loglevel=info --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
+    stop_grace_period: 120s
+    command: celery -A app.celery_config worker --loglevel=info --pool=threads --concurrency=16 --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
     environment:
       # Database Configuration - Service-specific credentials (Platform DB - postgres1)
       POSTGRES_HOST: postgres
@@ -560,14 +560,18 @@ services:
       RABBITMQ_VHOST: saasodoo
       RABBITMQ_USER: ${RABBITMQ_USER:-saasodoo}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-saasodoo123}
-      
+
       # Docker Configuration (for instance lifecycle management)
       DOCKER_HOST: unix:///var/run/docker.sock
-      
+
       # Application Configuration
       DEBUG: ${DEBUG:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BASE_DOMAIN: ${BASE_DOMAIN}
+
+      # Celery Configuration - Fix for prefork pool issues
+      C_FORCE_ROOT: "true"
+      CELERY_POOL: threads
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for container management
       - /mnt/cephfs/odoo_backups:/var/lib/odoo/backups  # Backup storage
@@ -579,22 +583,31 @@ services:
       - redis
       - rabbitmq
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.celery_config inspect ping -d celery@$$HOSTNAME"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      test: ["CMD-SHELL", "celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1"]
+      interval: 60s
+      timeout: 20s
+      retries: 5
+      start_period: 60s
     deploy:
       replicas: 1
       placement:
         constraints:
           - node.role == manager
       restart_policy:
-        condition: any
-        delay: 5s
+        condition: on-failure
+        delay: 15s
+        max_attempts: 5
+        window: 120s
       update_config:
         parallelism: 1
         delay: 10s
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
       labels:
         - "traefik.enable=false"
 

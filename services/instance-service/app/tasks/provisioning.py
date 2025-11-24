@@ -405,7 +405,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
 
         # If no running task yet, wait a bit more
         if not running_task:
-            max_wait = 60
+            max_wait = 120  # 2 minutes for image pull + container startup
             waited = 5
             while waited < max_wait and not running_task:
                 await asyncio.sleep(5)
@@ -518,6 +518,7 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
             pass  # Service doesn't exist
 
         # Clean up CephFS directory if created
+        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
         cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
         try:
             if os.path.exists(cephfs_path):
