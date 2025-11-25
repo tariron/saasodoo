@@ -96,16 +96,13 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
         logger.info("Service started", service_id=container_result.get('service_id'))
         
         # Step 3: Wait for Odoo to be accessible
-        await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
+        await _wait_for_odoo_startup(container_result, timeout=300)  # 300 seconds (5 minutes)
         logger.info("Odoo startup confirmed after start")
         
         # Step 4: Update instance with current network info
         await _update_instance_network_info(instance_id, container_result)
-        
-        # Step 5: Mark as RUNNING
-        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
-        
-        # Step 6: Send instance started email
+
+        # Step 5: Send instance started email (reconciliation will set RUNNING status)
         logger.info("Attempting to send instance started email", user_info=user_info)
         if user_info:
             try:
@@ -161,11 +158,8 @@ async def _stop_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 2: Stop Docker container gracefully
         await _stop_docker_container(instance)
         logger.info("Container stopped successfully")
-        
-        # Step 3: Mark as STOPPED
-        await _update_instance_status(instance_id, InstanceStatus.STOPPED)
-        
-        # Step 4: Send instance stopped email
+
+        # Step 3: Send instance stopped email (reconciliation will set STOPPED status)
         logger.info("Attempting to send instance stopped email", user_info=user_info)
         if user_info:
             try:
@@ -217,15 +211,14 @@ async def _restart_instance_workflow(instance_id: str) -> Dict[str, Any]:
         logger.info("Service restarted", service_id=container_result.get('service_id'))
         
         # Step 3: Wait for Odoo to be accessible
-        await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
+        await _wait_for_odoo_startup(container_result, timeout=300)  # 300 seconds (5 minutes)
         logger.info("Odoo startup confirmed after restart")
         
         # Step 4: Update instance with current network info
         await _update_instance_network_info(instance_id, container_result)
-        
-        # Step 5: Mark as RUNNING
-        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
-        
+
+        # Reconciliation will set RUNNING status based on Docker state
+
         return {
             "status": "success",
             "service_id": container_result.get('service_id'),
@@ -249,10 +242,9 @@ async def _unpause_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 1: Unpause Docker container
         await _unpause_docker_container(instance)
         logger.info("Container unpaused successfully")
-        
-        # Step 2: Mark as RUNNING
-        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
-        
+
+        # Docker events monitoring will handle transition to RUNNING status
+
         return {
             "status": "success",
             "message": "Instance unpaused successfully"
@@ -384,7 +376,7 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _stop_docker_container(instance: Dict[str, Any]):
-    """Stop Docker service gracefully (scale to 0)"""
+    """Stop Docker service gracefully (scale to 0) and wait for verification"""
     client = docker.from_env()
 
     service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
@@ -397,7 +389,30 @@ async def _stop_docker_container(instance: Dict[str, Any]):
         # Scale to 0 replicas
         service.update(mode={'Replicated': {'Replicas': 0}})
 
-        logger.info("Service stopped successfully", service_name=service_name)
+        # Wait for all tasks to reach shutdown state
+        for attempt in range(30):  # 60 second timeout
+            await asyncio.sleep(2)
+            service.reload()
+            tasks = service.tasks()
+
+            # Check if all tasks are in terminal states
+            terminal_states = ['shutdown', 'failed', 'rejected', 'orphaned', 'remove']
+            active_tasks = [t for t in tasks if t['Status']['State'] not in terminal_states]
+
+            if not active_tasks:
+                logger.info("All tasks stopped successfully", service_name=service_name)
+                return
+
+            logger.debug(
+                "Waiting for tasks to stop",
+                service_name=service_name,
+                active_count=len(active_tasks),
+                attempt=attempt + 1,
+                states=[t['Status']['State'] for t in active_tasks]
+            )
+
+        # If we get here, timeout occurred
+        raise RuntimeError(f"Service failed to stop within timeout (60s): {len(active_tasks)} tasks still active")
 
     except docker.errors.NotFound:
         logger.warning("Service not found during stop", service_name=service_name)

@@ -241,12 +241,15 @@ class DockerEventMonitor:
                 )
 
             elif event_type == 'update':
-                # For 'update' events, we need to check task states
-                # Schedule a reconciliation for this specific instance
-                logger.info("Service updated - triggering reconciliation",
+                # Service update → check task states to determine status
+                # IMPORTANT: Non-blocking - queues a separate task with 2-second delay for state settling
+                logger.info("Service updated - queueing targeted state check",
                            service=service_name,
                            instance_id=instance_id)
-                reconcile_instance_statuses_task.delay()
+                check_service_task_state_and_health.apply_async(
+                    args=[instance_id, service_name],
+                    countdown=2  # 2-second delay to let Docker Swarm state settle
+                )
 
         except Exception as e:
             logger.error("Failed to process service event", error=str(e), event=event)
@@ -453,6 +456,453 @@ def stop_docker_events_monitoring_task(self):
     except Exception as e:
         logger.error("Failed to stop Docker event monitoring task", error=str(e))
         raise
+
+
+@celery_app.task(bind=True)
+def check_service_task_state_and_health(self, instance_id: str, service_name: str):
+    """
+    Check Docker service task states and queue health check if needed
+
+    This task is triggered by service 'update' events and determines
+    whether the service is running, stopped, or in another state.
+
+    IMPORTANT: This task does NOT block on health checks. Instead, it queues
+    a separate health check task if the service is being scaled up.
+    """
+    try:
+        logger.info("Checking service task state",
+                   instance_id=instance_id,
+                   service_name=service_name,
+                   task_id=self.request.id)
+
+        result = asyncio.run(_check_service_task_state_and_health(instance_id, service_name))
+
+        logger.info("Service task state check completed",
+                   instance_id=instance_id,
+                   result=result,
+                   task_id=self.request.id)
+
+        return result
+    except Exception as e:
+        logger.error("Failed to check service task state",
+                    instance_id=instance_id,
+                    service_name=service_name,
+                    error=str(e),
+                    task_id=self.request.id)
+        raise
+
+
+async def _check_service_task_state_and_health(instance_id: str, service_name: str) -> Dict[str, Any]:
+    """
+    Analyze service task states and queue health check if upscale detected
+
+    Rules:
+    - If running tasks > 0 AND current_status in [starting, restarting, stopped] → queue health check task
+    - If running tasks == 0 AND current_status == stopping → set to stopped immediately
+    - If failed tasks > 0 AND no running tasks → set to error immediately
+    - Otherwise → no change (avoid interfering with update/restore operations)
+
+    IMPORTANT: Does NOT perform health check directly - queues separate task
+    IMPORTANT: Handles manual DevOps operations (stopped → starting)
+    """
+    try:
+        # Get current instance and network info from DB
+        conn = await _get_db_connection()
+        try:
+            instance_row = await conn.fetchrow(
+                "SELECT status, internal_url, database_name FROM instances WHERE id = $1",
+                UUID(instance_id)
+            )
+
+            if not instance_row:
+                logger.warning("Instance not found", instance_id=instance_id)
+                return {"updated": False, "reason": "instance_not_found"}
+
+            current_status = instance_row['status']
+            internal_url = instance_row['internal_url']
+            database_name = instance_row['database_name']
+
+            # Skip if instance is terminated (final state)
+            if current_status == 'terminated':
+                return {"updated": False, "reason": "instance_terminated"}
+
+            # Get Docker service and task states
+            client = docker.from_env()
+            service = client.services.get(service_name)
+
+            # Filter for running tasks only to reduce payload size
+            tasks = service.tasks(filters={'desired-state': 'running'})
+
+            # Tasks in these states indicate the service is being/is scaled up
+            # Docker task lifecycle: new → pending → assigned → preparing → starting → running
+            active_task_states = ['preparing', 'starting', 'running']
+            running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
+            active_tasks = [t for t in tasks if t['Status']['State'] in active_task_states]
+            failed_tasks = [t for t in tasks if t['Status']['State'] == 'failed']
+
+            # Also get all tasks to check for failures/shutdown
+            all_tasks = service.tasks()
+            all_failed_tasks = [t for t in all_tasks if t['Status']['State'] == 'failed']
+
+            # Determine target status based on task states and current status
+            target_status = None
+            should_queue_health_check = False
+
+            # Rule 1: Upscale detected from lifecycle operation (starting/restarting)
+            # Check for active tasks (preparing/starting/running), not just running tasks
+            if len(active_tasks) > 0 and current_status in ['starting', 'restarting']:
+                # Don't update to RUNNING yet - queue health check task instead
+                should_queue_health_check = True
+                logger.info("Detected upscale from lifecycle operation - queueing health check",
+                          instance_id=instance_id,
+                          current_status=current_status,
+                          active_tasks=len(active_tasks),
+                          running_tasks=len(running_tasks))
+
+            # Rule 1b: Manual DevOps scale-up detected (stopped → starting)
+            elif len(active_tasks) > 0 and current_status == 'stopped':
+                # First transition to 'starting' to indicate manual operation detected
+                logger.info("Manual DevOps scale-up detected",
+                          instance_id=instance_id,
+                          running_tasks=len(running_tasks))
+
+                await conn.execute("""
+                    UPDATE instances
+                    SET status = $1, updated_at = $2
+                    WHERE id = $3
+                """, InstanceStatus.STARTING.value, datetime.utcnow(), UUID(instance_id))
+
+                # Queue health check to transition from starting → running
+                should_queue_health_check = True
+
+            # Rule 2: Transition from stopping to stopped
+            elif len(running_tasks) == 0 and current_status == 'stopping':
+                target_status = InstanceStatus.STOPPED.value
+                logger.info("Transitioning to STOPPED",
+                          instance_id=instance_id,
+                          current_status=current_status)
+
+            # Rule 3: Detect failures
+            elif len(all_failed_tasks) > 0 and len(running_tasks) == 0:
+                target_status = InstanceStatus.ERROR.value
+                error_msg = f"Service tasks failed: {len(all_failed_tasks)} failed tasks"
+                logger.error("Service failure detected",
+                           instance_id=instance_id,
+                           failed_tasks=len(all_failed_tasks))
+
+            # Rule 4: No change for other states (update, restore, maintenance, etc.)
+            else:
+                logger.debug("No status update needed",
+                           instance_id=instance_id,
+                           current_status=current_status,
+                           active_tasks=len(active_tasks),
+                           running_tasks=len(running_tasks),
+                           failed_tasks=len(failed_tasks))
+                return {
+                    "updated": False,
+                    "reason": "no_transition_needed",
+                    "current_status": current_status,
+                    "active_tasks": len(active_tasks),
+                    "running_tasks": len(running_tasks)
+                }
+
+            # Queue health check task if upscale detected
+            if should_queue_health_check:
+                # Use Docker Swarm internal DNS name (more reliable than IP scraping)
+                # Format: service_name is already "odoo-{database_name}-{instance_id_hex}"
+                # Docker's internal DNS resolver handles routing to the correct task
+                internal_url = f'http://{service_name}:8069'
+
+                logger.info("Using Docker Swarm DNS for health check",
+                          instance_id=instance_id,
+                          service_name=service_name,
+                          internal_url=internal_url)
+
+                # Queue health check task (non-blocking)
+                logger.info("Queueing Odoo health check task",
+                          instance_id=instance_id,
+                          internal_url=internal_url)
+
+                perform_odoo_health_check_and_update.delay(
+                    instance_id,
+                    internal_url,
+                    current_status
+                )
+
+                return {
+                    "updated": False,
+                    "reason": "health_check_queued",
+                    "current_status": current_status,
+                    "internal_url": internal_url
+                }
+
+            # Update database with target status (atomic update with state validation)
+            if target_status and target_status != current_status:
+                # For STOPPED transitions: only if currently stopping
+                # For ERROR transitions: allow from any non-terminated state
+                if target_status == InstanceStatus.STOPPED.value:
+                    valid_states = ['stopping']
+                elif target_status == InstanceStatus.ERROR.value:
+                    valid_states = ['starting', 'restarting', 'stopping', 'running', 'stopped']
+                else:
+                    valid_states = [current_status]  # Should not happen
+
+                result = await conn.execute("""
+                    UPDATE instances
+                    SET status = $1, updated_at = $2, last_health_check = $3
+                    WHERE id = $4 AND status = ANY($5)
+                """, target_status, datetime.utcnow(), datetime.utcnow(), UUID(instance_id), valid_states)
+
+                # Check if update actually occurred
+                if result == 'UPDATE 0':
+                    logger.warning("Status update blocked - instance state changed",
+                                 instance_id=instance_id,
+                                 expected_status=current_status,
+                                 target_status=target_status)
+                    return {
+                        "updated": False,
+                        "reason": "state_changed_race_condition",
+                        "target_status": target_status
+                    }
+
+                logger.info("Instance status updated from Docker event",
+                          instance_id=instance_id,
+                          old_status=current_status,
+                          new_status=target_status)
+
+                return {
+                    "updated": True,
+                    "old_status": current_status,
+                    "new_status": target_status,
+                    "active_tasks": len(active_tasks),
+                    "running_tasks": len(running_tasks)
+                }
+
+            return {
+                "updated": False,
+                "reason": "status_unchanged",
+                "current_status": current_status
+            }
+
+        finally:
+            await conn.close()
+
+    except docker.errors.NotFound:
+        logger.warning("Service not found", service_name=service_name)
+        return {"updated": False, "reason": "service_not_found"}
+    except Exception as e:
+        logger.error("Error checking service task state", error=str(e))
+        raise
+
+
+@celery_app.task(bind=True)
+def perform_odoo_health_check_and_update(self, instance_id: str, internal_url: str, expected_current_status: str):
+    """
+    Perform Odoo HTTP health check and update status to RUNNING if successful
+
+    This task is queued when Docker event monitor detects service upscale.
+    It runs asynchronously without blocking the event monitoring stream.
+
+    Args:
+        instance_id: Instance UUID
+        internal_url: Odoo internal URL for health check
+        expected_current_status: Expected current status (for validation)
+    """
+    try:
+        logger.info("Starting Odoo health check task",
+                   instance_id=instance_id,
+                   internal_url=internal_url,
+                   task_id=self.request.id)
+
+        result = asyncio.run(_perform_odoo_health_check_and_update(
+            instance_id,
+            internal_url,
+            expected_current_status
+        ))
+
+        logger.info("Odoo health check task completed",
+                   instance_id=instance_id,
+                   result=result,
+                   task_id=self.request.id)
+
+        return result
+
+    except Exception as e:
+        logger.error("Odoo health check task failed",
+                    instance_id=instance_id,
+                    error=str(e),
+                    task_id=self.request.id)
+        # Mark instance as error on health check failure
+        asyncio.run(_update_instance_status_to_error(
+            instance_id,
+            f"Health check failed: {str(e)}"
+        ))
+        raise
+
+
+async def _perform_odoo_health_check_and_update(
+    instance_id: str,
+    internal_url: str,
+    expected_current_status: str
+) -> Dict[str, Any]:
+    """
+    Perform HTTP health check and update instance status to RUNNING
+
+    Waits up to 300 seconds for Odoo to respond with HTTP 200/302/303.
+    Only updates status if current status matches expected (prevents race conditions).
+    """
+    import httpx
+
+    logger.info("Performing Odoo health check",
+               instance_id=instance_id,
+               internal_url=internal_url,
+               expected_status=expected_current_status)
+
+    # Perform HTTP health check with retry
+    timeout = 300  # 300 seconds (5 minutes)
+    check_interval = 5  # Check every 5 seconds
+    start_time = datetime.utcnow()
+    health_check_passed = False
+
+    async with httpx.AsyncClient() as client:
+        while (datetime.utcnow() - start_time).seconds < timeout:
+            try:
+                response = await client.get(internal_url, timeout=10)
+                if response.status_code in [200, 302, 303]:
+                    health_check_passed = True
+                    logger.info("Odoo health check passed",
+                              instance_id=instance_id,
+                              status_code=response.status_code,
+                              elapsed_seconds=(datetime.utcnow() - start_time).seconds)
+                    break
+            except Exception as check_error:
+                logger.debug("Health check attempt failed, will retry",
+                           instance_id=instance_id,
+                           error=str(check_error),
+                           elapsed_seconds=(datetime.utcnow() - start_time).seconds)
+
+            await asyncio.sleep(check_interval)
+
+    if not health_check_passed:
+        logger.error("Odoo health check failed - timeout",
+                    instance_id=instance_id,
+                    internal_url=internal_url,
+                    timeout_seconds=timeout)
+        # Update to ERROR status
+        await _update_instance_status_to_error(
+            instance_id,
+            f"Odoo health check timeout after {timeout}s"
+        )
+        return {
+            "success": False,
+            "reason": "health_check_timeout",
+            "timeout_seconds": timeout
+        }
+
+    # Health check passed - update status to RUNNING
+    # But first verify current status hasn't changed unexpectedly
+    conn = await _get_db_connection()
+    try:
+        current_status = await conn.fetchval(
+            "SELECT status FROM instances WHERE id = $1",
+            UUID(instance_id)
+        )
+
+        if not current_status:
+            logger.warning("Instance not found during health check update",
+                         instance_id=instance_id)
+            return {"success": False, "reason": "instance_not_found"}
+
+        # Only update if still in expected transitional state
+        if current_status not in ['starting', 'restarting']:
+            logger.warning("Instance status changed during health check, not updating",
+                         instance_id=instance_id,
+                         expected_status=expected_current_status,
+                         actual_status=current_status)
+            return {
+                "success": False,
+                "reason": "status_changed",
+                "expected_status": expected_current_status,
+                "actual_status": current_status
+            }
+
+        # Update to RUNNING (atomic - only if still in transitional state)
+        result = await conn.execute("""
+            UPDATE instances
+            SET status = $1, updated_at = $2, last_health_check = $3
+            WHERE id = $4 AND status IN ('starting', 'restarting')
+        """, InstanceStatus.RUNNING.value, datetime.utcnow(), datetime.utcnow(), UUID(instance_id))
+
+        # Check if update was blocked by race condition
+        if result == 'UPDATE 0':
+            # Re-check current status
+            actual_status = await conn.fetchval(
+                "SELECT status FROM instances WHERE id = $1",
+                UUID(instance_id)
+            )
+            logger.warning("Health check status update blocked - state changed during check",
+                         instance_id=instance_id,
+                         expected_states=['starting', 'restarting'],
+                         actual_status=actual_status)
+            return {
+                "success": False,
+                "reason": "status_changed_race_condition",
+                "actual_status": actual_status
+            }
+
+        logger.info("Instance status updated to RUNNING after health check",
+                   instance_id=instance_id,
+                   old_status=current_status)
+
+        return {
+            "success": True,
+            "old_status": current_status,
+            "new_status": InstanceStatus.RUNNING.value,
+            "internal_url": internal_url
+        }
+
+    finally:
+        await conn.close()
+
+
+async def _update_instance_status_to_error(instance_id: str, error_message: str):
+    """Update instance status to ERROR with error message"""
+    conn = await _get_db_connection()
+    try:
+        await conn.execute("""
+            UPDATE instances
+            SET status = $1, error_message = $2, updated_at = $3
+            WHERE id = $4
+        """, InstanceStatus.ERROR.value, error_message, datetime.utcnow(), UUID(instance_id))
+
+        logger.error("Instance status updated to ERROR",
+                    instance_id=instance_id,
+                    error_message=error_message)
+    finally:
+        await conn.close()
+
+
+async def _get_db_connection():
+    """
+    Get database connection using existing patterns
+
+    NOTE: For production with high event volume, consider implementing
+    a connection pool at Celery worker initialization to reuse connections
+    across tasks instead of opening/closing per task.
+
+    Example with asyncpg.create_pool:
+    # In celery worker init:
+    # db_pool = await asyncpg.create_pool(...)
+    # Then use: conn = await db_pool.acquire()
+    """
+    db_config = {
+        'host': os.getenv('POSTGRES_HOST', 'postgres'),
+        'port': int(os.getenv('POSTGRES_PORT', 5432)),
+        'database': os.getenv('POSTGRES_DB', 'instance'),
+        'user': os.getenv('DB_SERVICE_USER', 'instance_service'),
+        'password': os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me'),
+    }
+    return await asyncpg.connect(**db_config)
 
 
 @celery_app.task(bind=True)

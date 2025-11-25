@@ -3,8 +3,12 @@ Celery configuration for instance service background tasks
 """
 
 import os
+import logging
 from celery import Celery
+from celery.signals import worker_ready
 from kombu import Queue
+
+logger = logging.getLogger(__name__)
 
 # Create Celery app
 celery_app = Celery(
@@ -45,6 +49,29 @@ celery_app.conf.update(
     task_retry_jitter=False,
     task_max_retries=0,
 )
+
+
+@worker_ready.connect
+def start_monitoring_on_worker_ready(sender, **kwargs):
+    """
+    Start Docker event monitoring when Celery worker is ready.
+    This ensures monitoring starts automatically when instance-worker restarts,
+    not just when instance-service (FastAPI) restarts.
+    """
+    auto_start = os.getenv('AUTO_START_MONITORING', 'true').lower() == 'true'
+
+    if auto_start:
+        logger.info("Worker ready - auto-starting Docker event monitoring")
+        from app.tasks.monitoring import monitor_docker_events_task
+
+        try:
+            task = monitor_docker_events_task.delay()
+            logger.info(f"Docker event monitoring started from worker: {task.id}")
+        except Exception as e:
+            logger.error(f"Failed to start monitoring from worker: {e}")
+    else:
+        logger.info("Worker ready - monitoring auto-start disabled (AUTO_START_MONITORING=false)")
+
 
 if __name__ == '__main__':
     celery_app.start()

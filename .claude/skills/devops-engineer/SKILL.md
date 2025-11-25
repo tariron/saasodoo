@@ -301,7 +301,26 @@ set -a && source infrastructure/compose/.env.swarm && set +a && \
 docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
 ```
 
-### Force Rebuild Service
+### Rebuild and Redeploy Service from Source
+```bash
+# 1. Build instance-service image
+docker build -t registry.62.171.153.219.nip.io/compose-instance-service:latest -f services/instance-service/Dockerfile .
+
+# 2. Build frontend-service image
+docker build -t registry.62.171.153.219.nip.io/compose-frontend-service:latest -f services/frontend-service/Dockerfile .
+
+# 3. Tag worker image (instance-worker uses same image as instance-service)
+docker tag registry.62.171.153.219.nip.io/compose-instance-service:latest registry.62.171.153.219.nip.io/compose-instance-worker:latest
+
+# 4. Push to registry
+docker push registry.62.171.153.219.nip.io/compose-instance-service:latest && \
+docker push registry.62.171.153.219.nip.io/compose-instance-worker:latest
+
+# 5. Redeploy the stack (picks up new images)
+set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+```
+
+### Force Rebuild Service (Quick)
 ```bash
 # Scale to 0, then back to 1
 docker service scale saasodoo_<service>=0
