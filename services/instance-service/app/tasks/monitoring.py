@@ -582,6 +582,14 @@ async def _check_service_task_state_and_health(instance_id: str, service_name: s
                           instance_id=instance_id,
                           current_status=current_status)
 
+            # Rule 2b: Manual DevOps scale-down detected (running → stopped)
+            elif len(active_tasks) == 0 and current_status == 'running':
+                target_status = InstanceStatus.STOPPED.value
+                logger.info("Manual DevOps scale-down detected",
+                          instance_id=instance_id,
+                          current_status=current_status,
+                          active_tasks=len(active_tasks))
+
             # Rule 3: Detect failures
             elif len(all_failed_tasks) > 0 and len(running_tasks) == 0:
                 target_status = InstanceStatus.ERROR.value
@@ -638,10 +646,10 @@ async def _check_service_task_state_and_health(instance_id: str, service_name: s
 
             # Update database with target status (atomic update with state validation)
             if target_status and target_status != current_status:
-                # For STOPPED transitions: only if currently stopping
+                # For STOPPED transitions: allow from stopping (API stop) or running (manual scale-down)
                 # For ERROR transitions: allow from any non-terminated state
                 if target_status == InstanceStatus.STOPPED.value:
-                    valid_states = ['stopping']
+                    valid_states = ['stopping', 'running']
                 elif target_status == InstanceStatus.ERROR.value:
                     valid_states = ['starting', 'restarting', 'stopping', 'running', 'stopped']
                 else:
