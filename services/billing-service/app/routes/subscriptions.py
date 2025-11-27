@@ -485,6 +485,28 @@ async def upgrade_subscription(
         from ..utils.database import get_plan_entitlements
         new_entitlements = await get_plan_entitlements(upgrade_data.target_plan_name)
 
+        # Fetch the newly created invoice
+        account_id = subscription.get('accountId')
+        pending_invoice = None
+
+        if account_id:
+            try:
+                # Get account invoices
+                invoices = await killbill.get_account_invoices(account_id)
+
+                # Find the newest DRAFT invoice with a balance (just created)
+                for inv in invoices:
+                    if inv.get('status') == 'DRAFT' and inv.get('balance', 0) > 0:
+                        pending_invoice = inv
+                        break
+
+                logger.info(
+                    f"Found pending invoice for upgrade: {pending_invoice.get('invoiceId') if pending_invoice else 'None'}",
+                    extra={"subscription_id": subscription_id, "account_id": account_id}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch invoice after upgrade: {e}", extra={"account_id": account_id})
+
         logger.info(
             f"Upgrade initiated: {current_plan} → {upgrade_data.target_plan_name}",
             extra={
@@ -500,6 +522,7 @@ async def upgrade_subscription(
             "current_plan": current_plan,
             "target_plan": upgrade_data.target_plan_name,
             "price_change": f"${current_price}/mo → ${target_price}/mo",
+            "invoice": pending_invoice,
             "new_resources": {
                 "cpu_limit": float(new_entitlements['cpu_limit']),
                 "memory_limit": new_entitlements['memory_limit'],

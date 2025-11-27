@@ -349,6 +349,7 @@ export interface UpgradeSubscriptionResponse {
   current_plan: string;
   target_plan: string;
   price_change: string;
+  invoice?: Invoice;
   new_resources: {
     cpu_limit: number;
     memory_limit: string;

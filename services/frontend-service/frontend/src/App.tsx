@@ -14,6 +14,7 @@ import BillingInvoices from './pages/BillingInvoices';
 import BillingPayment from './pages/BillingPayment';
 import BillingPaymentStatus from './pages/BillingPaymentStatus';
 import BillingInstanceManage from './pages/BillingInstanceManage';
+import SubscriptionUpgrade from './pages/SubscriptionUpgrade';
 import AuthGuard from './components/AuthGuard';
 import { TokenManager, initializeAPI } from './utils/api';
 
@@ -195,7 +196,16 @@ function App() {
               </AuthGuard>
             }
           />
-          
+
+          <Route
+            path="/billing/instance/:instanceId/upgrade"
+            element={
+              <AuthGuard>
+                <SubscriptionUpgrade />
+              </AuthGuard>
+            }
+          />
+
           {/* User Management routes */}
           <Route 
             path="/profile" 
