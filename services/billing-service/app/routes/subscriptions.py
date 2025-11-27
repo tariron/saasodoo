@@ -423,22 +423,17 @@ async def upgrade_subscription(
 ):
     """
     Initiate subscription upgrade with validation
-
-    Flow:
-    1. Validate upgrade (price-based, no downgrades)
-    2. Change subscription in KillBill (creates invoice)
-    3. User receives invoice and pays
-    4. INVOICE_PAYMENT_SUCCESS webhook applies resources
-
-    Returns upgrade preview (actual changes happen after payment)
     """
     try:
+        import asyncio 
+
         # Get current subscription
         subscription = await killbill.get_subscription_by_id(subscription_id)
         if not subscription:
             raise HTTPException(status_code=404, detail="Subscription not found")
 
         current_plan = subscription.get('planName')
+        account_id = subscription.get('accountId')
 
         # Get all plans with prices from catalog
         plans = await killbill.get_catalog_plans()
@@ -464,7 +459,7 @@ async def upgrade_subscription(
         if target_price < current_price:
             raise HTTPException(
                 status_code=400,
-                detail=f"Downgrades not allowed (${current_price} → ${target_price})"
+                detail=f"Downgrades not allowed (${current_price} -> ${target_price})"
             )
 
         if target_price == current_price:
@@ -485,33 +480,50 @@ async def upgrade_subscription(
         from ..utils.database import get_plan_entitlements
         new_entitlements = await get_plan_entitlements(upgrade_data.target_plan_name)
 
-        # Fetch the newly created invoice
-        account_id = subscription.get('accountId')
+        # --- UPDATED RETRY LOGIC START ---
         pending_invoice = None
-
-        if account_id:
-            try:
-                # Get account invoices
-                invoices = await killbill.get_account_invoices(account_id)
-
-                # Find the newest DRAFT invoice with a balance (just created)
-                for inv in invoices:
-                    if inv.get('status') == 'DRAFT' and inv.get('balance', 0) > 0:
-                        pending_invoice = inv
-                        break
-
-                logger.info(
-                    f"Found pending invoice for upgrade: {pending_invoice.get('invoiceId') if pending_invoice else 'None'}",
-                    extra={"subscription_id": subscription_id, "account_id": account_id}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to fetch invoice after upgrade: {e}", extra={"account_id": account_id})
+        
+        # Retry up to 10 times (10 seconds) to allow KillBill to generate the invoice
+        # usage of get_unpaid_invoices_by_subscription ensures we get the specific invoice for this sub
+        for attempt in range(10):
+            unpaid_invoices = await killbill.get_unpaid_invoices_by_subscription(subscription_id)
+            
+            if unpaid_invoices:
+                # Find the invoice with positive balance (the upgrade charge)
+                # Sort by date descending to get the newest one
+                unpaid_invoices.sort(key=lambda x: x.get('invoiceDate', ''), reverse=True)
+                
+                candidate = unpaid_invoices[0]
+                if float(candidate.get('balance', 0)) > 0:
+                    # Transform raw KillBill format to match what frontend expects
+                    # (Matches logic in instances.py)
+                    pending_invoice = {
+                        'id': candidate.get('invoiceId'),
+                        'account_id': account_id,
+                        'invoice_number': candidate.get('invoiceNumber'),
+                        'invoice_date': candidate.get('invoiceDate'),
+                        'target_date': candidate.get('targetDate'),
+                        'amount': float(candidate.get('amount', 0)),
+                        'balance': float(candidate.get('balance', 0)),
+                        'currency': candidate.get('currency', 'USD'),
+                        'status': candidate.get('status'),
+                        'credit_adj': float(candidate.get('creditAdj', 0)),
+                        'refund_adj': float(candidate.get('refundAdj', 0)),
+                        'created_at': candidate.get('createdDate'),
+                        'updated_at': candidate.get('updatedDate')
+                    }
+                    break
+            
+            if attempt < 9:
+                logger.info(f"Waiting for upgrade invoice generation... (attempt {attempt+1}/10)")
+                await asyncio.sleep(1)
+        # --- UPDATED RETRY LOGIC END ---
 
         logger.info(
-            f"Upgrade initiated: {current_plan} → {upgrade_data.target_plan_name}",
+            f"Upgrade initiated: {current_plan} -> {upgrade_data.target_plan_name}",
             extra={
                 "subscription_id": subscription_id,
-                "price_change": f"${current_price} → ${target_price}"
+                "invoice_found": pending_invoice is not None
             }
         )
 
@@ -521,12 +533,12 @@ async def upgrade_subscription(
             "subscription_id": subscription_id,
             "current_plan": current_plan,
             "target_plan": upgrade_data.target_plan_name,
-            "price_change": f"${current_price}/mo → ${target_price}/mo",
+            "price_change": f"${current_price}/mo -> ${target_price}/mo",
             "invoice": pending_invoice,
             "new_resources": {
-                "cpu_limit": float(new_entitlements['cpu_limit']),
-                "memory_limit": new_entitlements['memory_limit'],
-                "storage_limit": new_entitlements['storage_limit']
+                "cpu_limit": float(new_entitlements['cpu_limit']) if new_entitlements else 0,
+                "memory_limit": new_entitlements['memory_limit'] if new_entitlements else "0",
+                "storage_limit": new_entitlements['storage_limit'] if new_entitlements else "0"
             },
             "note": "Invoice created. Resources will be upgraded automatically when payment is received."
         }
