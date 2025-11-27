@@ -778,6 +778,103 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                 if existing_instance:
                     logger.warning(f"DUPLICATE PREVENTION: Instance {existing_instance.get('id')} already exists for subscription {subscription_id} - skipping creation to prevent duplication")
 
+                    # UPGRADE DETECTION: Check if this payment is for an upgrade
+                    instance_id = existing_instance.get('id')
+                    current_cpu = existing_instance.get('cpu_limit')
+                    current_memory = existing_instance.get('memory_limit')
+                    current_storage = existing_instance.get('storage_limit')
+                    current_plan = existing_instance.get('plan_name')
+
+                    logger.info(f"Checking for upgrade: current plan={current_plan}, invoice plan={plan_name}")
+
+                    # Get new plan entitlements from database
+                    from ..utils.database import get_plan_entitlements
+                    new_entitlements = await get_plan_entitlements(plan_name)
+
+                    if new_entitlements:
+                        new_cpu = float(new_entitlements['cpu_limit'])
+                        new_memory = new_entitlements['memory_limit']
+                        new_storage = new_entitlements['storage_limit']
+
+                        # Detect upgrade if resources changed
+                        is_upgrade = (
+                            new_cpu != current_cpu or
+                            new_memory != current_memory or
+                            new_storage != current_storage
+                        )
+
+                        if is_upgrade and plan_name != current_plan:
+                            logger.info(
+                                f"🚀 UPGRADE DETECTED for instance {instance_id}: "
+                                f"{current_plan} → {plan_name} | "
+                                f"CPU: {current_cpu} → {new_cpu}, "
+                                f"Memory: {current_memory} → {new_memory}, "
+                                f"Storage: {current_storage} → {new_storage}"
+                            )
+
+                            # Update instance database with new resources
+                            try:
+                                await instance_client.provision_instance(
+                                    instance_id=instance_id,
+                                    subscription_id=subscription_id,
+                                    billing_status="paid",
+                                    plan_name=plan_name,
+                                    cpu_limit=new_cpu,
+                                    memory_limit=new_memory,
+                                    storage_limit=new_storage,
+                                    provisioning_trigger="upgrade_payment_success"
+                                )
+                                logger.info(f"✅ Updated instance {instance_id} database with new plan resources")
+                            except Exception as db_error:
+                                logger.error(f"❌ Failed to update instance DB for upgrade: {db_error}")
+
+                            # Apply live resource upgrade if instance is running
+                            instance_status = existing_instance.get('status')
+                            if instance_status == 'running':
+                                try:
+                                    await instance_client.apply_resource_upgrade(
+                                        instance_id=instance_id,
+                                        new_cpu_limit=new_cpu,
+                                        new_memory_limit=new_memory,
+                                        new_storage_limit=new_storage
+                                    )
+                                    logger.info(f"✅ Applied live resource upgrade to running instance {instance_id}")
+                                except Exception as upgrade_error:
+                                    logger.error(f"❌ Failed to apply live upgrade: {upgrade_error}")
+                            else:
+                                logger.info(f"Instance {instance_id} not running ({instance_status}) - resources will apply on next start")
+
+                            # Send upgrade completion email
+                            try:
+                                from ..utils.notification_client import get_notification_client
+                                customer_info = await _get_customer_info_by_external_key(customer_external_key)
+
+                                if customer_info:
+                                    from datetime import datetime
+                                    upgrade_date = datetime.utcnow().strftime("%B %d, %Y")
+
+                                    client = get_notification_client()
+                                    await client.send_template_email(
+                                        to_emails=[customer_info.get('email', '')],
+                                        template_name="subscription_upgrade",
+                                        template_variables={
+                                            "first_name": customer_info.get('first_name', ''),
+                                            "old_plan": current_plan,
+                                            "new_plan": plan_name,
+                                            "upgrade_date": upgrade_date,
+                                            "cpu_limit": str(new_cpu),
+                                            "memory_limit": new_memory,
+                                            "storage_limit": new_storage
+                                        },
+                                        tags=["billing", "upgrade", "subscription"]
+                                    )
+                                    logger.info(f"✅ Sent upgrade completion email to {customer_info.get('email')}")
+                            except Exception as email_error:
+                                logger.error(f"❌ Failed to send upgrade email: {email_error}")
+
+                            # Continue to next subscription - upgrade handled
+                            continue
+
                     # ALWAYS update billing status to "paid" when payment succeeds
                     try:
                         await instance_client.provision_instance(

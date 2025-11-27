@@ -410,3 +410,106 @@ async def cancel_subscription(
     except Exception as e:
         logger.error(f"Failed to schedule cancellation for subscription {subscription_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to schedule subscription cancellation: {str(e)}")
+
+class UpgradeSubscriptionRequest(BaseModel):
+    target_plan_name: str
+    reason: Optional[str] = "Customer requested upgrade"
+
+@router.post("/subscription/{subscription_id}/upgrade")
+async def upgrade_subscription(
+    subscription_id: str,
+    upgrade_data: UpgradeSubscriptionRequest,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """
+    Initiate subscription upgrade with validation
+
+    Flow:
+    1. Validate upgrade (price-based, no downgrades)
+    2. Change subscription in KillBill (creates invoice)
+    3. User receives invoice and pays
+    4. INVOICE_PAYMENT_SUCCESS webhook applies resources
+
+    Returns upgrade preview (actual changes happen after payment)
+    """
+    try:
+        # Get current subscription
+        subscription = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+
+        current_plan = subscription.get('planName')
+
+        # Get all plans with prices from catalog
+        plans = await killbill.get_catalog_plans()
+
+        # Find current and target plan prices
+        current_price = None
+        target_price = None
+
+        for plan in plans:
+            if plan['name'] == current_plan:
+                current_price = plan.get('price')
+            if plan['name'] == upgrade_data.target_plan_name:
+                target_price = plan.get('price')
+
+        # Validate pricing data exists
+        if current_price is None or target_price is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Plan pricing not found in catalog"
+            )
+
+        # Validate upgrade (price-based)
+        if target_price < current_price:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Downgrades not allowed (${current_price} → ${target_price})"
+            )
+
+        if target_price == current_price:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Already on this pricing tier (${current_price})"
+            )
+
+        # Change subscription in KillBill (IMMEDIATE policy creates prorated invoice)
+        await killbill.change_subscription_plan(
+            subscription_id=subscription_id,
+            new_plan_name=upgrade_data.target_plan_name,
+            billing_policy="IMMEDIATE",
+            reason=upgrade_data.reason
+        )
+
+        # Get new plan entitlements (preview only - applied after payment)
+        from ..utils.database import get_plan_entitlements
+        new_entitlements = await get_plan_entitlements(upgrade_data.target_plan_name)
+
+        logger.info(
+            f"Upgrade initiated: {current_plan} → {upgrade_data.target_plan_name}",
+            extra={
+                "subscription_id": subscription_id,
+                "price_change": f"${current_price} → ${target_price}"
+            }
+        )
+
+        return {
+            "success": True,
+            "message": f"Upgrade from {current_plan} to {upgrade_data.target_plan_name} initiated",
+            "subscription_id": subscription_id,
+            "current_plan": current_plan,
+            "target_plan": upgrade_data.target_plan_name,
+            "price_change": f"${current_price}/mo → ${target_price}/mo",
+            "new_resources": {
+                "cpu_limit": float(new_entitlements['cpu_limit']),
+                "memory_limit": new_entitlements['memory_limit'],
+                "storage_limit": new_entitlements['storage_limit']
+            },
+            "note": "Invoice created. Resources will be upgraded automatically when payment is received."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upgrade failed: {e}", extra={"subscription_id": subscription_id})
+        raise HTTPException(status_code=500, detail=f"Upgrade failed: {str(e)}")

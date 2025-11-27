@@ -269,7 +269,42 @@ class KillBillClient:
         except Exception as e:
             logger.error(f"Failed to schedule cancellation for subscription {subscription_id}: {e}")
             raise
-    
+
+    async def change_subscription_plan(
+        self,
+        subscription_id: str,
+        new_plan_name: str,
+        billing_policy: str = "IMMEDIATE",
+        reason: str = "Plan upgrade"
+    ) -> Dict[str, Any]:
+        """Change subscription to new plan
+
+        Args:
+            subscription_id: Subscription ID to change
+            new_plan_name: Target plan name
+            billing_policy: IMMEDIATE (instant with proration) or END_OF_TERM
+            reason: Change reason for audit trail
+
+        Returns:
+            Response from KillBill (typically empty dict on success)
+        """
+        try:
+            endpoint = f"/1.0/kb/subscriptions/{subscription_id}"
+            payload = {"planName": new_plan_name}
+            params = {
+                "billingPolicy": billing_policy,
+                "callCompletion": "true"
+            }
+
+            logger.info(f"Changing subscription {subscription_id} to {new_plan_name} (policy: {billing_policy})")
+
+            response = await self._make_request("PUT", endpoint, data=payload, params=params)
+            logger.info(f"Successfully changed subscription {subscription_id} to {new_plan_name}")
+            return response or {"status": "plan_changed"}
+        except Exception as e:
+            logger.error(f"Failed to change subscription {subscription_id} to {new_plan_name}: {e}")
+            raise
+
     async def get_subscription_by_id(self, subscription_id: str) -> Optional[Dict[str, Any]]:
         """Get subscription details by ID"""
         try:

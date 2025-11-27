@@ -26,6 +26,10 @@ const BillingInstanceManage: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<string>('');
   const [availablePlans, setAvailablePlans] = useState<any[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [selectedUpgradePlan, setSelectedUpgradePlan] = useState<string>('');
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradablePlans, setUpgradablePlans] = useState<any[]>([]);
 
   useEffect(() => {
     if (instanceId) {
@@ -178,6 +182,89 @@ const BillingInstanceManage: React.FC = () => {
       setActionLoading(null);
     }
   };
+
+  const fetchUpgradablePlans = async () => {
+    if (!subscriptionData?.subscription) return;
+
+    try {
+      const plansResponse = await billingAPI.getPlans();
+      const allPlans = plansResponse.data.plans;
+      // KillBill uses camelCase (planName) not snake_case (plan_name)
+      const currentPlan = subscriptionData.subscription.planName;
+
+      // Find current plan price
+      const currentPlanInfo = allPlans.find((p: any) => p.name === currentPlan);
+
+      if (!currentPlanInfo) {
+        // Current plan not found, don't show upgrades
+        setUpgradablePlans([]);
+        return;
+      }
+
+      const currentPrice = currentPlanInfo.price;
+
+      if (currentPrice == null) {
+        // Current plan has no price, don't show upgrades
+        setUpgradablePlans([]);
+        return;
+      }
+
+      // Filter plans with higher price (upgrades only) and exclude current plan
+      const upgrades = allPlans.filter((p: any) =>
+        p.name !== currentPlan &&
+        p.price != null &&
+        p.price > currentPrice
+      );
+
+      setUpgradablePlans(upgrades);
+    } catch (err: any) {
+      console.error('Failed to fetch upgradable plans:', err);
+      setUpgradablePlans([]);
+    }
+  };
+
+  const handleUpgradeSubscription = async () => {
+    if (!instance?.subscription_id || !selectedUpgradePlan) return;
+
+    const targetPlan = upgradablePlans.find(p => p.name === selectedUpgradePlan);
+    if (!targetPlan) return;
+
+    try {
+      setUpgradeLoading(true);
+      const response = await billingAPI.upgradeSubscription(
+        instance.subscription_id,
+        {
+          target_plan_name: selectedUpgradePlan,
+          reason: 'Customer requested upgrade'
+        }
+      );
+
+      alert(
+        `Upgrade initiated successfully!\n\n` +
+        `${response.data.message}\n\n` +
+        `Price change: ${response.data.price_change}\n` +
+        `New resources:\n` +
+        `- CPU: ${response.data.new_resources.cpu_limit} cores\n` +
+        `- Memory: ${response.data.new_resources.memory_limit}\n` +
+        `- Storage: ${response.data.new_resources.storage_limit}\n\n` +
+        `${response.data.note}`
+      );
+
+      setUpgradeModalOpen(false);
+      setSelectedUpgradePlan('');
+      await fetchInstanceBillingData();
+    } catch (err: any) {
+      alert(`Upgrade failed: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setUpgradeLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subscriptionData) {
+      fetchUpgradablePlans();
+    }
+  }, [subscriptionData]);
 
   const handleReactivateInstance = async () => {
     if (!instance || !profile || !selectedPlan) return;
@@ -652,6 +739,16 @@ const BillingInstanceManage: React.FC = () => {
                 {actionLoading === 'resume' ? 'Resuming...' : 'Resume Subscription'}
               </button> */}
 
+              {/* Upgrade Plan Button */}
+              {subscriptionData.subscription.state === 'ACTIVE' && upgradablePlans.length > 0 && (
+                <button
+                  onClick={() => setUpgradeModalOpen(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Upgrade Plan ({upgradablePlans.length} available)
+                </button>
+              )}
+
               <button
                 onClick={handleCancelSubscription}
                 disabled={actionLoading === 'cancel' || subscriptionData.subscription.state === 'CANCELLED'}
@@ -828,6 +925,89 @@ const BillingInstanceManage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Upgrade Subscription Modal */}
+      {upgradeModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Upgrade Your Subscription</h2>
+
+            {/* Current Plan Display */}
+            {subscriptionData && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <div className="text-sm text-gray-600 mb-1">Current Plan</div>
+                <div className="text-lg font-semibold text-gray-900">
+                  {subscriptionData.subscription.plan_name}
+                </div>
+              </div>
+            )}
+
+            {/* Plan Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Select Upgrade Plan
+              </label>
+              <select
+                value={selectedUpgradePlan}
+                onChange={(e) => setSelectedUpgradePlan(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={upgradeLoading}
+              >
+                <option value="">-- Choose a plan --</option>
+                {upgradablePlans.map((plan) => (
+                  <option key={plan.name} value={plan.name}>
+                    {plan.product} - {plan.name} (${plan.price}/mo) - {plan.cpu_limit} CPU, {plan.memory_limit} RAM, {plan.storage_limit} Storage
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Upgrade Flow Explanation */}
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-semibold text-blue-900 mb-2">How the upgrade works:</h3>
+              <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
+                <li>A prorated invoice will be created for the remaining billing period</li>
+                <li>You'll be redirected to pay the prorated amount</li>
+                <li>Once payment is received, your instance resources will be upgraded automatically</li>
+                <li>If your instance is running, resources apply immediately</li>
+                <li>If stopped, new resources will apply when you next start it</li>
+              </ol>
+            </div>
+
+            {/* Important Notes */}
+            <div className="mb-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+              <h3 className="font-semibold text-yellow-900 mb-2">⚠️ Important Notes:</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800">
+                <li>Downgrades are not supported - upgrades only</li>
+                <li>Your next billing date remains unchanged</li>
+                <li>You'll only pay the prorated difference for this period</li>
+                <li>Future invoices will reflect the new plan price</li>
+              </ul>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={() => {
+                  setUpgradeModalOpen(false);
+                  setSelectedUpgradePlan('');
+                }}
+                disabled={upgradeLoading}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpgradeSubscription}
+                disabled={!selectedUpgradePlan || upgradeLoading}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {upgradeLoading ? 'Processing...' : 'Confirm Upgrade'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

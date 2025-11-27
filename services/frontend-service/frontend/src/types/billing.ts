@@ -330,3 +330,29 @@ export interface PaynowPaymentStatus {
   created_at: string;
   webhook_received: boolean;
 }
+
+/**
+ * Request to upgrade subscription to higher-tier plan
+ */
+export interface UpgradeSubscriptionRequest {
+  target_plan_name: string;
+  reason?: string;
+}
+
+/**
+ * Response from subscription upgrade endpoint
+ */
+export interface UpgradeSubscriptionResponse {
+  success: boolean;
+  message: string;
+  subscription_id: string;
+  current_plan: string;
+  target_plan: string;
+  price_change: string;
+  new_resources: {
+    cpu_limit: number;
+    memory_limit: string;
+    storage_limit: string;
+  };
+  note: string;
+}

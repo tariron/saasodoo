@@ -21,6 +21,8 @@ import {
   PaynowPaymentResponse,
   PaynowPaymentStatus,
   TrialEligibilityResponse,
+  UpgradeSubscriptionRequest,
+  UpgradeSubscriptionResponse,
 } from '../types/billing';
 
 // Types
@@ -505,7 +507,10 @@ export const billingAPI = {
   
   cancelSubscriptionById: (subscriptionId: string, reason?: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
     api.delete(`/billing/api/billing/subscriptions/subscription/${subscriptionId}`, { data: { reason } }),
-  
+
+  upgradeSubscription: (subscriptionId: string, upgradeData: UpgradeSubscriptionRequest): Promise<AxiosResponse<UpgradeSubscriptionResponse>> =>
+    api.post(`/billing/api/billing/subscriptions/subscription/${subscriptionId}/upgrade`, upgradeData),
+
   // Instance reactivation
   reactivateInstance: (data: {customer_id: string, plan_name: string, instance_id: string}): Promise<AxiosResponse<CreateInstanceWithSubscriptionResponse>> =>
     api.post('/billing/api/billing/instances/reactivate', data),
