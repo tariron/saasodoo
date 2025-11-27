@@ -1,145 +1,225 @@
-# Implementation Plan: Subscription Upgrade Feature
+# Implementation Plan: Payment-Based Subscription Upgrades
 
 ## Overview
-Implement tier-based subscription upgrades with immediate effect, prorated charges, live resource updates, and upgrade-only validation (no downgrades allowed).
+Implement subscription upgrades that only apply resource changes **after payment is received**, using price-based tier comparison (no database migrations required).
 
-## User Requirements
-1. **Plan Hierarchy**: Explicit tier ranking (Basic=1, Standard=2, Premium=3)
-2. **Effective Date**: Immediate upgrades with prorated charges
-3. **Downgrade Policy**: Only allow upgrades (no downgrades)
-4. **Resource Updates**: Apply immediately to running instances
+## User Requirements (Confirmed)
+1. **Payment-Based**: Resource changes applied ONLY when payment received via `INVOICE_PAYMENT_SUCCESS` webhook
+2. **Price-Based Tiers**: Use existing plan prices to determine upgrade eligibility (higher price = upgrade)
+3. **No Downgrades**: Block all downgrades and same-tier changes
+4. **Frontend**: Add upgrade button in BillingInstanceManage page with plan selection UI
+5. **No Database Changes**: Use existing price field from KillBill catalog, no migrations needed
 
-## Current System Strengths
-- ✅ KillBill already handles SUBSCRIPTION_CHANGE webhooks
-- ✅ Webhook handler updates instance resources and applies live changes
-- ✅ `apply_resource_upgrade()` function updates running Docker containers
-- ✅ Frontend has BillingInstanceManage page with subscription UI
-- ✅ KillBill natively handles proration calculations
+## Current Pricing Structure
+- **Basic**: $5.00/month (1 CPU, 2G RAM, 10G storage)
+- **Standard**: $8.00/month (2 CPU, 4G RAM, 20G storage)
+- **Premium**: $10.00/month (4 CPU, 8G RAM, 50G storage)
+
+Prices defined in: `services/billing-service/killbill_catalog.xml`
+
+## Critical Insight: Payment Flow Difference
+
+### Current `SUBSCRIPTION_CHANGE` Flow (Immediate)
+```
+User changes plan → KillBill SUBSCRIPTION_CHANGE webhook fires →
+Resources updated immediately → Invoice created later
+```
+
+### Required `INVOICE_PAYMENT_SUCCESS` Flow (After Payment)
+```
+User requests upgrade → Subscription changed in KillBill → Invoice created →
+User pays invoice → INVOICE_PAYMENT_SUCCESS webhook fires →
+Check if upgrade → Apply resources with apply_resource_upgrade()
+```
+
+## Key Changes Required
+
+### ✅ Already Working (Don't Modify)
+1. `apply_resource_upgrade()` function (handles CPU, memory, CephFS quota) - instances.py:1285
+2. `INVOICE_PAYMENT_SUCCESS` webhook handler - webhooks.py:657
+3. Plan fetching API (`GET /api/billing/plans/`) - plans.py
+4. Frontend plan display - CreateInstance.tsx
+
+### 🔧 Must Add/Modify
+1. Upgrade detection logic in `INVOICE_PAYMENT_SUCCESS` webhook
+2. Price-based tier validation (helper function)
+3. Upgrade API endpoint in billing-service
+4. Frontend upgrade button and modal in BillingInstanceManage.tsx
+5. TypeScript types for upgrade request/response
+
+---
 
 ## Implementation Phases
 
-### Phase 1: Database Schema - Add Tier Ranking
+### Phase 1: Backend - Price Comparison Helper
 
-**File**: `infrastructure/postgres/init-scripts/05-plan-entitlements.sql`
+**File**: `services/billing-service/app/utils/pricing.py` (NEW FILE)
 
-Add tier_rank column and populate values:
-
-```sql
--- Add tier_rank column
-ALTER TABLE plan_entitlements ADD COLUMN tier_rank INTEGER;
-
--- Set tier ranks
-UPDATE plan_entitlements SET tier_rank = 1
-WHERE plan_name IN ('basic-monthly', 'basic-immediate', 'basic-test-trial');
-
-UPDATE plan_entitlements SET tier_rank = 2
-WHERE plan_name = 'standard-monthly';
-
-UPDATE plan_entitlements SET tier_rank = 3
-WHERE plan_name = 'premium-monthly';
-
--- Make required and add index
-ALTER TABLE plan_entitlements ALTER COLUMN tier_rank SET NOT NULL;
-CREATE INDEX idx_plan_entitlements_tier_rank ON plan_entitlements(tier_rank);
-```
-
-**Migration Script**: Create new file `infrastructure/postgres/migrations/006-add-tier-ranks.sql`
-
----
-
-### Phase 2: KillBill Catalog - Enable Immediate Changes
-
-**File**: `services/billing-service/killbill_catalog.xml`
-**Line**: 23-27
-
-**Change from**:
-```xml
-<changePolicy>
-    <changePolicyCase>
-        <policy>END_OF_TERM</policy>
-    </changePolicyCase>
-</changePolicy>
-```
-
-**Change to**:
-```xml
-<changePolicy>
-    <changePolicyCase>
-        <policy>IMMEDIATE</policy>
-    </changePolicyCase>
-</changePolicy>
-```
-
-**Impact**: Enables instant plan changes with automatic KillBill proration
-
----
-
-### Phase 3: Backend Validation Logic
-
-**File**: `services/billing-service/app/utils/database.py`
-**Location**: Add after line 124
-
-**Add two functions**:
+Create utility functions for price-based tier comparison:
 
 ```python
-async def get_plan_tier_rank(plan_name: str) -> Optional[int]:
-    """Get tier rank for a plan to determine upgrade/downgrade eligibility"""
-    pool = get_pool()
-    query = """
-        SELECT tier_rank FROM plan_entitlements
-        WHERE plan_name = $1
-        ORDER BY effective_date DESC LIMIT 1
-    """
-    async with pool.acquire() as conn:
-        result = await conn.fetchrow(query, plan_name)
-        return result['tier_rank'] if result else None
+"""Pricing utilities for tier-based upgrades"""
+from typing import Optional, Dict, Any
+from app.utils.killbill_client import KillBillClient
+import logging
 
+logger = logging.getLogger(__name__)
 
-async def validate_plan_upgrade(current_plan: str, target_plan: str) -> dict:
-    """
-    Validate if plan change is an upgrade (not downgrade or same tier)
-    Returns dict with 'valid' boolean and descriptive 'message'
-    """
-    current_tier = await get_plan_tier_rank(current_plan)
-    target_tier = await get_plan_tier_rank(target_plan)
+async def get_plan_price(plan_name: str, killbill: KillBillClient) -> Optional[float]:
+    """Get recurring price for a plan from KillBill catalog"""
+    try:
+        plans = await killbill.get_catalog_plans()
+        for plan in plans:
+            if plan['name'] == plan_name:
+                return plan.get('price')
+        logger.warning(f"Plan not found: {plan_name}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get plan price: {e}")
+        return None
 
-    if not current_tier or not target_tier:
+async def validate_upgrade(
+    current_plan: str,
+    target_plan: str,
+    killbill: KillBillClient
+) -> Dict[str, Any]:
+    """
+    Validate if plan change is an upgrade based on price comparison
+
+    Returns:
+        dict with 'valid' bool, 'message' str, and pricing info
+    """
+    current_price = await get_plan_price(current_plan, killbill)
+    target_price = await get_plan_price(target_plan, killbill)
+
+    if current_price is None or target_price is None:
         return {
             'valid': False,
-            'message': 'Plan not found'
+            'message': 'Plan pricing not found',
+            'error': 'missing_pricing'
         }
 
-    if target_tier < current_tier:
+    if target_price < current_price:
         return {
             'valid': False,
             'is_downgrade': True,
-            'message': f'Downgrades not allowed (tier {current_tier} → {target_tier})'
+            'message': f'Downgrades not allowed (${current_price} → ${target_price})',
+            'current_price': current_price,
+            'target_price': target_price
         }
 
-    if target_tier == current_tier:
+    if target_price == current_price:
         return {
             'valid': False,
             'is_same_tier': True,
-            'message': 'Already on this tier'
+            'message': f'Already on this pricing tier (${current_price})',
+            'current_price': current_price,
+            'target_price': target_price
         }
 
     return {
         'valid': True,
         'is_upgrade': True,
-        'current_tier': current_tier,
-        'target_tier': target_tier,
-        'message': f'Upgrade allowed: tier {current_tier} → {target_tier}'
+        'message': f'Upgrade allowed: ${current_price} → ${target_price}',
+        'current_price': current_price,
+        'target_price': target_price
     }
 ```
 
 ---
 
-### Phase 4: KillBill Client Integration
+### Phase 2: Backend - Upgrade Endpoint
 
-**File**: `services/billing-service/app/utils/killbill_client.py`
-**Location**: Add after `cancel_subscription()` method (after line 271)
+**File**: `services/billing-service/app/routes/subscriptions.py`
 
-**Add method**:
+**Add imports** (top of file):
+```python
+from app.utils.pricing import validate_upgrade
+from pydantic import BaseModel
+```
+
+**Add request model** (after existing models):
+```python
+class UpgradeSubscriptionRequest(BaseModel):
+    target_plan_name: str
+    reason: Optional[str] = "Customer requested upgrade"
+```
+
+**Add endpoint** (after existing subscription endpoints):
+```python
+@router.post("/subscription/{subscription_id}/upgrade")
+async def upgrade_subscription(
+    subscription_id: str,
+    upgrade_data: UpgradeSubscriptionRequest,
+    killbill: KillBillClient = Depends(get_killbill_client)
+):
+    """
+    Initiate subscription upgrade with validation
+
+    Flow:
+    1. Validate upgrade (price-based, no downgrades)
+    2. Change subscription in KillBill (creates invoice)
+    3. User receives invoice and pays
+    4. INVOICE_PAYMENT_SUCCESS webhook applies resources
+
+    Returns upgrade preview (actual changes happen after payment)
+    """
+    try:
+        # Get current subscription
+        subscription = await killbill.get_subscription_by_id(subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+
+        current_plan = subscription.get('planName')
+
+        # Validate upgrade using price comparison
+        validation = await validate_upgrade(current_plan, upgrade_data.target_plan_name, killbill)
+
+        if not validation['valid']:
+            raise HTTPException(status_code=400, detail=validation['message'])
+
+        # Change subscription in KillBill (IMMEDIATE policy creates prorated invoice)
+        await killbill.change_subscription_plan(
+            subscription_id=subscription_id,
+            new_plan_name=upgrade_data.target_plan_name,
+            billing_policy="IMMEDIATE",
+            reason=upgrade_data.reason
+        )
+
+        # Get new plan entitlements (preview only - applied after payment)
+        from app.utils.database import get_plan_entitlements
+        new_entitlements = await get_plan_entitlements(upgrade_data.target_plan_name)
+
+        logger.info(
+            f"Upgrade initiated: {current_plan} → {upgrade_data.target_plan_name}",
+            subscription_id=subscription_id,
+            price_change=f"${validation['current_price']} → ${validation['target_price']}"
+        )
+
+        return {
+            "success": True,
+            "message": f"Upgrade from {current_plan} to {upgrade_data.target_plan_name} initiated",
+            "subscription_id": subscription_id,
+            "current_plan": current_plan,
+            "target_plan": upgrade_data.target_plan_name,
+            "price_change": f"${validation['current_price']}/mo → ${validation['target_price']}/mo",
+            "new_resources": {
+                "cpu_limit": float(new_entitlements['cpu_limit']),
+                "memory_limit": new_entitlements['memory_limit'],
+                "storage_limit": new_entitlements['storage_limit']
+            },
+            "note": "Invoice created. Resources will be upgraded automatically when payment is received."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upgrade failed: {e}", subscription_id=subscription_id)
+        raise HTTPException(status_code=500, detail=f"Upgrade failed: {str(e)}")
+```
+
+**Ensure KillBill client has change_subscription_plan method** (add if missing):
+In `services/billing-service/app/utils/killbill_client.py`, add after `cancel_subscription()`:
 
 ```python
 async def change_subscription_plan(
@@ -149,186 +229,140 @@ async def change_subscription_plan(
     billing_policy: str = "IMMEDIATE",
     reason: str = "Plan upgrade"
 ) -> Dict[str, Any]:
-    """
-    Change subscription to new plan
-
-    Args:
-        subscription_id: KillBill subscription ID
-        new_plan_name: Target plan name (e.g., 'premium-monthly')
-        billing_policy: IMMEDIATE (with proration) or END_OF_TERM
-        reason: Reason for change (audit trail)
-
-    Returns:
-        Updated subscription details
-    """
+    """Change subscription to new plan"""
     endpoint = f"/1.0/kb/subscriptions/{subscription_id}"
     payload = {"planName": new_plan_name}
     params = {
         "billingPolicy": billing_policy,
-        "callCompletion": "true",
-        "pluginProperty": f"reason={reason}"
+        "callCompletion": "true"
     }
 
-    logger.info(
-        "Changing subscription plan",
-        subscription_id=subscription_id,
-        new_plan=new_plan_name,
-        policy=billing_policy
-    )
+    logger.info(f"Changing subscription {subscription_id} to {new_plan_name}")
 
-    response = await self._make_request(
-        "PUT",
-        endpoint,
-        data=payload,
-        params=params
-    )
-
+    response = await self._make_request("PUT", endpoint, data=payload, params=params)
     return response or {"status": "plan_changed"}
 ```
 
 ---
 
-### Phase 5: Upgrade API Endpoint
-
-**File**: `services/billing-service/app/routes/subscriptions.py`
-
-**Step 1**: Add Pydantic model (after line 27)
-
-```python
-class UpgradeSubscriptionRequest(BaseModel):
-    target_plan_name: str
-    reason: Optional[str] = "Customer requested upgrade"
-```
-
-**Step 2**: Add endpoint (after `get_subscription_invoices()`, around line 286)
-
-```python
-@router.post("/subscription/{subscription_id}/upgrade")
-async def upgrade_subscription(
-    subscription_id: str,
-    upgrade_data: UpgradeSubscriptionRequest,
-    killbill: KillBillClient = Depends(get_killbill_client)
-):
-    """
-    Upgrade subscription with tier validation and immediate effect
-
-    - Validates upgrade (prevents downgrades)
-    - Applies IMMEDIATE billing policy with proration
-    - Returns new resource allocations
-    - Webhook handles actual resource updates
-    """
-    try:
-        from ..utils.database import validate_plan_upgrade, get_plan_entitlements
-
-        # Get current subscription
-        subscription = await killbill.get_subscription_by_id(subscription_id)
-        if not subscription:
-            raise HTTPException(
-                status_code=404,
-                detail="Subscription not found"
-            )
-
-        current_plan = subscription.get('planName')
-
-        # Validate upgrade (prevents downgrades)
-        validation = await validate_plan_upgrade(
-            current_plan,
-            upgrade_data.target_plan_name
-        )
-
-        if not validation['valid']:
-            raise HTTPException(
-                status_code=400,
-                detail=validation['message']
-            )
-
-        # Perform upgrade via KillBill
-        await killbill.change_subscription_plan(
-            subscription_id=subscription_id,
-            new_plan_name=upgrade_data.target_plan_name,
-            billing_policy="IMMEDIATE",
-            reason=upgrade_data.reason
-        )
-
-        # Get new resource entitlements
-        new_entitlements = await get_plan_entitlements(
-            upgrade_data.target_plan_name
-        )
-
-        return {
-            "success": True,
-            "message": f"Upgraded from {current_plan} to {upgrade_data.target_plan_name}",
-            "subscription_id": subscription_id,
-            "new_resources": {
-                "cpu_limit": float(new_entitlements['cpu_limit']),
-                "memory_limit": new_entitlements['memory_limit'],
-                "storage_limit": new_entitlements['storage_limit']
-            },
-            "tier_change": f"{validation['current_tier']} → {validation['target_tier']}",
-            "note": "Resources applied automatically with zero downtime. Prorated charge on next invoice."
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Upgrade failed", error=str(e), subscription_id=subscription_id)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Upgrade failed: {str(e)}"
-        )
-```
-
----
-
-### Phase 6: Webhook Handler Enhancement (Optional)
+### Phase 3: Backend - Enhance INVOICE_PAYMENT_SUCCESS Webhook
 
 **File**: `services/billing-service/app/routes/webhooks.py`
-**Location**: Line 583 (inside `handle_subscription_change`)
 
-**Optional Enhancement**: Add tier rank logging for visibility
+**Location**: Inside `handle_invoice_payment_success()` function (around line 777, after reactivation handling)
+
+**Add upgrade detection logic** (insert after line 816, before creating new instances):
 
 ```python
-# After fetching entitlements, add:
-new_tier = entitlements.get('tier_rank')
-logger.info(
-    "Plan change detected",
-    instance_id=instance_id,
-    new_plan=new_plan_name,
-    new_tier=new_tier
-)
+# Check if payment is for an upgraded subscription (instance exists + running)
+existing_instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+
+if existing_instance:
+    instance_id = existing_instance['id']
+    instance_status = existing_instance.get('status')
+    current_cpu = existing_instance.get('cpu_limit')
+    current_memory = existing_instance.get('memory_limit')
+    current_storage = existing_instance.get('storage_limit')
+
+    logger.info(f"Instance {instance_id} already exists for subscription {subscription_id} - checking for upgrade")
+
+    # Get plan entitlements to check if resources changed (upgrade scenario)
+    from ..utils.database import get_plan_entitlements
+    new_entitlements = await get_plan_entitlements(plan_name)
+
+    new_cpu = float(new_entitlements['cpu_limit'])
+    new_memory = new_entitlements['memory_limit']
+    new_storage = new_entitlements['storage_limit']
+
+    # Detect upgrade: higher resources than current
+    is_upgrade = (
+        new_cpu > current_cpu or
+        new_memory != current_memory or  # Memory/storage comparison needs parsing, simplified here
+        new_storage != current_storage
+    )
+
+    if is_upgrade:
+        logger.info(
+            f"UPGRADE DETECTED for instance {instance_id}",
+            old_resources=f"{current_cpu} CPU, {current_memory} RAM, {current_storage} storage",
+            new_resources=f"{new_cpu} CPU, {new_memory} RAM, {new_storage} storage"
+        )
+
+        # Update instance database record with new resource limits
+        await instance_client.update_instance_resources(instance_id, new_cpu, new_memory, new_storage)
+        logger.info(f"Updated instance {instance_id} database record with new resource limits")
+
+        # Apply live resource updates if instance is running
+        if instance_status == 'running':
+            try:
+                await instance_client.apply_resource_upgrade(instance_id)
+                logger.info(f"✅ Applied live resource upgrade to running instance {instance_id}")
+            except Exception as upgrade_error:
+                logger.error(f"Failed to apply live upgrade to {instance_id}: {upgrade_error}")
+        else:
+            logger.info(f"Instance {instance_id} not running (status: {instance_status}), resources updated in DB only")
+
+        # Send upgrade completion email
+        try:
+            from ..utils.notification_client import get_notification_client
+            customer_info = await _get_customer_info_by_external_key(customer_external_key)
+
+            if customer_info:
+                client = get_notification_client()
+                await client.send_template_email(
+                    to_emails=[customer_info.get('email', '')],
+                    template_name="subscription_upgraded",
+                    template_variables={
+                        "first_name": customer_info.get('first_name', ''),
+                        "new_plan": plan_name,
+                        "cpu_limit": str(new_cpu),
+                        "memory_limit": new_memory,
+                        "storage_limit": new_storage,
+                        "old_cpu": str(current_cpu),
+                        "old_memory": current_memory,
+                        "old_storage": current_storage
+                    },
+                    tags=["billing", "subscription", "upgrade", "payment_received"]
+                )
+                logger.info(f"✅ Sent upgrade completion email to {customer_info.get('email')}")
+        except Exception as email_error:
+            logger.error(f"Failed to send upgrade email: {email_error}")
+
+        # Continue to next subscription - upgrade handled
+        continue
+    else:
+        # Regular payment for existing instance (not an upgrade)
+        logger.info(f"Regular payment for existing instance {instance_id} (not an upgrade)")
+
+        # Update billing status to paid
+        try:
+            await instance_client.provision_instance(
+                instance_id=instance_id,
+                subscription_id=subscription_id,
+                billing_status="paid",
+                provisioning_trigger="invoice_payment_success_billing_update"
+            )
+            logger.info(f"Updated billing status to 'paid' for instance {instance_id}")
+
+            # Start instance if stopped
+            if instance_status in ['stopped', 'suspended']:
+                await instance_client.start_instance(instance_id, "Payment successful")
+                logger.info(f"Started instance {instance_id} after payment")
+        except Exception as e:
+            logger.error(f"Failed to update instance {instance_id}: {e}")
+
+        continue
 ```
 
-**Note**: Existing webhook handler already:
-- ✅ Handles SUBSCRIPTION_CHANGE events
-- ✅ Updates instance database records
-- ✅ Applies live resource updates via `apply_resource_upgrade()`
-- ✅ Sends email notifications
+**Note**: This logic goes **before** the existing duplicate prevention check, replacing the current handling for existing instances.
 
 ---
 
-### Phase 7: Shared Schema Updates
-
-**File**: `shared/schemas/billing.py`
-
-Add response schema (around line 50):
-
-```python
-class UpgradeSubscriptionResponse(BaseModel):
-    success: bool
-    message: str
-    subscription_id: str
-    new_resources: dict
-    tier_change: str
-    note: str
-```
-
----
-
-### Phase 8: Frontend Types
+### Phase 4: Frontend - TypeScript Types
 
 **File**: `frontend/src/types/billing.ts`
 
-Add interfaces:
+Add new interfaces:
 
 ```typescript
 export interface UpgradeSubscriptionRequest {
@@ -340,32 +374,21 @@ export interface UpgradeSubscriptionResponse {
   success: boolean;
   message: string;
   subscription_id: string;
+  current_plan: string;
+  target_plan: string;
+  price_change: string;
   new_resources: {
     cpu_limit: number;
     memory_limit: string;
     storage_limit: string;
   };
-  tier_change: string;
   note: string;
-}
-
-// Add to Plan interface
-export interface Plan {
-  name: string;
-  product: string;
-  description: string;
-  billing_period: string;
-  price: number | null;
-  cpu_limit?: number;
-  memory_limit?: string;
-  storage_limit?: string;
-  tier_rank?: number;  // NEW - for upgrade validation
 }
 ```
 
 ---
 
-### Phase 9: Frontend API Client
+### Phase 5: Frontend - API Client
 
 **File**: `frontend/src/utils/api.ts`
 
@@ -386,41 +409,46 @@ upgradeSubscription: async (
 
 ---
 
-### Phase 10: Frontend UI - Upgrade Modal
+### Phase 6: Frontend - Upgrade Button & Modal
 
 **File**: `frontend/src/pages/BillingInstanceManage.tsx`
 
-**Step 1**: Add state variables (after line 28)
+**Step 1**: Add imports (top of file):
+```typescript
+import { UpgradeSubscriptionRequest, UpgradeSubscriptionResponse } from '../types/billing';
+```
 
+**Step 2**: Add state variables (after existing useState declarations):
 ```typescript
 const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 const [selectedUpgradePlan, setSelectedUpgradePlan] = useState<string>('');
 const [upgradeLoading, setUpgradeLoading] = useState(false);
-const [upgradablePlans, setUpgradablePlans] = useState<Plan[]>([]);
+const [availablePlans, setAvailablePlans] = useState<Plan[]>([]);
+const [currentPlanPrice, setCurrentPlanPrice] = useState<number | null>(null);
 ```
 
-**Step 2**: Add function to fetch upgradable plans
-
+**Step 3**: Add function to fetch upgradable plans:
 ```typescript
-const fetchUpgradablePlans = async (currentPlanName: string) => {
+const fetchUpgradablePlans = async () => {
+  if (!instance?.subscription?.plan_name) return;
+
   try {
     const response = await billingAPI.getPlans();
     if (response.data.success) {
-      const currentPlan = response.data.plans.find(
-        (p: Plan) => p.name === currentPlanName
+      const allPlans = response.data.plans;
+
+      // Find current plan price
+      const currentPlan = allPlans.find((p: Plan) => p.name === instance.subscription.plan_name);
+      const currentPrice = currentPlan?.price ?? 0;
+      setCurrentPlanPrice(currentPrice);
+
+      // Filter plans with higher price (upgrades only)
+      const upgrades = allPlans.filter((p: Plan) =>
+        p.price !== null && p.price > currentPrice
       );
 
-      if (!currentPlan?.tier_rank) {
-        console.warn('Current plan has no tier rank');
-        return;
-      }
-
-      // Filter plans with higher tier rank
-      const upgrades = response.data.plans.filter(
-        (p: Plan) => p.tier_rank && p.tier_rank > currentPlan.tier_rank
-      );
-
-      setUpgradablePlans(upgrades);
+      setAvailablePlans(upgrades);
+      console.log(`Found ${upgrades.length} upgrade options from $${currentPrice}`);
     }
   } catch (error) {
     console.error('Failed to fetch upgradable plans:', error);
@@ -428,18 +456,16 @@ const fetchUpgradablePlans = async (currentPlanName: string) => {
 };
 ```
 
-**Step 3**: Call fetchUpgradablePlans when subscription loads
-
+**Step 4**: Call fetchUpgradablePlans when subscription loads:
 ```typescript
 useEffect(() => {
   if (instance?.subscription?.plan_name) {
-    fetchUpgradablePlans(instance.subscription.plan_name);
+    fetchUpgradablePlans();
   }
 }, [instance?.subscription?.plan_name]);
 ```
 
-**Step 4**: Add upgrade handler
-
+**Step 5**: Add upgrade handler:
 ```typescript
 const handleUpgradeSubscription = async () => {
   if (!instance?.subscription_id || !selectedUpgradePlan) {
@@ -447,11 +473,19 @@ const handleUpgradeSubscription = async () => {
     return;
   }
 
+  const selectedPlan = availablePlans.find(p => p.name === selectedUpgradePlan);
+  if (!selectedPlan) {
+    alert('Selected plan not found');
+    return;
+  }
+
   const confirmed = window.confirm(
-    `Upgrade to ${selectedUpgradePlan}?\n\n` +
-    `• Changes apply immediately\n` +
-    `• Resources updated with zero downtime\n` +
-    `• Prorated charge on next invoice`
+    `Upgrade to ${selectedPlan.product} - ${selectedPlan.billing_period}?\n\n` +
+    `Price: $${currentPlanPrice}/mo → $${selectedPlan.price}/mo\n` +
+    `Resources: ${selectedPlan.cpu_limit} CPU, ${selectedPlan.memory_limit} RAM, ${selectedPlan.storage_limit} storage\n\n` +
+    `• Invoice will be created immediately\n` +
+    `• Resources upgrade after payment is received\n` +
+    `• Prorated charge based on remaining billing period`
   );
 
   if (!confirmed) return;
@@ -469,11 +503,13 @@ const handleUpgradeSubscription = async () => {
 
     alert(
       `✅ ${response.data.message}\n\n` +
-      `Tier change: ${response.data.tier_change}\n` +
-      `${response.data.note}`
+      `Price change: ${response.data.price_change}\n\n` +
+      `${response.data.note}\n\n` +
+      `Please check your email for the invoice.`
     );
 
     setUpgradeModalOpen(false);
+    setSelectedUpgradePlan('');
     await fetchInstanceBillingData();
 
   } catch (err: any) {
@@ -485,32 +521,40 @@ const handleUpgradeSubscription = async () => {
 };
 ```
 
-**Step 5**: Add "Upgrade Plan" button in Subscription Management section (around line 640)
+**Step 6**: Add "Upgrade Plan" button in Subscription Management section:
+
+Find the section with cancel subscription button (around line 640), add before it:
 
 ```tsx
+{/* Upgrade Plan Button */}
 {instance.subscription?.state === 'ACTIVE' && (
   <button
     onClick={() => setUpgradeModalOpen(true)}
-    disabled={upgradablePlans.length === 0}
-    className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+    disabled={availablePlans.length === 0}
+    className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
   >
-    {upgradablePlans.length > 0 ? 'Upgrade Plan' : 'No Upgrades Available'}
+    {availablePlans.length > 0
+      ? `Upgrade Plan (${availablePlans.length} options)`
+      : 'No Upgrades Available'}
   </button>
 )}
 ```
 
-**Step 6**: Add modal component (before return statement, around line 336)
+**Step 7**: Add upgrade modal (add before the final return statement):
 
 ```tsx
 {/* Upgrade Modal */}
 {upgradeModalOpen && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-lg p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="bg-white rounded-lg p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
       <h2 className="text-2xl font-bold mb-4">Upgrade Subscription</h2>
 
-      <div className="mb-6">
-        <p className="text-gray-600 mb-2">Current Plan:</p>
+      <div className="mb-6 bg-gray-50 p-4 rounded-md">
+        <p className="text-sm text-gray-600 mb-1">Current Plan:</p>
         <p className="font-semibold text-lg">{instance.subscription?.plan_name}</p>
+        {currentPlanPrice !== null && (
+          <p className="text-gray-700">${currentPlanPrice}/month</p>
+        )}
       </div>
 
       <div className="mb-6">
@@ -520,25 +564,37 @@ const handleUpgradeSubscription = async () => {
         <select
           value={selectedUpgradePlan}
           onChange={(e) => setSelectedUpgradePlan(e.target.value)}
-          className="w-full p-2 border rounded-md"
+          className="w-full p-3 border rounded-md"
+          disabled={upgradeLoading}
         >
-          <option value="">-- Choose Plan --</option>
-          {upgradablePlans.map((plan) => (
+          <option value="">-- Choose a plan --</option>
+          {availablePlans.map((plan) => (
             <option key={plan.name} value={plan.name}>
               {plan.product} - {plan.billing_period} - ${plan.price}/mo
-              (Tier {plan.tier_rank}: {plan.cpu_limit} CPU, {plan.memory_limit} RAM, {plan.storage_limit} Storage)
+              ({plan.cpu_limit} CPU, {plan.memory_limit} RAM, {plan.storage_limit} storage)
             </option>
           ))}
         </select>
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
-        <h3 className="font-semibold mb-2">Upgrade Details:</h3>
-        <ul className="text-sm space-y-1">
-          <li>✓ Changes apply immediately</li>
-          <li>✓ Zero downtime - resources updated live</li>
-          <li>✓ Prorated charge based on remaining billing period</li>
-          <li>✓ No downgrades allowed</li>
+      {selectedUpgradePlan && (
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-md p-4">
+          <h3 className="font-semibold mb-2">What happens next:</h3>
+          <ol className="text-sm space-y-2 list-decimal list-inside">
+            <li>Prorated invoice created immediately</li>
+            <li>You'll receive invoice via email</li>
+            <li>After payment is received, resources upgrade automatically</li>
+            <li>Zero downtime - running instances updated live</li>
+          </ol>
+        </div>
+      )}
+
+      <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
+        <p className="text-sm font-medium">⚠️ Important Notes:</p>
+        <ul className="text-sm space-y-1 mt-2">
+          <li>• Downgrades are not allowed</li>
+          <li>• Resource changes apply only after invoice payment</li>
+          <li>• Proration based on remaining billing period</li>
         </ul>
       </div>
 
@@ -549,16 +605,16 @@ const handleUpgradeSubscription = async () => {
             setSelectedUpgradePlan('');
           }}
           disabled={upgradeLoading}
-          className="px-6 py-2 border rounded-md hover:bg-gray-100"
+          className="px-6 py-2 border rounded-md hover:bg-gray-100 disabled:opacity-50"
         >
           Cancel
         </button>
         <button
           onClick={handleUpgradeSubscription}
           disabled={!selectedUpgradePlan || upgradeLoading}
-          className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
+          className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
-          {upgradeLoading ? 'Processing...' : 'Confirm Upgrade'}
+          {upgradeLoading ? 'Processing...' : 'Create Upgrade Invoice'}
         </button>
       </div>
     </div>
@@ -568,56 +624,109 @@ const handleUpgradeSubscription = async () => {
 
 ---
 
+### Phase 7: KillBill Catalog Policy (Optional - Already Set)
+
+**File**: `services/billing-service/killbill_catalog.xml`
+
+**Verify** that changePolicy is set to IMMEDIATE (line 23-27):
+
+```xml
+<changePolicy>
+    <changePolicyCase>
+        <policy>IMMEDIATE</policy>
+    </changePolicyCase>
+</changePolicy>
+```
+
+**Note**: If currently END_OF_TERM, change to IMMEDIATE to enable instant plan changes with proration.
+
+---
+
 ## Critical Files Summary
 
-### Backend Changes
-1. `infrastructure/postgres/init-scripts/05-plan-entitlements.sql` - Add tier_rank column
-2. `services/billing-service/app/utils/database.py` - Validation functions
-3. `services/billing-service/app/utils/killbill_client.py` - Change plan method
-4. `services/billing-service/app/routes/subscriptions.py` - Upgrade endpoint
-5. `services/billing-service/killbill_catalog.xml` - Change policy to IMMEDIATE
-6. `shared/schemas/billing.py` - Response schema
+### Backend Changes (5 files)
+1. `services/billing-service/app/utils/pricing.py` - NEW: Price comparison utilities
+2. `services/billing-service/app/routes/subscriptions.py` - ADD: Upgrade endpoint
+3. `services/billing-service/app/utils/killbill_client.py` - ADD: change_subscription_plan method (if missing)
+4. `services/billing-service/app/routes/webhooks.py` - MODIFY: INVOICE_PAYMENT_SUCCESS handler (add upgrade detection)
+5. `services/billing-service/killbill_catalog.xml` - VERIFY: IMMEDIATE policy
 
-### Frontend Changes
-7. `frontend/src/types/billing.ts` - Type definitions
-8. `frontend/src/utils/api.ts` - API client method
-9. `frontend/src/pages/BillingInstanceManage.tsx` - UI implementation
+### Frontend Changes (3 files)
+6. `frontend/src/types/billing.ts` - ADD: Upgrade types
+7. `frontend/src/utils/api.ts` - ADD: upgradeSubscription API method
+8. `frontend/src/pages/BillingInstanceManage.tsx` - ADD: Upgrade button and modal UI
 
-### Already Working
-10. `services/billing-service/app/routes/webhooks.py` - SUBSCRIPTION_CHANGE handler ✅
+### Already Working (No Changes Needed)
+- `services/instance-service/app/routes/instances.py:1285` - apply_resource_upgrade() ✅
+- `services/billing-service/app/routes/plans.py` - getPlans() endpoint ✅
+- `services/billing-service/app/utils/database.py` - get_plan_entitlements() ✅
+
+---
+
+## Flow Diagram
+
+```
+[User clicks "Upgrade Plan" button]
+         ↓
+[Frontend shows available higher-priced plans]
+         ↓
+[User selects plan, clicks "Create Upgrade Invoice"]
+         ↓
+[POST /api/billing/subscriptions/{id}/upgrade]
+         ↓
+[Backend validates: target_price > current_price]
+         ↓
+[KillBill subscription changed via PUT /subscriptions/{id}]
+         ↓
+[KillBill creates prorated invoice]
+         ↓
+[User receives invoice email]
+         ↓
+[User pays invoice (external payment gateway)]
+         ↓
+[INVOICE_PAYMENT_SUCCESS webhook fires]
+         ↓
+[Webhook detects: instance exists + resources changed]
+         ↓
+[update_instance_resources() - DB updated]
+         ↓
+[apply_resource_upgrade() - Live container update]
+         ↓
+[Email sent: "Upgrade complete"]
+         ↓
+[Frontend refreshes: shows new resources]
+```
 
 ---
 
 ## Testing Strategy
 
 ### Unit Tests
-- [ ] Test `validate_plan_upgrade()` with various tier combinations
-- [ ] Test upgrade endpoint with valid/invalid plans
-- [ ] Test downgrade rejection logic
-- [ ] Test same-tier prevention
+- [ ] Price comparison logic (upgrade/downgrade/same tier)
+- [ ] validate_upgrade() with various price combinations
+- [ ] Upgrade endpoint validation (400 on downgrade, 404 on invalid subscription)
 
 ### Integration Tests
-- [ ] Complete upgrade flow: Basic → Standard
-- [ ] Complete upgrade flow: Standard → Premium
-- [ ] Verify proration calculation in KillBill invoice
-- [ ] Verify live resource updates to running container
-- [ ] Test upgrade during active instance (no downtime)
-- [ ] Test upgrade when instance is stopped
+- [ ] Full upgrade flow: Basic ($5) → Standard ($8)
+- [ ] Full upgrade flow: Standard ($8) → Premium ($10)
+- [ ] Downgrade rejection: Premium → Basic (should fail)
+- [ ] Same-tier rejection: Basic → Basic (should fail)
+- [ ] Resource update verification after payment
+- [ ] CephFS quota update confirmation
 
 ### Edge Cases
-- [ ] Attempt downgrade (should fail with 400)
-- [ ] Attempt upgrade to same tier (should fail)
-- [ ] Attempt upgrade with invalid plan name
-- [ ] Concurrent upgrade requests (race condition)
 - [ ] Upgrade during trial period
-- [ ] Upgrade with missing payment method
+- [ ] Upgrade for stopped instance (resources update DB only)
+- [ ] Concurrent upgrade requests (race condition)
+- [ ] Payment failure after upgrade initiated
+- [ ] Upgrade with missing plan pricing data
 
 ### UI Testing
 - [ ] Upgrade button only shows for ACTIVE subscriptions
-- [ ] Modal shows only higher-tier plans
-- [ ] Confirmation dialog displays correctly
-- [ ] Success message shows tier change
-- [ ] Error handling displays user-friendly messages
+- [ ] Modal filters to higher-priced plans only
+- [ ] Confirmation dialog shows price change
+- [ ] Success message displays correctly
+- [ ] Error handling for failed upgrades
 - [ ] Subscription data refreshes after upgrade
 
 ---
@@ -625,46 +734,44 @@ const handleUpgradeSubscription = async () => {
 ## Deployment Checklist
 
 ### Pre-Deployment
-1. [ ] Backup production database
-2. [ ] Test on staging environment
-3. [ ] Verify KillBill catalog change won't affect existing subscriptions
+1. [ ] Test on staging environment
+2. [ ] Backup production database
+3. [ ] Verify KillBill catalog has IMMEDIATE policy
 
 ### Deployment Steps
-1. [ ] Apply database migration (add tier_rank column)
-2. [ ] Update KillBill catalog XML
-3. [ ] Deploy backend services (billing-service)
-4. [ ] Deploy frontend service
-5. [ ] Smoke test upgrade flow
-6. [ ] Monitor logs for errors
+1. [ ] Deploy backend: billing-service, instance-service (if apply_resource_upgrade modified)
+2. [ ] Deploy frontend service
+3. [ ] Smoke test: Initiate upgrade, verify invoice created
+4. [ ] Smoke test: Pay invoice, verify resources upgraded
 
 ### Post-Deployment
 1. [ ] Monitor first production upgrade
-2. [ ] Verify proration invoice generated correctly
-3. [ ] Confirm resource updates applied successfully
-4. [ ] Check email notifications sent
+2. [ ] Verify INVOICE_PAYMENT_SUCCESS webhook detects upgrades
+3. [ ] Confirm live resource updates with zero downtime
+4. [ ] Check email notifications sent correctly
 
 ---
 
 ## Success Metrics
 
-- Upgrades complete within 5 seconds
-- Resource updates apply with zero downtime
-- Prorated charges calculated correctly by KillBill
-- Zero downgrade requests succeed (100% blocked)
-- User sees updated resources immediately in dashboard
+- Upgrade request completes in < 2 seconds (invoice created)
+- Resource updates apply within 10 seconds of payment
+- Zero downtime during live resource upgrades
+- 100% downgrade blocking (all rejected with 400 error)
+- Upgrade emails delivered within 1 minute
 
 ---
 
 ## Rollback Plan
 
 If critical issues arise:
-1. Revert KillBill catalog to END_OF_TERM policy
-2. Remove upgrade button from frontend
-3. Existing subscriptions remain unaffected
-4. Database tier_rank column can remain (no harm)
+1. Disable upgrade button in frontend (remove or hide)
+2. Existing subscriptions remain unaffected
+3. Revert webhook changes (remove upgrade detection logic)
+4. Manual resource upgrades via admin interface if needed
 
 ---
 
-**Estimated Implementation Time**: 12-16 hours
+**Estimated Implementation Time**: 8-12 hours
 **Complexity**: Medium (leverages existing infrastructure)
-**Risk Level**: Low (no changes to core instance lifecycle)
+**Risk Level**: Low (payment-gated, no automatic changes)
