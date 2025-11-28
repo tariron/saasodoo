@@ -507,6 +507,9 @@ services:
     #   - "8003:8003"  # Expose instance-service port to host
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       restart_policy:
         condition: any
         delay: 5s

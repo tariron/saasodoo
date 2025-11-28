@@ -704,11 +704,8 @@ class DockerClientWrapper:
             )
 
             # Update service with new resources
-            service.update(
-                task_template={
-                    'Resources': resources
-                }
-            )
+            # FIX: Pass 'resources' directly. The SDK builds the TaskTemplate internally.
+            service.update(resources=resources)
 
             logger.info("Successfully updated service resources",
                        service=service_name,

@@ -148,8 +148,9 @@ async def handle_killbill_webhook(request: Request, response: Response):
             await handle_invoice_created(payload)
         elif event_type == "INVOICE_PAYMENT_FAILED":
             await handle_invoice_payment_failed(payload)
-        elif event_type == "SUBSCRIPTION_CHANGE":
-            await handle_subscription_change(payload)
+        # DISABLED: Upgrades are handled in INVOICE_PAYMENT_SUCCESS only (prevents premature resource application before payment)
+        # elif event_type == "SUBSCRIPTION_CHANGE":
+        #     await handle_subscription_change(payload)
         elif event_type == "PING":
             logger.info("Processed KillBill ping/health check webhook")
         elif event_type == "UNKNOWN":
@@ -534,125 +535,129 @@ async def handle_invoice_payment_failed(payload: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Error handling invoice payment failure: {e}")
 
-async def handle_subscription_change(payload: Dict[str, Any]):
-    """Handle subscription change webhook - upgrade/downgrade plans with live resource updates"""
-    subscription_id = payload.get('objectId')
-    account_id = payload.get('accountId')
-    metadata_str = payload.get('metaData')
-
-    # Parse metadata to check actionType
-    action_type = None
-    if metadata_str:
-        try:
-            import json
-            metadata = json.loads(metadata_str)
-            action_type = metadata.get('actionType')
-            logger.info(f"Subscription change actionType: {action_type} for {subscription_id}")
-        except Exception as parse_error:
-            logger.warning(f"Could not parse metaData for subscription {subscription_id}: {parse_error}")
-
-    # Only process EFFECTIVE changes (skip REQUESTED)
-    if action_type != "EFFECTIVE":
-        logger.info(f"Skipping subscription change with actionType '{action_type}' for {subscription_id} (waiting for EFFECTIVE)")
-        return
-
-    logger.info(f"Processing EFFECTIVE subscription change: {subscription_id} for account: {account_id}")
-
-    try:
-        # Get KillBill client
-        killbill = _get_killbill_client()
-
-        # Get subscription details to find new plan
-        subscription = await killbill.get_subscription_by_id(subscription_id)
-        if not subscription:
-            logger.warning(f"Could not get subscription details for {subscription_id}")
-            return
-
-        new_plan_name = subscription.get('planName')
-        logger.info(f"Subscription {subscription_id} changed to plan: {new_plan_name}")
-
-        # Get plan resources from database
-        from ..utils.database import get_plan_entitlements
-
-        entitlements = await get_plan_entitlements(new_plan_name)
-        if not entitlements:
-            logger.error(f"Plan entitlements not found for plan: {new_plan_name}")
-            return
-
-        cpu_limit = float(entitlements['cpu_limit'])
-        memory_limit = entitlements['memory_limit']
-        storage_limit = entitlements['storage_limit']
-
-        logger.info(f"New plan resources: {cpu_limit} CPU, {memory_limit} RAM, {storage_limit} storage")
-
-        # Find instance by subscription_id
-        instance = await instance_client.get_instance_by_subscription_id(subscription_id)
-        if not instance:
-            logger.warning(f"No instance found for subscription {subscription_id} during plan change")
-            return
-
-        instance_id = instance.get('id')
-        instance_status = instance.get('status')
-        old_cpu = instance.get('cpu_limit')
-        old_memory = instance.get('memory_limit')
-        old_storage = instance.get('storage_limit')
-
-        logger.info(f"Found instance {instance_id} (status: {instance_status}) for subscription {subscription_id}")
-        logger.info(f"Old resources: {old_cpu} CPU, {old_memory} RAM, {old_storage} storage")
-
-        # Update instance database record
-        await instance_client.update_instance_resources(instance_id, cpu_limit, memory_limit, storage_limit)
-        logger.info(f"Updated instance {instance_id} database record with new resource limits")
-
-        # Apply live resource updates to running container
-        if instance_status == 'running':
-            try:
-                await instance_client.apply_resource_upgrade(instance_id)
-                logger.info(f"Successfully applied live resource upgrade to instance {instance_id}")
-            except Exception as upgrade_error:
-                logger.error(f"Failed to apply live resource upgrade to instance {instance_id}: {upgrade_error}")
-                # Don't fail the whole operation - DB is updated, container can be restarted manually
-        else:
-            logger.info(f"Instance {instance_id} not running (status: {instance_status}), skipping live container update")
-
-        # Get customer information for notification
-        customer_external_key = await _get_customer_external_key_by_account_id(account_id)
-        if not customer_external_key:
-            logger.warning(f"Could not find customer for account {account_id}")
-            return
-
-        # Send upgrade notification email
-        try:
-            from ..utils.notification_client import get_notification_client
-
-            customer_info = await _get_customer_info_by_external_key(customer_external_key)
-            if customer_info:
-                client = get_notification_client()
-                await client.send_template_email(
-                    to_emails=[customer_info.get('email', '')],
-                    template_name="subscription_upgraded",
-                    template_variables={
-                        "first_name": customer_info.get('first_name', ''),
-                        "new_plan": new_plan_name,
-                        "cpu_limit": str(cpu_limit),
-                        "memory_limit": memory_limit,
-                        "storage_limit": storage_limit,
-                        "old_cpu": str(old_cpu),
-                        "old_memory": old_memory,
-                        "old_storage": old_storage
-                    },
-                    tags=["billing", "subscription", "upgrade"]
-                )
-                logger.info(f"✅ Sent subscription upgrade email to {customer_info.get('email')}")
-            else:
-                logger.warning(f"Could not send upgrade email - customer info not found for {customer_external_key}")
-        except Exception as email_error:
-            logger.error(f"❌ Failed to send subscription upgrade email: {email_error}")
-
-        logger.info(f"Completed subscription change processing for {subscription_id}")
-
-    except Exception as e:
-        logger.error(f"Error handling subscription change for {subscription_id}: {e}")
+# DISABLED: This function caused premature resource upgrades before payment was received
+# Upgrades are now handled exclusively in handle_invoice_payment_success() webhook
+# Keeping this code commented for reference/audit purposes
+#
+# async def handle_subscription_change(payload: Dict[str, Any]):
+#     """Handle subscription change webhook - upgrade/downgrade plans with live resource updates"""
+#     subscription_id = payload.get('objectId')
+#     account_id = payload.get('accountId')
+#     metadata_str = payload.get('metaData')
+#
+#     # Parse metadata to check actionType
+#     action_type = None
+#     if metadata_str:
+#         try:
+#             import json
+#             metadata = json.loads(metadata_str)
+#             action_type = metadata.get('actionType')
+#             logger.info(f"Subscription change actionType: {action_type} for {subscription_id}")
+#         except Exception as parse_error:
+#             logger.warning(f"Could not parse metaData for subscription {subscription_id}: {parse_error}")
+#
+#     # Only process EFFECTIVE changes (skip REQUESTED)
+#     if action_type != "EFFECTIVE":
+#         logger.info(f"Skipping subscription change with actionType '{action_type}' for {subscription_id} (waiting for EFFECTIVE)")
+#         return
+#
+#     logger.info(f"Processing EFFECTIVE subscription change: {subscription_id} for account: {account_id}")
+#
+#     try:
+#         # Get KillBill client
+#         killbill = _get_killbill_client()
+#
+#         # Get subscription details to find new plan
+#         subscription = await killbill.get_subscription_by_id(subscription_id)
+#         if not subscription:
+#             logger.warning(f"Could not get subscription details for {subscription_id}")
+#             return
+#
+#         new_plan_name = subscription.get('planName')
+#         logger.info(f"Subscription {subscription_id} changed to plan: {new_plan_name}")
+#
+#         # Get plan resources from database
+#         from ..utils.database import get_plan_entitlements
+#
+#         entitlements = await get_plan_entitlements(new_plan_name)
+#         if not entitlements:
+#             logger.error(f"Plan entitlements not found for plan: {new_plan_name}")
+#             return
+#
+#         cpu_limit = float(entitlements['cpu_limit'])
+#         memory_limit = entitlements['memory_limit']
+#         storage_limit = entitlements['storage_limit']
+#
+#         logger.info(f"New plan resources: {cpu_limit} CPU, {memory_limit} RAM, {storage_limit} storage")
+#
+#         # Find instance by subscription_id
+#         instance = await instance_client.get_instance_by_subscription_id(subscription_id)
+#         if not instance:
+#             logger.warning(f"No instance found for subscription {subscription_id} during plan change")
+#             return
+#
+#         instance_id = instance.get('id')
+#         instance_status = instance.get('status')
+#         old_cpu = instance.get('cpu_limit')
+#         old_memory = instance.get('memory_limit')
+#         old_storage = instance.get('storage_limit')
+#
+#         logger.info(f"Found instance {instance_id} (status: {instance_status}) for subscription {subscription_id}")
+#         logger.info(f"Old resources: {old_cpu} CPU, {old_memory} RAM, {old_storage} storage")
+#
+#         # Update instance database record
+#         await instance_client.update_instance_resources(instance_id, cpu_limit, memory_limit, storage_limit)
+#         logger.info(f"Updated instance {instance_id} database record with new resource limits")
+#
+#         # Apply live resource updates to running container
+#         if instance_status == 'running':
+#             try:
+#                 await instance_client.apply_resource_upgrade(instance_id)
+#                 logger.info(f"Successfully applied live resource upgrade to instance {instance_id}")
+#             except Exception as upgrade_error:
+#                 logger.error(f"Failed to apply live resource upgrade to instance {instance_id}: {upgrade_error}")
+#                 # Don't fail the whole operation - DB is updated, container can be restarted manually
+#         else:
+#             logger.info(f"Instance {instance_id} not running (status: {instance_status}), skipping live container update")
+#
+#         # Get customer information for notification
+#         customer_external_key = await _get_customer_external_key_by_account_id(account_id)
+#         if not customer_external_key:
+#             logger.warning(f"Could not find customer for account {account_id}")
+#             return
+#
+#         # Send upgrade notification email
+#         try:
+#             from ..utils.notification_client import get_notification_client
+#
+#             customer_info = await _get_customer_info_by_external_key(customer_external_key)
+#             if customer_info:
+#                 client = get_notification_client()
+#                 await client.send_template_email(
+#                     to_emails=[customer_info.get('email', '')],
+#                     template_name="subscription_upgraded",
+#                     template_variables={
+#                         "first_name": customer_info.get('first_name', ''),
+#                         "new_plan": new_plan_name,
+#                         "cpu_limit": str(cpu_limit),
+#                         "memory_limit": memory_limit,
+#                         "storage_limit": storage_limit,
+#                         "old_cpu": str(old_cpu),
+#                         "old_memory": old_memory,
+#                         "old_storage": old_storage
+#                     },
+#                     tags=["billing", "subscription", "upgrade"]
+#                 )
+#                 logger.info(f"✅ Sent subscription upgrade email to {customer_info.get('email')}")
+#             else:
+#                 logger.warning(f"Could not send upgrade email - customer info not found for {customer_external_key}")
+#         except Exception as email_error:
+#             logger.error(f"❌ Failed to send subscription upgrade email: {email_error}")
+#
+#         logger.info(f"Completed subscription change processing for {subscription_id}")
+#
+#     except Exception as e:
+#         logger.error(f"Error handling subscription change for {subscription_id}: {e}")
 
 async def handle_invoice_payment_success(payload: Dict[str, Any]):
     """Handle invoice payment success - create instances for paid subscriptions"""
@@ -783,9 +788,8 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                     current_cpu = existing_instance.get('cpu_limit')
                     current_memory = existing_instance.get('memory_limit')
                     current_storage = existing_instance.get('storage_limit')
-                    current_plan = existing_instance.get('plan_name')
 
-                    logger.info(f"Checking for upgrade: current plan={current_plan}, invoice plan={plan_name}")
+                    logger.info(f"Checking for upgrade: current resources={current_cpu}CPU/{current_memory}/{current_storage}, invoice plan={plan_name}")
 
                     # Get new plan entitlements from database
                     from ..utils.database import get_plan_entitlements
@@ -796,17 +800,19 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                         new_memory = new_entitlements['memory_limit']
                         new_storage = new_entitlements['storage_limit']
 
-                        # Detect upgrade if resources changed
+                        # Detect upgrade if resources changed from current instance resources
+                        # We compare current instance DB resources with new plan entitlements
+                        # If they're different, this is an upgrade payment
                         is_upgrade = (
                             new_cpu != current_cpu or
                             new_memory != current_memory or
                             new_storage != current_storage
                         )
 
-                        if is_upgrade and plan_name != current_plan:
+                        if is_upgrade:
                             logger.info(
                                 f"🚀 UPGRADE DETECTED for instance {instance_id}: "
-                                f"{current_plan} → {plan_name} | "
+                                f"New plan: {plan_name} | "
                                 f"CPU: {current_cpu} → {new_cpu}, "
                                 f"Memory: {current_memory} → {new_memory}, "
                                 f"Storage: {current_storage} → {new_storage}"
@@ -814,15 +820,11 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
 
                             # Update instance database with new resources
                             try:
-                                await instance_client.provision_instance(
+                                await instance_client.update_instance_resources(
                                     instance_id=instance_id,
-                                    subscription_id=subscription_id,
-                                    billing_status="paid",
-                                    plan_name=plan_name,
                                     cpu_limit=new_cpu,
                                     memory_limit=new_memory,
-                                    storage_limit=new_storage,
-                                    provisioning_trigger="upgrade_payment_success"
+                                    storage_limit=new_storage
                                 )
                                 logger.info(f"✅ Updated instance {instance_id} database with new plan resources")
                             except Exception as db_error:
@@ -832,12 +834,9 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                             instance_status = existing_instance.get('status')
                             if instance_status == 'running':
                                 try:
-                                    await instance_client.apply_resource_upgrade(
-                                        instance_id=instance_id,
-                                        new_cpu_limit=new_cpu,
-                                        new_memory_limit=new_memory,
-                                        new_storage_limit=new_storage
-                                    )
+                                    # Fixed: apply_resource_upgrade() only takes instance_id
+                                    # It reads resource limits from the database (already updated above)
+                                    await instance_client.apply_resource_upgrade(instance_id)
                                     logger.info(f"✅ Applied live resource upgrade to running instance {instance_id}")
                                 except Exception as upgrade_error:
                                     logger.error(f"❌ Failed to apply live upgrade: {upgrade_error}")
@@ -859,7 +858,9 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                                         template_name="subscription_upgrade",
                                         template_variables={
                                             "first_name": customer_info.get('first_name', ''),
-                                            "old_plan": current_plan,
+                                            "old_cpu": str(current_cpu),
+                                            "old_memory": current_memory,
+                                            "old_storage": current_storage,
                                             "new_plan": plan_name,
                                             "upgrade_date": upgrade_date,
                                             "cpu_limit": str(new_cpu),

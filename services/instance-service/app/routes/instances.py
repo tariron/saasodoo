@@ -1281,13 +1281,15 @@ async def restart_instance_with_new_subscription(
                    error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to restart instance: {str(e)}")
 
+
 @router.post("/{instance_id}/apply-resources")
 async def apply_resource_upgrade(
     instance_id: UUID,
     db: InstanceDatabase = Depends(get_database)
 ):
-    """Apply live resource upgrades to running container (zero downtime)"""
+    """Apply live resource upgrades to running service (zero downtime)"""
     import subprocess
+    # Import helper from provisioning task
     from app.tasks.provisioning import _parse_size_to_bytes
     from app.utils.docker_client import get_docker_client
 
@@ -1299,51 +1301,58 @@ async def apply_resource_upgrade(
         if not instance:
             raise HTTPException(status_code=404, detail="Instance not found")
 
-        container_name = instance.container_name
+        # FIX: Use service_name for Swarm (with fallback if missing in DB)
+        service_name = instance.service_name
+        if not service_name:
+            service_name = f"odoo-{instance.database_name}-{instance.id.hex[:8]}"
+
         cpu_limit = instance.cpu_limit
         memory_limit = instance.memory_limit
         storage_limit = instance.storage_limit
 
-        logger.info("Upgrading container resources",
-                   container_name=container_name,
+        logger.info("Upgrading service resources",
+                   service_name=service_name,
                    cpu_limit=cpu_limit,
                    memory_limit=memory_limit,
                    storage_limit=storage_limit)
 
-        # Apply docker update for CPU and memory (zero downtime) using Docker client wrapper
+        # Apply docker update for CPU and memory (zero downtime)
         try:
             # Parse memory limit to bytes
             memory_bytes = _parse_size_to_bytes(memory_limit)
 
-            # Get Docker client and update container
+            # Get Docker client and update SERVICE (not container)
             docker_client = get_docker_client()
-            success = docker_client.update_container_resources(container_name, cpu_limit, memory_bytes)
+            
+            # FIX: Use update_service_resources instead of update_container_resources
+            success = docker_client.update_service_resources(service_name, cpu_limit, memory_bytes)
 
             if not success:
-                raise HTTPException(status_code=500, detail="Failed to update container resources")
+                raise HTTPException(status_code=500, detail="Failed to update service resources")
 
-            logger.info("Successfully updated container CPU/memory",
-                       container_name=container_name,
+            logger.info("Successfully updated service CPU/memory",
+                       service_name=service_name,
                        cpu_limit=cpu_limit,
                        memory_mb=memory_bytes // (1024 * 1024))
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Failed to update container resources",
-                        container_name=container_name,
+            logger.error("Failed to update service resources",
+                        service_name=service_name,
                         error=str(e))
             raise HTTPException(status_code=500, detail=f"Docker update failed: {str(e)}")
 
         # Apply CephFS storage quota update
         try:
-            # Build CephFS path
-            cephfs_path = f"/mnt/cephfs/odoo_instances/odoo_data_{instance.database_name}_{instance_id.hex[:8]}"
+            # Build CephFS path - matches provisioning logic
+            volume_name = f"odoo_data_{instance.database_name}_{instance.id.hex[:8]}"
+            cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
 
             # Parse storage limit to bytes
             storage_bytes = _parse_size_to_bytes(storage_limit)
 
             # Update CephFS quota
-            result = subprocess.run([
+            subprocess.run([
                 'setfattr',
                 '-n', 'ceph.quota.max_bytes',
                 '-v', str(storage_bytes),
@@ -1358,7 +1367,7 @@ async def apply_resource_upgrade(
             logger.error("Failed to update CephFS quota",
                         path=cephfs_path,
                         error=e.stderr)
-            # Don't fail the whole operation - container resources were updated
+            # Don't fail the whole operation - service resources were updated
             logger.warning("Continuing despite CephFS quota update failure")
         except Exception as e:
             logger.error("Error updating storage quota", error=str(e))
@@ -1368,7 +1377,7 @@ async def apply_resource_upgrade(
             "status": "success",
             "message": "Live resource upgrade applied successfully",
             "instance_id": str(instance_id),
-            "container_name": container_name,
+            "service_name": service_name,
             "cpu_limit": cpu_limit,
             "memory_limit": memory_limit,
             "storage_limit": storage_limit,
