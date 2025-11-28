@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def parse_size_to_bytes(size_str: str) -> int:
+    """Convert size string like '4G' or '512M' to bytes for numeric comparison"""
+    size_str = size_str.upper().strip()
+    if size_str.endswith('G'):
+        return int(size_str[:-1]) * 1024 * 1024 * 1024
+    elif size_str.endswith('M'):
+        return int(size_str[:-1]) * 1024 * 1024
+    return int(size_str)
+
+
 # Module-level singleton KillBill client
 def _get_killbill_client() -> KillBillClient:
     """Get or create singleton KillBill client instance"""
@@ -800,14 +811,34 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                         new_memory = new_entitlements['memory_limit']
                         new_storage = new_entitlements['storage_limit']
 
-                        # Detect upgrade if resources changed from current instance resources
-                        # We compare current instance DB resources with new plan entitlements
-                        # If they're different, this is an upgrade payment
+                        # Convert to comparable numeric values for accurate comparison
+                        current_memory_bytes = parse_size_to_bytes(current_memory)
+                        new_memory_bytes = parse_size_to_bytes(new_memory)
+                        current_storage_bytes = parse_size_to_bytes(current_storage)
+                        new_storage_bytes = parse_size_to_bytes(new_storage)
+
+                        # Detect TRUE upgrades (resources INCREASE)
                         is_upgrade = (
-                            new_cpu != current_cpu or
-                            new_memory != current_memory or
-                            new_storage != current_storage
+                            new_cpu > current_cpu or
+                            new_memory_bytes > current_memory_bytes or
+                            new_storage_bytes > current_storage_bytes
                         )
+
+                        # Detect downgrades (resources DECREASE) - should never happen due to price validation
+                        is_downgrade = (
+                            new_cpu < current_cpu or
+                            new_memory_bytes < current_memory_bytes or
+                            new_storage_bytes < current_storage_bytes
+                        )
+
+                        if is_downgrade:
+                            logger.error(
+                                f"❌ DOWNGRADE BLOCKED (should not happen - price validation failed?) - "
+                                f"Subscription {subscription_id}: CPU {current_cpu}→{new_cpu}, "
+                                f"Memory {current_memory}→{new_memory}, Storage {current_storage}→{new_storage}"
+                            )
+                            # Don't apply downgrade - skip processing for this subscription
+                            continue
 
                         if is_upgrade:
                             logger.info(

@@ -435,6 +435,20 @@ async def upgrade_subscription(
         current_plan = subscription.get('planName')
         account_id = subscription.get('accountId')
 
+        # Check for unpaid invoices BEFORE allowing upgrade
+        unpaid_invoices = await killbill.get_unpaid_invoices_by_subscription(subscription_id)
+        if unpaid_invoices:
+            unpaid_count = len(unpaid_invoices)
+            total_balance = sum(float(inv.get('balance', 0)) for inv in unpaid_invoices)
+            logger.warning(
+                f"Upgrade blocked for subscription {subscription_id}: "
+                f"{unpaid_count} unpaid invoice(s) totaling ${total_balance:.2f}"
+            )
+            raise HTTPException(
+                status_code=402,  # Payment Required
+                detail=f"Cannot upgrade with {unpaid_count} unpaid invoice(s) totaling ${total_balance:.2f}. Please pay outstanding invoices first."
+            )
+
         # Get all plans with prices from catalog
         plans = await killbill.get_catalog_plans()
 
