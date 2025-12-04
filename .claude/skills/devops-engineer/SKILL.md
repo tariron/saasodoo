@@ -138,19 +138,75 @@ rm -rf /mnt/cephfs/odoo_instances/odoo_data_<instance>
 
 ### Database Operations
 
-#### PostgreSQL
+#### Platform PostgreSQL (saasodoo_postgres)
+**Purpose:** Hosts platform databases (auth, billing, instance, communication) and db_servers table
+
+```bash
+# Get container ID
+PGID=$(docker ps --filter name=saasodoo_postgres --format "{{.ID}}" | head -1)
+
+# Check database status
+docker exec $PGID pg_isready -U database_service
+
+# Connect to instance database (database allocation system)
+docker exec -it $PGID psql -U database_service -d instance
+
+# Query db_servers table (database pools)
+docker exec $PGID psql -U database_service -d instance -c \
+  "SELECT name, admin_user, status, health_status, current_instances, max_instances FROM db_servers ORDER BY name;"
+
+# Query instances table
+docker exec $PGID psql -U database_service -d instance -c \
+  "SELECT id, name, status, db_server_id, plan_tier FROM instances LIMIT 10;"
+
+# Connect to auth database
+docker exec -it $PGID psql -U auth_service -d auth
+
+# Connect to billing database
+docker exec -it $PGID psql -U billing_service -d billing
+```
+
+#### Database Pools (postgres-pool-N)
+**Purpose:** Dynamically provisioned PostgreSQL servers for hosting Odoo instance databases
+
+```bash
+# List all pool services
+docker service ls | grep postgres-pool
+
+# Get pool container ID
+POOL_ID=$(docker ps --filter name=postgres-pool-1 --format "{{.ID}}" | head -1)
+
+# Check pool status
+docker exec $POOL_ID pg_isready -U postgres
+
+# List databases in pool
+docker exec $POOL_ID psql -U postgres -c "\l"
+
+# Check for Odoo databases
+docker exec $POOL_ID psql -U postgres -c "\l" | grep odoo_
+
+# Connect to specific Odoo database in pool
+docker exec -it $POOL_ID psql -U postgres -d odoo_<customer-id>_<instance-id>
+
+# Check pool resource usage
+docker exec $POOL_ID psql -U postgres -c \
+  "SELECT datname, count(*) as connections FROM pg_stat_activity GROUP BY datname;"
+```
+
+#### Legacy PostgreSQL (postgres2)
+**Note:** This is kept for backward compatibility but NOT used for new allocations
 ```bash
 # Check database status
-docker exec <postgres-container> pg_isready -U odoo_user
+docker exec <postgres2-container> pg_isready -U odoo_user
 
 # List databases
-docker exec <postgres-container> psql -U odoo_user -l
+docker exec <postgres2-container> psql -U odoo_user -l
 
 # Connect to database
-docker exec -it <postgres-container> psql -U odoo_user -d <database>
+docker exec -it <postgres2-container> psql -U odoo_user -d <database>
 
 # Check connections
-docker exec <postgres-container> psql -U odoo_user -d postgres -c \
+docker exec <postgres2-container> psql -U odoo_user -d postgres -c \
   "SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;"
 ```
 
@@ -325,6 +381,50 @@ docker push registry.62.171.153.219.nip.io/compose-frontend-service:latest
 set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
 ```
 
+### Rebuild Database Service (IMPORTANT!)
+**CRITICAL:** When rebuilding database-service, you MUST also rebuild database-worker and database-beat since they share the same codebase!
+
+```bash
+# 1. Build database-service image (uses root as build context)
+docker build -t registry.62.171.153.219.nip.io/compose-database-service:latest -f services/database-service/Dockerfile .
+
+# 2. Tag database-worker and database-beat (they use the SAME image)
+docker tag registry.62.171.153.219.nip.io/compose-database-service:latest registry.62.171.153.219.nip.io/compose-database-worker:latest
+docker tag registry.62.171.153.219.nip.io/compose-database-service:latest registry.62.171.153.219.nip.io/compose-database-beat:latest
+
+# 3. Push all three images to registry
+docker push registry.62.171.153.219.nip.io/compose-database-service:latest && \
+docker push registry.62.171.153.219.nip.io/compose-database-worker:latest && \
+docker push registry.62.171.153.219.nip.io/compose-database-beat:latest
+
+# 4. Redeploy the stack (picks up new images)
+set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+```
+
+### Rebuild Platform Postgres with Schema Changes
+**When to use:** After modifying schema files in `shared/configs/postgres/`
+
+```bash
+# 1. Build custom postgres image with init scripts
+docker build -t registry.62.171.153.219.nip.io/compose-postgres:latest -f infrastructure/postgres/Dockerfile .
+
+# 2. Push to registry
+docker push registry.62.171.153.219.nip.io/compose-postgres:latest
+
+# 3. Scale down postgres service
+docker service scale saasodoo_postgres=0
+
+# 4. Clean data directory (CAUTION: This will delete all data!)
+rm -rf /mnt/cephfs/postgres_data/*
+
+# 5. Redeploy stack (postgres will reinitialize with new schema)
+set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+
+# 6. Wait for postgres to be healthy
+sleep 30
+docker service ps saasodoo_postgres
+```
+
 ### Force Rebuild Service (Quick)
 ```bash
 # Scale to 0, then back to 1
@@ -348,6 +448,108 @@ rm -rf /mnt/cephfs/<db>_data/*
 docker service scale saasodoo_<db-service>=1
 ```
 
+## Database Service API Access
+
+### API Endpoints
+- **Base URL**: `http://api.62.171.153.219.nip.io/database`
+- **OpenAPI Docs**: `http://api.62.171.153.219.nip.io/database/docs`
+
+### Common Database Service Operations
+
+#### Provision New Pool
+```bash
+curl -X POST http://api.62.171.153.219.nip.io/database/api/database/admin/provision-pool \
+  -H "Content-Type: application/json" \
+  -d '{"max_instances": 50}'
+```
+
+#### List All Pools
+```bash
+curl http://api.62.171.153.219.nip.io/database/api/database/admin/pools
+```
+
+#### Get Pool Details
+```bash
+# Get pool ID from database first
+POOL_ID=$(docker exec $(docker ps -q -f name=saasodoo_postgres | head -1) \
+  psql -U database_service -d instance -t -c \
+  "SELECT id FROM db_servers WHERE name='postgres-pool-1';")
+
+# Get pool details
+curl "http://api.62.171.153.219.nip.io/database/api/database/admin/pools/${POOL_ID}"
+```
+
+#### Trigger Pool Health Check
+```bash
+curl -X POST "http://api.62.171.153.219.nip.io/database/api/database/admin/pools/${POOL_ID}/health-check"
+```
+
+#### Get System Statistics
+```bash
+curl http://api.62.171.153.219.nip.io/database/api/database/admin/stats
+```
+
+#### Allocate Database for Instance
+```bash
+curl -X POST http://api.62.171.153.219.nip.io/database/api/database/allocate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instance_id": "test-instance-001",
+    "customer_id": "test-customer-001",
+    "plan_tier": "starter"
+  }'
+```
+
+#### Provision Dedicated Server
+```bash
+curl -X POST http://api.62.171.153.219.nip.io/database/api/database/provision-dedicated \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instance_id": "premium-instance-001",
+    "customer_id": "premium-customer-001",
+    "plan_tier": "enterprise"
+  }'
+```
+
+### Database Service Celery Tasks
+
+The database-service has two key background tasks:
+
+1. **Health Check Task** (`health_check_db_pools`)
+   - Runs every 5 minutes
+   - Tests connectivity to all pools
+   - Updates health_status: healthy → degraded → unhealthy
+   - Uses admin_user and admin_password from db_servers table
+   - Promotes 'initializing' pools to 'active' when healthy
+
+2. **Cleanup Task** (`cleanup_failed_pools`)
+   - Runs daily
+   - Removes pools in 'error' status with no databases
+   - Cleans up Docker Swarm services
+   - Marks records as 'deprovisioned'
+
+### Monitoring Database Service
+
+```bash
+# Check service health
+curl http://api.62.171.153.219.nip.io/database/health
+
+# Check database connectivity
+curl http://api.62.171.153.219.nip.io/database/health/database
+
+# Check Docker connectivity
+curl http://api.62.171.153.219.nip.io/database/health/docker
+
+# View service logs
+docker service logs saasodoo_database-service --tail 100 --follow
+
+# View worker logs (Celery tasks)
+docker service logs saasodoo_database-worker --tail 100 --follow
+
+# View beat logs (task scheduler)
+docker service logs saasodoo_database-beat --tail 50
+```
+
 ## Important File Locations
 
 - **Docker Compose**: `/root/saasodoo/infrastructure/compose/docker-compose.ceph.yml`
@@ -355,8 +557,10 @@ docker service scale saasodoo_<db-service>=1
 - **CephFS Mount**: `/mnt/cephfs/`
 - **Service Data**: `/mnt/cephfs/<service>_data/`
 - **Instance Data**: `/mnt/cephfs/odoo_instances/`
+- **Database Pools**: `/mnt/cephfs/postgres_pools/pool-N/`
 - **Backups**: `/mnt/cephfs/odoo_backups/`
 - **Docker Registry**: `/mnt/cephfs/docker-registry/`
+- **Postgres Init Scripts**: `/root/saasodoo/shared/configs/postgres/`
 
 ## Monitoring Checklist
 
