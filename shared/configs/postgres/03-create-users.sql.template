@@ -48,6 +48,14 @@ BEGIN
 END
 $$;
 
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'database_service') THEN
+        CREATE ROLE database_service WITH LOGIN PASSWORD '${POSTGRES_DATABASE_SERVICE_PASSWORD}';
+    END IF;
+END
+$$;
+
 -- Grant permissions to read-only user
 GRANT CONNECT ON DATABASE saas_odoo TO readonly_user;
 GRANT CONNECT ON DATABASE auth TO readonly_user;
@@ -65,6 +73,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_use
 GRANT ALL PRIVILEGES ON DATABASE auth TO auth_service;
 GRANT ALL PRIVILEGES ON DATABASE billing TO billing_service;
 GRANT ALL PRIVILEGES ON DATABASE instance TO instance_service;
+GRANT ALL PRIVILEGES ON DATABASE instance TO database_service;
 
 -- Grant table-level permissions for each service user on their database
 -- Auth service permissions on auth database
@@ -82,6 +91,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 \c instance;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO instance_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO instance_service;
+
+-- Database service permissions on instance database (needs access to db_servers and instances tables)
+GRANT ALL ON SCHEMA public TO database_service;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO database_service;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO database_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO database_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO database_service;
 
 -- Return to main database
 \c saas_odoo;
