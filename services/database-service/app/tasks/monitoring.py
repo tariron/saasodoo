@@ -46,14 +46,20 @@ async def _health_check_db_pools_async():
     try:
         logger.info("Starting scheduled health check for all pools")
 
-        # Connect to database
-        if not db_service.pool:
-            await db_service.connect()
+        # Create fresh database connection for this task
+        conn = await asyncpg.connect(
+            host=os.getenv('POSTGRES_HOST', 'postgres'),
+            port=int(os.getenv('POSTGRES_PORT', '5432')),
+            database=os.getenv('POSTGRES_DB', 'instance'),
+            user=os.getenv('DB_SERVICE_USER', 'database_service'),
+            password=os.getenv('DB_SERVICE_PASSWORD', 'database_service_secure_pass_change_me')
+        )
 
-        async with db_service.get_connection() as conn:
-            # Query all active pools
+        try:
+            # Query all active pools with admin credentials
             query = """
-                SELECT id, name, host, port, status, health_status, health_check_failures
+                SELECT id, name, host, port, status, health_status, health_check_failures,
+                       admin_user, admin_password
                 FROM db_servers
                 WHERE status IN ('active', 'full', 'initializing')
                 ORDER BY last_health_check ASC NULLS FIRST
@@ -75,14 +81,13 @@ async def _health_check_db_pools_async():
                 pool_name = pool['name']
 
                 try:
-                    # Attempt connection to PostgreSQL server
-                    # Use admin credentials from environment
-                    admin_user = os.getenv('POSTGRES_ADMIN_USER', 'postgres')
-                    admin_password = os.getenv('POSTGRES_ADMIN_PASSWORD')
+                    # Get admin credentials from database record
+                    admin_user = pool['admin_user']
+                    admin_password = pool['admin_password']
 
-                    if not admin_password:
+                    if not admin_user or not admin_password:
                         logger.warning(
-                            "Admin password not configured, skipping health check",
+                            "Admin credentials not configured for pool, skipping health check",
                             pool_name=pool_name
                         )
                         continue
@@ -203,6 +208,9 @@ async def _health_check_db_pools_async():
             )
 
             return results
+
+        finally:
+            await conn.close()
 
     except Exception as e:
         logger.error("Health check task failed", error=str(e), exc_info=True)

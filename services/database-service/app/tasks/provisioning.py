@@ -145,13 +145,13 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
                     name, host, port, server_type, max_instances, current_instances,
                     status, health_status, storage_path, postgres_version, postgres_image,
                     cpu_limit, memory_limit, allocation_strategy, priority,
-                    provisioned_by, provisioned_at
+                    provisioned_by, provisioned_at, admin_user, admin_password
                 )
                 VALUES (
                     $1, $2, 5432, 'shared', $3, 0,
                     'provisioning', 'unknown', $4, '16', 'postgres:16-alpine',
                     '2', '4G', 'auto', 10,
-                    'provisioning_task', NOW()
+                    'provisioning_task', NOW(), 'postgres', $5
                 )
                 RETURNING id
             """
@@ -160,7 +160,8 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
                 pool_name,  # name
                 pool_name,  # host (Docker service DNS)
                 max_instances,  # max_instances
-                storage_path  # storage_path
+                storage_path,  # storage_path
+                admin_password  # admin_password
             )
             db_server_id = str(row['id'])
 
@@ -409,21 +410,21 @@ async def _provision_dedicated_server_workflow(
                     status, health_status, storage_path, postgres_version, postgres_image,
                     cpu_limit, memory_limit, allocation_strategy,
                     dedicated_to_customer_id, dedicated_to_instance_id,
-                    provisioned_by, provisioned_at
+                    provisioned_by, provisioned_at, admin_user, admin_password
                 )
                 VALUES (
                     $1, $2, 5432, 'dedicated', 1, 0,
                     'provisioning', 'unknown', $3, '16', 'postgres:16-alpine',
                     '4', '8G', 'manual',
                     $4, $5,
-                    'provisioning_task', NOW()
+                    'provisioning_task', NOW(), 'postgres', $6
                 )
                 RETURNING id
             """
             row = await conn.fetchrow(
                 insert_query,
                 server_name, server_name, storage_path,
-                customer_id, instance_id
+                customer_id, instance_id, admin_password
             )
             db_server_id = str(row['id'])
 

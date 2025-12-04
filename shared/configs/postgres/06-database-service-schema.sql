@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS db_servers (
     -- PostgreSQL Configuration
     postgres_version VARCHAR(10) DEFAULT '18',
     postgres_image VARCHAR(100) DEFAULT 'postgres:18-alpine',
+    admin_user VARCHAR(50) DEFAULT 'postgres',
+    admin_password VARCHAR(255),
 
     -- Allocation Strategy
     allocation_strategy VARCHAR(20) DEFAULT 'auto' CHECK (allocation_strategy IN ('auto', 'manual')),
@@ -132,40 +134,6 @@ COMMENT ON COLUMN instances.db_server_id IS 'Foreign key to db_servers - which P
 COMMENT ON COLUMN instances.plan_tier IS 'Subscription plan tier (free, starter, standard, professional, premium, enterprise)';
 COMMENT ON COLUMN instances.requires_dedicated_db IS 'Whether this instance requires a dedicated database server';
 
--- Create legacy entry for existing postgres2 server
--- This allows existing instances to continue working without migration
-INSERT INTO db_servers (
-    name,
-    host,
-    port,
-    server_type,
-    max_instances,
-    current_instances,
-    status,
-    health_status,
-    allocation_strategy,
-    priority,
-    postgres_version,
-    postgres_image,
-    provisioned_by,
-    storage_path
-) VALUES (
-    'postgres2-legacy',
-    'postgres2',
-    5432,
-    'shared',
-    1000,  -- High capacity for legacy server
-    0,     -- Will be updated if we migrate existing instances
-    'active',
-    'healthy',
-    'manual',  -- Not used for automatic allocation
-    999,       -- Lowest priority (highest number)
-    '18',
-    'postgres:18-alpine',
-    'manual_migration',
-    '/var/lib/postgresql/data'  -- Standard postgres2 data path
-) ON CONFLICT (name) DO NOTHING;
-
 -- Grant permissions to database_service user (must be created separately in 03-create-users.sql.template)
 -- This is here for reference - actual user creation happens in 03-create-users.sql.template
 -- GRANT ALL PRIVILEGES ON TABLE db_servers TO database_service;
@@ -175,7 +143,6 @@ INSERT INTO db_servers (
 \echo 'Database allocation schema migration completed successfully'
 \echo 'Created db_servers table with indexes and triggers'
 \echo 'Extended instances table with allocation fields'
-\echo 'Created postgres2-legacy entry for backward compatibility'
 
 
 -- ============================================================================
