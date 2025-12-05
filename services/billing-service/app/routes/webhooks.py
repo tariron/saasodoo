@@ -30,6 +30,28 @@ def parse_size_to_bytes(size_str: str) -> int:
     return int(size_str)
 
 
+# Module-level app state reference for accessing plan entitlements
+_app_state = None
+
+def _set_app_state(request: Request):
+    """Set module-level app state reference from request"""
+    global _app_state
+    if request and request.app:
+        _app_state = request.app.state
+
+def _get_plan_entitlements_db_type(plan_name: str) -> str:
+    """Get db_type for a plan from cached plan_entitlements"""
+    global _app_state
+
+    if _app_state and hasattr(_app_state, 'plan_entitlements'):
+        plan_entitlements = _app_state.plan_entitlements.get(plan_name, {})
+        db_type = plan_entitlements.get('db_type', 'shared')
+        logger.info(f"Retrieved db_type '{db_type}' for plan '{plan_name}' from plan_entitlements")
+        return db_type
+    else:
+        logger.warning(f"Plan entitlements not available, using default db_type 'shared' for plan '{plan_name}'")
+        return 'shared'
+
 # Module-level singleton KillBill client
 def _get_killbill_client() -> KillBillClient:
     """Get or create singleton KillBill client instance"""
@@ -46,7 +68,10 @@ def _get_killbill_client() -> KillBillClient:
 @router.post("/killbill")
 async def handle_killbill_webhook(request: Request, response: Response):
     """Handle webhook events from KillBill"""
-    
+
+    # Set module-level app state for accessing plan_entitlements
+    _set_app_state(request)
+
     # Set response headers to prevent HTTP/2 upgrade attempts
     response.headers["Connection"] = "close"
     response.headers["Upgrade"] = ""
@@ -1026,11 +1051,15 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
         # Validate required metadata exists for new instance creation
         required_fields = ["instance_name", "instance_admin_email", "instance_database_name"]
         missing_fields = [field for field in required_fields if not subscription_metadata.get(field)]
-        
+
         if missing_fields:
             logger.error(f"Missing required metadata fields for subscription {subscription_id}: {missing_fields}")
             raise Exception(f"Cannot create instance - missing required configuration: {', '.join(missing_fields)}")
-        
+
+        # NEW: Get db_type from plan_entitlements
+        db_type = _get_plan_entitlements_db_type(plan_name)
+        logger.info(f"INSTANCE CREATION: Using db_type '{db_type}' for plan '{plan_name}'")
+
         # Create instance data with custom parameters from subscription metadata
         instance_data = {
             "customer_id": customer_id,
@@ -1048,7 +1077,8 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
             "storage_limit": subscription_metadata.get("instance_storage_limit", "10G"),
             "custom_addons": subscription_metadata.get("instance_custom_addons", "").split(",") if subscription_metadata.get("instance_custom_addons") else [],
             "billing_status": billing_status,
-            "provisioning_status": "pending"
+            "provisioning_status": "pending",
+            "db_type": db_type  # NEW: Include db_type from plan_entitlements
         }
         
         # Remove empty subdomain if not provided

@@ -261,7 +261,8 @@ class InstanceServiceClient:
             "customer_id": instance_data["customer_id"],
             "subscription_id": instance_data["subscription_id"],
             "billing_status": instance_data.get("billing_status", "payment_required"),
-            "provisioning_status": instance_data.get("provisioning_status", "pending")
+            "provisioning_status": instance_data.get("provisioning_status", "pending"),
+            "db_type": instance_data.get("db_type", "shared")  # NEW: Pass db_type from plan_entitlements
         }
         
         logger.info(f"Creating instance for customer {instance_data['customer_id']} with subscription {instance_data['subscription_id']}")

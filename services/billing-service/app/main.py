@@ -33,11 +33,12 @@ async def lifespan(app: FastAPI):
                 'memory_limit': row['memory_limit'],
                 'storage_limit': row['storage_limit'],
                 'description': row['description'],
-                'effective_date': row['effective_date']
+                'effective_date': row['effective_date'],
+                'db_type': row.get('db_type', 'shared')  # NEW: Include db_type for database allocation
             }
             for row in entitlements_rows
         }
-        logger.info(f"Loaded entitlements for {len(app.state.plan_entitlements)} plans")
+        logger.info(f"Loaded entitlements for {len(app.state.plan_entitlements)} plans (with db_type)")
     except Exception as e:
         logger.error(f"Failed to load plan entitlements: {e}")
         app.state.plan_entitlements = {}

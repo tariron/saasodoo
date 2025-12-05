@@ -557,13 +557,13 @@ async def _get_user_info(customer_id: str) -> Dict[str, Any]:
     """Get user information from user-service for email notifications"""
     try:
         import httpx
-        
+
         # Use the user-service API to get customer details
         user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{user_service_url}/users/internal/{customer_id}")
-            
+
             if response.status_code == 200:
                 user_data = response.json()
                 return {
@@ -571,10 +571,165 @@ async def _get_user_info(customer_id: str) -> Dict[str, Any]:
                     'first_name': user_data.get('first_name', 'there')
                 }
             else:
-                logger.warning("Failed to get user info from user-service", 
+                logger.warning("Failed to get user info from user-service",
                               customer_id=customer_id, status_code=response.status_code)
                 return None
-                
+
     except Exception as e:
         logger.error("Error getting user info", customer_id=customer_id, error=str(e))
         return None
+
+
+@celery_app.task(
+    bind=True,
+    name="instance.wait_for_database_and_provision",
+    queue="instance_provisioning",
+    max_retries=30,  # 30 attempts × 10 seconds = 5 minutes
+    default_retry_delay=10  # Wait 10 seconds between retries
+)
+def wait_for_database_and_provision(
+    self,
+    instance_id: str,
+    customer_id: str,
+    db_type: str
+):
+    """
+    Poll database-service until database is allocated, then proceed with provisioning.
+
+    This task is queued when database allocation returns status='provisioning'.
+    It polls every 10 seconds for up to 5 minutes.
+
+    Args:
+        instance_id: UUID of the instance waiting for database
+        customer_id: UUID of the customer
+        db_type: Database type ('shared' or 'dedicated')
+    """
+    import httpx
+    from shared.utils.database import DatabaseManager
+
+    logger.info(
+        "waiting_for_database_allocation",
+        instance_id=instance_id,
+        db_type=db_type,
+        attempt=self.request.retries + 1,
+    )
+
+    try:
+        # Get database service URL
+        database_service_url = os.getenv("DATABASE_SERVICE_URL", "http://database-service:8005")
+
+        # Map db_type to database-service parameters
+        require_dedicated = (db_type == "dedicated")
+
+        # Try to allocate database using httpx (sync version)
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                f"{database_service_url}/api/database/allocate",
+                json={
+                    "instance_id": instance_id,
+                    "customer_id": customer_id,
+                    "plan_tier": "starter",
+                    "require_dedicated": require_dedicated
+                }
+            )
+            response.raise_for_status()
+            db_allocation = response.json()
+
+        if db_allocation.get("status") == "allocated":
+            # Database is now allocated!
+            logger.info(
+                "database_now_available",
+                instance_id=instance_id,
+                db_host=db_allocation.get("db_host"),
+                db_name=db_allocation.get("db_name"),
+            )
+
+            # NOTE: We don't call provision_instance_task here!
+            # Provisioning will be triggered by billing webhooks:
+            # - For trial instances: SUBSCRIPTION_CREATION webhook
+            # - For paid instances: INVOICE_PAYMENT_SUCCESS webhook
+
+            logger.info(
+                "database_allocated_waiting_for_billing_webhook",
+                instance_id=instance_id,
+                message="Database ready, waiting for billing webhook to trigger provisioning"
+            )
+
+            return {
+                "status": "success",
+                "message": "Database allocated, awaiting billing webhook for provisioning",
+                "db_host": db_allocation.get("db_host"),
+                "db_name": db_allocation.get("db_name")
+            }
+
+        else:
+            # Still provisioning, retry
+            logger.info(
+                "database_still_provisioning",
+                instance_id=instance_id,
+                attempt=self.request.retries + 1,
+                max_retries=self.max_retries,
+            )
+
+            if self.request.retries >= self.max_retries:
+                # Timeout after 5 minutes
+                logger.error(
+                    "database_allocation_timeout",
+                    instance_id=instance_id,
+                    timeout_minutes=5,
+                )
+
+                # Update instance to error status
+                loop = asyncio.get_event_loop()
+                db_manager = DatabaseManager()
+                conn = loop.run_until_complete(db_manager.get_connection())
+
+                error_query = """
+                    UPDATE instances
+                    SET status = 'error',
+                        error_message = 'Database allocation timeout after 5 minutes',
+                        updated_at = NOW()
+                    WHERE id = $1
+                """
+                loop.run_until_complete(conn.execute(error_query, instance_id))
+                loop.run_until_complete(conn.close())
+
+                raise Exception("Database allocation timeout after 5 minutes")
+
+            # Retry after 10 seconds
+            raise self.retry(countdown=10)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "database_allocation_http_error",
+            instance_id=instance_id,
+            status_code=e.response.status_code,
+            response_text=e.response.text,
+        )
+
+        # Update instance to error status
+        loop = asyncio.get_event_loop()
+        db_manager = DatabaseManager()
+        conn = loop.run_until_complete(db_manager.get_connection())
+
+        error_query = """
+            UPDATE instances
+            SET status = 'error',
+                error_message = $2,
+                updated_at = NOW()
+            WHERE id = $1
+        """
+        loop.run_until_complete(
+            conn.execute(error_query, instance_id, f"Database allocation failed: {e.response.text}")
+        )
+        loop.run_until_complete(conn.close())
+
+        raise
+
+    except Exception as e:
+        logger.error(
+            "wait_for_database_task_failed",
+            instance_id=instance_id,
+            error=str(e),
+        )
+        raise

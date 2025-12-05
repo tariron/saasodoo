@@ -7,32 +7,27 @@ import os
 import secrets
 import string
 from typing import Optional, Dict, Any, List
-from datetime import datetime
 import asyncpg
 import structlog
-from sqlalchemy import select, func
-from sqlalchemy.orm import Session
-
-from app.models.db_server import DBServer, ServerType, ServerStatus, HealthStatus, AllocationStrategy
 
 logger = structlog.get_logger(__name__)
 
 
 class DatabaseAllocationService:
-    """Service for allocating databases to Odoo instances"""
+    """Service for allocating databases to Odoo instances using raw asyncpg"""
 
-    def __init__(self, db_session: Session):
+    def __init__(self, db_session: asyncpg.Connection):
         """
         Initialize allocation service
 
         Args:
-            db_session: SQLAlchemy database session
+            db_session: asyncpg Connection to platform database
         """
         self.db_session = db_session
         self.postgres_admin_user = os.getenv("POSTGRES_ADMIN_USER", "postgres")
         self.postgres_admin_password = os.getenv("POSTGRES_ADMIN_PASSWORD", "")
 
-    def allocate_database_for_instance(
+    async def allocate_database_for_instance(
         self,
         instance_id: str,
         customer_id: str,
@@ -79,7 +74,7 @@ class DatabaseAllocationService:
             return None
 
         # Find available shared pool
-        db_server = self._find_available_shared_pool()
+        db_server = await self._find_available_shared_pool()
 
         if not db_server:
             logger.info("No available shared pools - provisioning needed",
@@ -94,26 +89,31 @@ class DatabaseAllocationService:
 
         logger.info("Allocating database on shared pool",
                    instance_id=instance_id,
-                   db_server=db_server.name,
+                   db_server=db_server['name'],
                    db_name=db_name)
 
         # Create database on the selected server
         try:
-            db_password = self._create_database_on_server(db_server, db_name)
+            db_password = await self._create_database_on_server(db_server, db_name)
 
-            # Increment instance count and update allocation tracking
-            db_server.increment_instance_count(self.db_session)
+            # Increment instance count in database
+            await self.db_session.execute("""
+                UPDATE db_servers
+                SET current_instances = current_instances + 1,
+                    updated_at = NOW()
+                WHERE id = $1
+            """, db_server['id'])
 
             logger.info("Database allocated successfully",
                        instance_id=instance_id,
-                       db_server=db_server.name,
+                       db_server=db_server['name'],
                        db_name=db_name,
-                       capacity=f"{db_server.current_instances}/{db_server.max_instances}")
+                       capacity=f"{db_server['current_instances'] + 1}/{db_server['max_instances']}")
 
             return {
-                "db_server_id": str(db_server.id),
-                "db_host": db_server.host,
-                "db_port": db_server.port,
+                "db_server_id": str(db_server['id']),
+                "db_host": db_server['host'],
+                "db_port": db_server['port'],
                 "db_name": db_name,
                 "db_user": f"{db_name}_user",
                 "db_password": db_password
@@ -122,13 +122,13 @@ class DatabaseAllocationService:
         except Exception as e:
             logger.error("Failed to create database",
                         instance_id=instance_id,
-                        db_server=db_server.name,
+                        db_server=db_server['name'],
                         error=str(e))
             raise
 
-    def _find_available_shared_pool(self) -> Optional[DBServer]:
+    async def _find_available_shared_pool(self):
         """
-        Find an available shared database pool
+        Find an available shared database pool using raw SQL
 
         Selection criteria (in order):
         1. server_type = 'shared'
@@ -142,28 +142,30 @@ class DatabaseAllocationService:
         2. current_instances ASC (prefer less-loaded pools)
 
         Returns:
-            DBServer if available pool found, None otherwise
+            Database record dict if available pool found, None otherwise
         """
         try:
-            stmt = (
-                select(DBServer)
-                .where(DBServer.server_type == ServerType.SHARED)
-                .where(DBServer.status == ServerStatus.ACTIVE)
-                .where(DBServer.health_status.in_([HealthStatus.HEALTHY, HealthStatus.UNKNOWN]))
-                .where(DBServer.current_instances < DBServer.max_instances)
-                .where(DBServer.allocation_strategy == AllocationStrategy.AUTO)
-                .order_by(DBServer.priority.asc(), DBServer.current_instances.asc())
-                .limit(1)
-            )
+            query = """
+                SELECT id, name, host, port, admin_user, admin_password,
+                       server_type, status, health_status, current_instances,
+                       max_instances, priority, allocation_strategy
+                FROM db_servers
+                WHERE server_type = 'shared'
+                  AND status = 'active'
+                  AND health_status IN ('healthy', 'unknown')
+                  AND current_instances < max_instances
+                  AND allocation_strategy = 'auto'
+                ORDER BY priority ASC, current_instances ASC
+                LIMIT 1
+            """
 
-            result = self.db_session.execute(stmt)
-            db_server = result.scalar_one_or_none()
+            db_server = await self.db_session.fetchrow(query)
 
             if db_server:
                 logger.info("Found available shared pool",
-                           pool_name=db_server.name,
-                           capacity=f"{db_server.current_instances}/{db_server.max_instances}",
-                           priority=db_server.priority)
+                           pool_name=db_server['name'],
+                           capacity=f"{db_server['current_instances']}/{db_server['max_instances']}",
+                           priority=db_server['priority'])
             else:
                 logger.info("No available shared pools found")
 
@@ -173,12 +175,12 @@ class DatabaseAllocationService:
             logger.error("Error finding available pool", error=str(e))
             return None
 
-    def _create_database_on_server(self, db_server: DBServer, db_name: str) -> str:
+    async def _create_database_on_server(self, db_server: dict, db_name: str) -> str:
         """
         Create a PostgreSQL database and dedicated user on the specified server
 
         Args:
-            db_server: Target database server
+            db_server: Target database server record (dict from asyncpg)
             db_name: Name of the database to create
 
         Returns:
@@ -187,37 +189,33 @@ class DatabaseAllocationService:
         Raises:
             Exception: If database creation fails
         """
-        import asyncio
-
         logger.info("Creating database on server",
-                   db_server=db_server.name,
+                   db_server=db_server['name'],
                    db_name=db_name)
 
         # Generate secure random password
         password = self._generate_password()
         db_user = f"{db_name}_user"
 
-        # Run async database creation
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(
-                self._async_create_database(
-                    host=db_server.host,
-                    port=db_server.port,
-                    db_name=db_name,
-                    db_user=db_user,
-                    db_password=password
-                )
-            )
-            return password
-        finally:
-            loop.close()
+        # Create database asynchronously
+        await self._async_create_database(
+            host=db_server['host'],
+            port=db_server['port'],
+            admin_user=db_server['admin_user'],
+            admin_password=db_server['admin_password'],
+            db_name=db_name,
+            db_user=db_user,
+            db_password=password
+        )
+
+        return password
 
     async def _async_create_database(
         self,
         host: str,
         port: int,
+        admin_user: str,
+        admin_password: str,
         db_name: str,
         db_user: str,
         db_password: str
@@ -228,6 +226,8 @@ class DatabaseAllocationService:
         Args:
             host: PostgreSQL server hostname
             port: PostgreSQL server port
+            admin_user: Admin username for the pool
+            admin_password: Admin password for the pool
             db_name: Database name to create
             db_user: Database user to create
             db_password: Password for the user
@@ -236,8 +236,8 @@ class DatabaseAllocationService:
         conn = await asyncpg.connect(
             host=host,
             port=port,
-            user=self.postgres_admin_user,
-            password=self.postgres_admin_password,
+            user=admin_user,
+            password=admin_password,
             database='postgres'
         )
 
@@ -270,8 +270,8 @@ class DatabaseAllocationService:
         conn = await asyncpg.connect(
             host=host,
             port=port,
-            user=self.postgres_admin_user,
-            password=self.postgres_admin_password,
+            user=admin_user,
+            password=admin_password,
             database=db_name
         )
 
@@ -302,7 +302,7 @@ class DatabaseAllocationService:
         alphabet = string.ascii_letters + string.digits
         return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-    def get_db_server_by_id(self, server_id: str) -> Optional[DBServer]:
+    async def get_db_server_by_id(self, server_id: str) -> Optional[Dict[str, Any]]:
         """
         Get database server by ID
 
@@ -310,21 +310,30 @@ class DatabaseAllocationService:
             server_id: UUID of the server
 
         Returns:
-            DBServer instance or None
+            Database server record as dict or None
         """
         try:
-            stmt = select(DBServer).where(DBServer.id == server_id)
-            result = self.db_session.execute(stmt)
-            return result.scalar_one_or_none()
+            query = """
+                SELECT id, name, host, port, server_type, status, health_status,
+                       current_instances, max_instances, storage_path, postgres_version,
+                       postgres_image, cpu_limit, memory_limit, allocation_strategy,
+                       priority, admin_user, admin_password, swarm_service_id,
+                       swarm_service_name, dedicated_to_customer_id, dedicated_to_instance_id,
+                       provisioned_by, provisioned_at, created_at, updated_at,
+                       last_health_check, health_check_failures
+                FROM db_servers
+                WHERE id = $1
+            """
+            return await self.db_session.fetchrow(query, server_id)
         except Exception as e:
             logger.error("Error fetching db_server", server_id=server_id, error=str(e))
             return None
 
-    def get_all_db_servers(
+    async def get_all_db_servers(
         self,
         status: Optional[str] = None,
         server_type: Optional[str] = None
-    ) -> List[DBServer]:
+    ) -> list:
         """
         Get all database servers with optional filtering
 
@@ -333,26 +342,37 @@ class DatabaseAllocationService:
             server_type: Filter by server type (optional)
 
         Returns:
-            List of DBServer instances
+            List of database server records as dicts
         """
         try:
-            stmt = select(DBServer)
+            # Build query dynamically based on filters
+            query = """
+                SELECT id, name, host, port, server_type, status, health_status,
+                       current_instances, max_instances, storage_path, postgres_version,
+                       postgres_image, cpu_limit, memory_limit, allocation_strategy,
+                       priority, created_at, updated_at, last_health_check
+                FROM db_servers
+                WHERE 1=1
+            """
+            params = []
 
             if status:
-                stmt = stmt.where(DBServer.status == ServerStatus(status))
+                params.append(status)
+                query += f" AND status = ${len(params)}"
+
             if server_type:
-                stmt = stmt.where(DBServer.server_type == ServerType(server_type))
+                params.append(server_type)
+                query += f" AND server_type = ${len(params)}"
 
-            stmt = stmt.order_by(DBServer.created_at.desc())
+            query += " ORDER BY created_at DESC"
 
-            result = self.db_session.execute(stmt)
-            return list(result.scalars().all())
+            return await self.db_session.fetch(query, *params)
 
         except Exception as e:
             logger.error("Error fetching db_servers", error=str(e))
             return []
 
-    def get_pool_statistics(self) -> Dict[str, Any]:
+    async def get_pool_statistics(self) -> Dict[str, Any]:
         """
         Get aggregated statistics about database pools
 
@@ -361,35 +381,34 @@ class DatabaseAllocationService:
         """
         try:
             # Count by status
-            status_stats = (
-                self.db_session.query(
-                    DBServer.status,
-                    func.count(DBServer.id).label('count'),
-                    func.sum(DBServer.current_instances).label('total_instances'),
-                    func.sum(DBServer.max_instances).label('total_capacity')
-                )
-                .group_by(DBServer.status)
-                .all()
-            )
+            status_stats_query = """
+                SELECT status,
+                       COUNT(id) as count,
+                       COALESCE(SUM(current_instances), 0) as total_instances,
+                       COALESCE(SUM(max_instances), 0) as total_capacity
+                FROM db_servers
+                GROUP BY status
+            """
+            status_stats = await self.db_session.fetch(status_stats_query)
 
             # Total pools
-            total_pools = self.db_session.query(func.count(DBServer.id)).scalar()
+            total_pools_query = "SELECT COUNT(id) as count FROM db_servers"
+            total_result = await self.db_session.fetchrow(total_pools_query)
+            total_pools = total_result['count'] if total_result else 0
 
             # Active pools
-            active_pools = (
-                self.db_session.query(func.count(DBServer.id))
-                .filter(DBServer.status == ServerStatus.ACTIVE)
-                .scalar()
-            )
+            active_pools_query = "SELECT COUNT(id) as count FROM db_servers WHERE status = 'active'"
+            active_result = await self.db_session.fetchrow(active_pools_query)
+            active_pools = active_result['count'] if active_result else 0
 
             # Format results
             by_status = []
-            for status, count, instances, capacity in status_stats:
+            for row in status_stats:
                 by_status.append({
-                    'status': status.value if status else None,
-                    'count': count or 0,
-                    'total_instances': instances or 0,
-                    'total_capacity': capacity or 0
+                    'status': row['status'],
+                    'count': row['count'] or 0,
+                    'total_instances': row['total_instances'] or 0,
+                    'total_capacity': row['total_capacity'] or 0
                 })
 
             return {
