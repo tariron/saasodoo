@@ -86,42 +86,68 @@ def _create_cephfs_directory_with_quota(path: str, size_limit: str):
 
 
 @celery_app.task(bind=True)
-def provision_instance_task(self, instance_id: str):
+def provision_instance_task(self, instance_id: str, db_info: Dict[str, str]):
     """
     Background task to provision a new Odoo instance
+
+    Args:
+        instance_id: UUID of the instance to provision
+        db_info: Dictionary containing database credentials from database-service (required)
+                 Keys: db_host, db_port, db_name, db_user, db_password
     """
     try:
-        logger.info("Starting instance provisioning", instance_id=instance_id, task_id=self.request.id)
-        
+        if not db_info:
+            raise ValueError("db_info is required - database must be allocated before provisioning")
+
+        logger.info("Starting instance provisioning",
+                   instance_id=instance_id,
+                   task_id=self.request.id,
+                   db_host=db_info.get('db_host'),
+                   db_name=db_info.get('db_name'))
+
         # Use sync version for Celery compatibility
-        result = asyncio.run(_provision_instance_workflow(instance_id))
-        
+        result = asyncio.run(_provision_instance_workflow(instance_id, db_info))
+
         logger.info("Instance provisioning completed", instance_id=instance_id, result=result)
         return result
-        
+
     except Exception as e:
         logger.error("Instance provisioning failed", instance_id=instance_id, error=str(e))
-        
+
         # Update instance status to ERROR
         asyncio.run(_update_instance_status(instance_id, InstanceStatus.ERROR, str(e)))
-        
+
         # Re-raise for Celery to mark task as failed
         raise
 
 
-async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
-    """Main provisioning workflow"""
-    
+async def _provision_instance_workflow(instance_id: str, db_info: Dict[str, str]) -> Dict[str, Any]:
+    """
+    Main provisioning workflow
+
+    Args:
+        instance_id: UUID of the instance to provision
+        db_info: Database credentials from database-service (required).
+                 Keys: db_host, db_port, db_name, db_user, db_password
+    """
+
+    # Validate db_info is provided
+    if not db_info:
+        raise ValueError("db_info is required - database must be allocated by database-service before provisioning")
+
     # Step 1: Get instance details
     instance = await _get_instance_from_db(instance_id)
     if not instance:
         raise ValueError(f"Instance {instance_id} not found")
-    
-    logger.info("Provisioning workflow started", instance_name=instance['name'])
-    
+
+    logger.info("Provisioning workflow started",
+               instance_name=instance['name'],
+               db_host=db_info['db_host'],
+               db_name=db_info['db_name'])
+
     # Get user information for email notifications
     user_info = await _get_user_info(instance['customer_id'])
-    
+
     try:
         # Step 2: Send provisioning started email
         if user_info:
@@ -135,28 +161,29 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
                 logger.info("Provisioning started email sent", email=user_info['email'])
             except Exception as e:
                 logger.warning("Failed to send provisioning started email", error=str(e))
-        
+
         # Step 3: Update status to STARTING
         await _update_instance_status(instance_id, InstanceStatus.STARTING)
-        
-        # Step 4: Create dedicated Odoo database
-        db_info = await _create_odoo_database(instance)
-        logger.info("Database created", database=instance['database_name'])
-        
+
+        # Step 4: Use database credentials from database-service
+        logger.info("Using database credentials from database-service",
+                   db_host=db_info['db_host'],
+                   db_name=db_info['db_name'])
+
         # Step 5: Deploy Bitnami Odoo service
         container_info = await _deploy_odoo_container(instance, db_info)
         logger.info("Service deployed", service_id=container_info['service_id'])
-        
+
         # Step 6: Wait for Odoo to start up
         await _wait_for_odoo_startup(container_info, timeout=300)  # 5 minutes
         logger.info("Odoo startup confirmed")
-        
+
         # Step 7: Update instance with connection details
         await _update_instance_network_info(instance_id, container_info, db_info)
-        
+
         # Step 8: Mark as RUNNING
         await _update_instance_status(instance_id, InstanceStatus.RUNNING)
-        
+
         # Step 9: Send instance ready email with password
         if user_info:
             try:
@@ -171,18 +198,18 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
                 logger.info("Instance ready email sent with password", email=user_info['email'])
             except Exception as e:
                 logger.warning("Failed to send instance ready email", error=str(e))
-        
+
         return {
             "status": "success",
             "service_id": container_info['service_id'],
             "external_url": container_info['external_url'],
             "message": "Instance provisioned successfully"
         }
-        
+
     except Exception as e:
         # Cleanup on failure
         logger.error("Provisioning failed, starting cleanup", error=str(e))
-        
+
         # Send provisioning failed email
         if user_info:
             try:
@@ -196,7 +223,7 @@ async def _provision_instance_workflow(instance_id: str) -> Dict[str, Any]:
                 logger.info("Provisioning failed email sent", email=user_info['email'])
             except Exception as email_error:
                 logger.warning("Failed to send provisioning failed email", error=str(email_error))
-        
+
         await _cleanup_failed_provisioning(instance_id, instance)
         raise
 
@@ -254,51 +281,43 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
         user=os.getenv('DB_SERVICE_USER', 'instance_service'),
         password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
     )
-    
+
     try:
         await conn.execute("""
-            UPDATE instances 
+            UPDATE instances
             SET status = $1, error_message = $2, updated_at = $3
             WHERE id = $4
         """, status.value, error_message, datetime.utcnow(), UUID(instance_id))
-        
+
         logger.info("Instance status updated", instance_id=instance_id, status=status.value)
     finally:
         await conn.close()
 
 
-async def _create_odoo_database(instance: Dict[str, Any]) -> Dict[str, str]:
-    """Create dedicated PostgreSQL database for Odoo instance on postgres2"""
+async def _update_instance_database_info(instance_id: str, db_host: str, db_port: int, db_user: str):
+    """Update instance with database connection info (non-sensitive data only)"""
+    conn = await asyncpg.connect(
+        host=os.getenv('POSTGRES_HOST', 'postgres'),
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
+        database=os.getenv('POSTGRES_DB', 'instance'),
+        user=os.getenv('DB_SERVICE_USER', 'instance_service'),
+        password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
+    )
 
-    # Connect to postgres2 as admin
-    admin_conn = await OdooInstanceDatabaseManager.get_admin_connection()
-    
     try:
-        database_name = instance['database_name']
-        db_user = f"odoo_{database_name}"
-        db_password = f"odoo_pass_{instance['id'].hex[:8]}"
-        
-        # Create database user first
-        await admin_conn.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\'')
-        logger.info("Database user created", user=db_user)
-        
-        # Create database with owner
-        await admin_conn.execute(f'CREATE DATABASE "{database_name}" OWNER "{db_user}"')
-        logger.info("Database created", database=database_name)
-        
-        # Grant additional privileges
-        await admin_conn.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{database_name}" TO "{db_user}"')
-        
-        return {
-            "db_name": database_name,
-            "db_user": db_user,
-            "db_password": db_password,
-            "db_host": os.getenv('ODOO_POSTGRES_HOST', 'postgres'),
-            "db_port": os.getenv('ODOO_POSTGRES_PORT', '5432')
-        }
-        
+        await conn.execute("""
+            UPDATE instances
+            SET db_host = $1, db_port = $2, db_user = $3, updated_at = $4
+            WHERE id = $5
+        """, db_host, db_port, db_user, datetime.utcnow(), UUID(instance_id))
+
+        logger.info("Instance database info updated",
+                   instance_id=instance_id,
+                   db_host=db_host,
+                   db_port=db_port,
+                   db_user=db_user)
     finally:
-        await admin_conn.close()
+        await conn.close()
 
 
 async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, str]) -> Dict[str, Any]:
@@ -317,7 +336,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
     # Container configuration
     environment = {
         'ODOO_DATABASE_HOST': db_info['db_host'],
-        'ODOO_DATABASE_PORT_NUMBER': db_info['db_port'],
+        'ODOO_DATABASE_PORT_NUMBER': str(db_info['db_port']),
         'ODOO_DATABASE_NAME': db_info['db_name'],
         'ODOO_DATABASE_USER': db_info['db_user'],
         'ODOO_DATABASE_PASSWORD': db_info['db_password'],
@@ -527,27 +546,14 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
         except Exception as e:
             logger.warning("Failed to clean up CephFS directory", path=cephfs_path, error=str(e))
 
-        # Remove database if created on postgres2
-        admin_conn = await OdooInstanceDatabaseManager.get_admin_connection()
-        
-        try:
-            database_name = instance['database_name']
-            db_user = f"odoo_{database_name}"
-            
-            # Terminate connections and drop database
-            await admin_conn.execute(f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{database_name}'
-                AND pid <> pg_backend_pid()
-            """)
-            
-            await admin_conn.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
-            await admin_conn.execute(f'DROP USER IF EXISTS "{db_user}"')
-            logger.info("Database cleaned up", database=database_name)
-            
-        finally:
-            await admin_conn.close()
+        # In the future, this should call a deallocation endpoint on the database-service.
+        # For now, we will log that a deallocation is required.
+        # The database-service owns database lifecycle management.
+        database_name = instance['database_name']
+        logger.info("Deallocation of database required",
+                   database=database_name,
+                   instance_id=instance_id,
+                   message="Database cleanup should be handled by database-service deallocation endpoint")
             
     except Exception as e:
         logger.error("Cleanup failed", error=str(e))
@@ -605,7 +611,6 @@ def wait_for_database_and_provision(
         db_type: Database type ('shared' or 'dedicated')
     """
     import httpx
-    from shared.utils.database import DatabaseManager
 
     logger.info(
         "waiting_for_database_allocation",
@@ -637,29 +642,45 @@ def wait_for_database_and_provision(
 
         if db_allocation.get("status") == "allocated":
             # Database is now allocated!
+            # Extract credentials into db_info dictionary
+            db_info = {
+                'db_host': db_allocation.get('db_host'),
+                'db_port': db_allocation.get('db_port'),
+                'db_name': db_allocation.get('db_name'),
+                'db_user': db_allocation.get('db_user'),
+                'db_password': db_allocation.get('db_password')  # Sensitive - only in memory
+            }
+
             logger.info(
-                "database_now_available",
+                "database_allocated",
                 instance_id=instance_id,
-                db_host=db_allocation.get("db_host"),
-                db_name=db_allocation.get("db_name"),
+                db_host=db_info['db_host'],
+                db_name=db_info['db_name'],
+                db_user=db_info['db_user']
             )
 
-            # NOTE: We don't call provision_instance_task here!
-            # Provisioning will be triggered by billing webhooks:
-            # - For trial instances: SUBSCRIPTION_CREATION webhook
-            # - For paid instances: INVOICE_PAYMENT_SUCCESS webhook
+            # Persist non-sensitive database info to instances table
+            asyncio.run(_update_instance_database_info(
+                instance_id=instance_id,
+                db_host=db_info['db_host'],
+                db_port=db_info['db_port'],
+                db_user=db_info['db_user']
+            ))
+
+            # Hand off to provision_instance_task with db_info (including password)
+            provision_instance_task.delay(instance_id, db_info)
 
             logger.info(
-                "database_allocated_waiting_for_billing_webhook",
+                "provisioning_task_queued",
                 instance_id=instance_id,
-                message="Database ready, waiting for billing webhook to trigger provisioning"
+                message="Database allocated, provisioning task queued with credentials"
             )
 
             return {
                 "status": "success",
-                "message": "Database allocated, awaiting billing webhook for provisioning",
-                "db_host": db_allocation.get("db_host"),
-                "db_name": db_allocation.get("db_name")
+                "message": "Database allocated, provisioning started",
+                "db_host": db_info['db_host'],
+                "db_name": db_info['db_name']
             }
 
         else:
@@ -680,19 +701,11 @@ def wait_for_database_and_provision(
                 )
 
                 # Update instance to error status
-                loop = asyncio.get_event_loop()
-                db_manager = DatabaseManager()
-                conn = loop.run_until_complete(db_manager.get_connection())
-
-                error_query = """
-                    UPDATE instances
-                    SET status = 'error',
-                        error_message = 'Database allocation timeout after 5 minutes',
-                        updated_at = NOW()
-                    WHERE id = $1
-                """
-                loop.run_until_complete(conn.execute(error_query, instance_id))
-                loop.run_until_complete(conn.close())
+                asyncio.run(_update_instance_status(
+                    instance_id,
+                    InstanceStatus.ERROR,
+                    'Database allocation timeout after 5 minutes'
+                ))
 
                 raise Exception("Database allocation timeout after 5 minutes")
 
@@ -708,21 +721,11 @@ def wait_for_database_and_provision(
         )
 
         # Update instance to error status
-        loop = asyncio.get_event_loop()
-        db_manager = DatabaseManager()
-        conn = loop.run_until_complete(db_manager.get_connection())
-
-        error_query = """
-            UPDATE instances
-            SET status = 'error',
-                error_message = $2,
-                updated_at = NOW()
-            WHERE id = $1
-        """
-        loop.run_until_complete(
-            conn.execute(error_query, instance_id, f"Database allocation failed: {e.response.text}")
-        )
-        loop.run_until_complete(conn.close())
+        asyncio.run(_update_instance_status(
+            instance_id,
+            InstanceStatus.ERROR,
+            f"Database allocation failed: {e.response.text}"
+        ))
 
         raise
 

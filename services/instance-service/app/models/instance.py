@@ -218,7 +218,8 @@ class Instance(InstanceBase):
     db_host: Optional[str] = Field(None, description="Database host")
     db_port: int = Field(default=5432, description="Database port")
     db_user: Optional[str] = Field(None, description="Database user")
-    
+    db_type: str = Field(default="shared", description="Database type: 'shared' or 'dedicated'")
+
     # Status information
     last_health_check: Optional[datetime] = Field(None, description="Last health check timestamp")
     error_message: Optional[str] = Field(None, description="Error message if status is ERROR")

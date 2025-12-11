@@ -242,26 +242,32 @@ class DatabaseAllocationService:
         )
 
         try:
-            # Create database (cannot be in transaction)
-            await conn.execute(f'CREATE DATABASE "{db_name}"')
-            logger.info("Database created", db_name=db_name)
+            # Step 1: Create user first (must exist before we can assign as owner)
+            try:
+                await conn.execute(
+                    f"CREATE USER {db_user} WITH PASSWORD '{db_password}'"
+                )
+                logger.info("Database user created", db_user=db_user)
+            except asyncpg.exceptions.DuplicateObjectError:
+                logger.warning("Database user already exists", db_user=db_user)
+                # User exists, that's fine - continue with database creation
 
-            # Create user with password
-            await conn.execute(
-                f"CREATE USER {db_user} WITH PASSWORD '{db_password}'"
-            )
-            logger.info("Database user created", db_user=db_user)
+            # Step 2: Create database with owner (correct ownership from the start)
+            try:
+                await conn.execute(f'CREATE DATABASE "{db_name}" OWNER {db_user}')
+                logger.info("Database created with owner", db_name=db_name, owner=db_user)
+            except asyncpg.exceptions.DuplicateDatabaseError:
+                logger.warning("Database already exists", db_name=db_name)
+                # Database exists, that's fine - may need to fix ownership though
 
-            # Grant all privileges on database
+            # Step 3: Grant all privileges on database (defensive - ensures permissions even if created differently)
             await conn.execute(
                 f'GRANT ALL PRIVILEGES ON DATABASE "{db_name}" TO {db_user}'
             )
+            logger.info("Database privileges granted", db_user=db_user)
 
-        except asyncpg.exceptions.DuplicateDatabaseError:
-            logger.warning("Database already exists", db_name=db_name)
-            # Database exists, assume user exists too, just return password
         except Exception as e:
-            logger.error("Failed to create database", db_name=db_name, error=str(e))
+            logger.error("Failed to create database/user", db_name=db_name, db_user=db_user, error=str(e))
             raise
         finally:
             await conn.close()

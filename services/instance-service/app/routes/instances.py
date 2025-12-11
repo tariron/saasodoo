@@ -35,9 +35,7 @@ async def create_instance(
     instance_data: InstanceCreate,
     db: InstanceDatabase = Depends(get_database)
 ):
-    """Create a new Odoo instance with database allocation"""
-    import httpx
-    import os
+    """Create a new Odoo instance record (database allocation handled by provisioning task)"""
 
     try:
         logger.info("Creating instance",
@@ -93,74 +91,10 @@ async def create_instance(
                     instance_id=str(instance.id),
                     subscription_id=str(instance_data.subscription_id))
 
-        # NEW: Call database-service to allocate database
-        database_service_url = os.getenv("DATABASE_SERVICE_URL", "http://database-service:8005")
-
-        # Map db_type to database-service parameters
-        # db_type from billing: 'shared' or 'dedicated'
-        # database-service expects: plan_tier (e.g., 'starter') and require_dedicated (bool)
-        require_dedicated = (instance_data.db_type == "dedicated")
-
-        logger.info("Requesting database allocation from database-service",
-                   instance_id=str(instance.id),
-                   db_type=instance_data.db_type,
-                   require_dedicated=require_dedicated)
-
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                db_response = await client.post(
-                    f"{database_service_url}/api/database/allocate",
-                    json={
-                        "instance_id": str(instance.id),
-                        "customer_id": str(instance_data.customer_id),
-                        "plan_tier": "starter",  # Map from db_type if needed
-                        "require_dedicated": require_dedicated
-                    }
-                )
-                db_response.raise_for_status()
-                db_allocation = db_response.json()
-
-            logger.info("Database allocation response received",
-                       instance_id=str(instance.id),
-                       allocation_status=db_allocation.get("status"))
-
-            if db_allocation.get("status") == "allocated":
-                # Database allocated immediately (shared pool available)
-                logger.info("Database allocated immediately",
-                           instance_id=str(instance.id),
-                           db_host=db_allocation.get("db_host"),
-                           db_name=db_allocation.get("db_name"))
-
-                # CRITICAL: NO immediate provisioning here!
-                # Provisioning will be triggered by billing webhooks:
-                # - For trial instances: SUBSCRIPTION_CREATION webhook
-                # - For paid instances: INVOICE_PAYMENT_SUCCESS webhook
-
-            elif db_allocation.get("status") == "provisioning":
-                # Database provisioning in progress (no available pool or dedicated server being created)
-                logger.info("Database provisioning queued",
-                           instance_id=str(instance.id),
-                           message=db_allocation.get("message"))
-
-                # Update instance status to waiting_for_database
-                await db.update_instance_status(str(instance.id), InstanceStatus.CREATING, "Waiting for database allocation")
-
-                # Queue polling task to wait for database
-                # This will be triggered by the webhook after billing confirms payment
-
-        except httpx.HTTPStatusError as e:
-            logger.error("Database allocation HTTP error",
-                        instance_id=str(instance.id),
-                        status_code=e.response.status_code,
-                        response_text=e.response.text)
-            await db.update_instance_status(str(instance.id), InstanceStatus.ERROR, f"Database allocation failed: {e.response.text}")
-            raise HTTPException(status_code=500, detail=f"Database allocation failed: {e.response.text}")
-        except httpx.ConnectError as e:
-            logger.error("Database service connection failed",
-                        instance_id=str(instance.id),
-                        error=str(e))
-            await db.update_instance_status(str(instance.id), InstanceStatus.ERROR, "Database service unavailable")
-            raise HTTPException(status_code=503, detail="Database service unavailable")
+        # Database allocation is now handled by the asynchronous provisioning task.
+        # This endpoint's only responsibility is to create the instance record.
+        # The billing service webhook will trigger the provisioning task separately via
+        # the provision_instance_from_webhook endpoint, which calls wait_for_database_and_provision
 
         # Convert to response format and return immediately
         response_data = {
@@ -192,7 +126,7 @@ async def create_instance(
             "metadata": instance.metadata or {}
         }
 
-        logger.info("Instance created successfully", instance_id=str(instance.id))
+        logger.info("Instance record created successfully. Awaiting provisioning trigger.", instance_id=str(instance.id))
         return InstanceResponse(**response_data)
 
     except ValueError as e:
@@ -1178,13 +1112,20 @@ async def provision_instance_from_webhook(
         # Update subscription ID if provided
         if subscription_id:
             await db.update_instance_subscription(str(instance_id), subscription_id)
-        
-        # Queue actual provisioning job (the real Docker/Odoo provisioning)
-        job = provision_instance_task.delay(str(instance_id))
-        logger.info("Provisioning job queued from webhook", 
-                   instance_id=str(instance_id), 
+
+        # Queue database allocation and provisioning workflow
+        # This will call database-service, wait for allocation, then provision
+        from app.tasks.provisioning import wait_for_database_and_provision
+        job = wait_for_database_and_provision.delay(
+            str(instance_id),
+            str(instance.customer_id),
+            instance.db_type or 'shared'
+        )
+        logger.info("Database allocation and provisioning job queued from webhook",
+                   instance_id=str(instance_id),
                    job_id=job.id,
-                   billing_status=billing_status)
+                   billing_status=billing_status,
+                   db_type=instance.db_type or 'shared')
         
         return {
             "status": "success",

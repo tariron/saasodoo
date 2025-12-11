@@ -8,6 +8,7 @@ import structlog
 
 from app.utils.database import InstanceDatabase
 from app.models.instance import Instance, InstanceCreate, InstanceUpdate, InstanceStatus
+from app.tasks.provisioning import wait_for_database_and_provision
 
 
 logger = structlog.get_logger(__name__)
@@ -26,20 +27,26 @@ class InstanceService:
         try:
             # Set customer_id in instance data
             instance_data.customer_id = customer_id
-            
+
             # Create instance in database
             instance = await self.db.create_instance(instance_data)
-            
-            # TODO: Trigger async provisioning
-            # await self._provision_instance_async(instance.id)
-            
-            logger.info("Instance created for customer", 
-                       instance_id=str(instance.id), 
+
+            # Trigger async provisioning - wait for database allocation then provision
+            # This task will poll database-service until database is allocated
+            wait_for_database_and_provision.delay(
+                instance_id=str(instance.id),
+                customer_id=str(customer_id),
+                db_type=instance_data.db_type or 'shared'
+            )
+
+            logger.info("Instance created for customer, provisioning task queued",
+                       instance_id=str(instance.id),
                        customer_id=str(customer_id),
-                       name=instance.name)
-            
+                       name=instance.name,
+                       db_type=instance_data.db_type or 'shared')
+
             return instance
-            
+
         except Exception as e:
             import traceback
             logger.error("Failed to create instance for customer",
