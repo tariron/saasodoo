@@ -67,10 +67,36 @@ class DatabaseAllocationService:
             plan_tier.lower() in ('premium', 'enterprise')
 
         if needs_dedicated:
-            logger.info("Dedicated database required - provisioning needed",
+            logger.info("Dedicated database required - checking for existing server",
                        instance_id=instance_id,
                        plan_tier=plan_tier)
-            # Caller must provision dedicated server first
+
+            # Check if dedicated server already exists for this instance
+            existing_server = await self._find_dedicated_server_for_instance(
+                instance_id, customer_id
+            )
+
+            if existing_server and existing_server['status'] == 'active':
+                # Allocate database on existing dedicated server
+                logger.info("Found active dedicated server, allocating database",
+                           instance_id=instance_id,
+                           db_server=existing_server['name'])
+                return await self._allocate_on_dedicated_server(
+                    existing_server, instance_id, customer_id
+                )
+
+            # Trigger dedicated server provisioning if not already in progress
+            if not existing_server:
+                logger.info("No dedicated server found, triggering provisioning",
+                           instance_id=instance_id)
+                from app.tasks.provisioning import provision_dedicated_server
+                provision_dedicated_server.delay(instance_id, customer_id, plan_tier)
+            else:
+                logger.info("Dedicated server provisioning in progress",
+                           instance_id=instance_id,
+                           server_status=existing_server['status'])
+
+            # Return None to signal provisioning is needed
             return None
 
         # Find available shared pool
@@ -174,6 +200,113 @@ class DatabaseAllocationService:
         except Exception as e:
             logger.error("Error finding available pool", error=str(e))
             return None
+
+    async def _find_dedicated_server_for_instance(
+        self,
+        instance_id: str,
+        customer_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find dedicated database server for a specific instance
+
+        Args:
+            instance_id: UUID of the Odoo instance
+            customer_id: UUID of the customer
+
+        Returns:
+            Database server record if found, None otherwise
+        """
+        try:
+            query = """
+                SELECT id, name, host, port, admin_user, admin_password,
+                       server_type, status, health_status, current_instances,
+                       max_instances, dedicated_to_customer_id, dedicated_to_instance_id
+                FROM db_servers
+                WHERE server_type = 'dedicated'
+                  AND dedicated_to_customer_id = $1
+                  AND dedicated_to_instance_id = $2
+                LIMIT 1
+            """
+
+            db_server = await self.db_session.fetchrow(query, customer_id, instance_id)
+
+            if db_server:
+                logger.info("Found dedicated server for instance",
+                           instance_id=instance_id,
+                           server_name=db_server['name'],
+                           status=db_server['status'])
+            else:
+                logger.info("No dedicated server found for instance", instance_id=instance_id)
+
+            return db_server
+
+        except Exception as e:
+            logger.error("Error finding dedicated server",
+                        instance_id=instance_id, error=str(e))
+            return None
+
+    async def _allocate_on_dedicated_server(
+        self,
+        db_server: dict,
+        instance_id: str,
+        customer_id: str
+    ) -> Dict[str, Any]:
+        """
+        Allocate database on an existing dedicated server
+
+        Args:
+            db_server: Dedicated database server record
+            instance_id: UUID of the Odoo instance
+            customer_id: UUID of the customer
+
+        Returns:
+            Dictionary with database configuration
+
+        Raises:
+            Exception: If allocation fails
+        """
+        # Generate database name
+        customer_id_clean = customer_id.replace('-', '')[:16]
+        instance_id_short = instance_id.replace('-', '')[:8]
+        db_name = f"odoo_{customer_id_clean}_{instance_id_short}"
+
+        logger.info("Allocating database on dedicated server",
+                   instance_id=instance_id,
+                   db_server=db_server['name'],
+                   db_name=db_name)
+
+        try:
+            # Create database on the dedicated server
+            db_password = await self._create_database_on_server(db_server, db_name)
+
+            # Increment instance count (should go from 0 to 1 for dedicated)
+            await self.db_session.execute("""
+                UPDATE db_servers
+                SET current_instances = current_instances + 1,
+                    updated_at = NOW()
+                WHERE id = $1
+            """, db_server['id'])
+
+            logger.info("Database allocated on dedicated server",
+                       instance_id=instance_id,
+                       db_server=db_server['name'],
+                       db_name=db_name)
+
+            return {
+                "db_server_id": str(db_server['id']),
+                "db_host": db_server['host'],
+                "db_port": db_server['port'],
+                "db_name": db_name,
+                "db_user": f"{db_name}_user",
+                "db_password": db_password
+            }
+
+        except Exception as e:
+            logger.error("Failed to allocate on dedicated server",
+                        instance_id=instance_id,
+                        db_server=db_server['name'],
+                        error=str(e))
+            raise
 
     async def _create_database_on_server(self, db_server: dict, db_name: str) -> str:
         """
@@ -430,3 +563,109 @@ class DatabaseAllocationService:
                 'active_pools': 0,
                 'by_status': []
             }
+
+    async def provision_dedicated_db_for_instance(
+        self,
+        instance_id: str,
+        customer_id: str,
+        plan_tier: str
+    ) -> Dict[str, Any]:
+        """
+        Provision a dedicated PostgreSQL server for a premium instance
+
+        This is a blocking operation that:
+        1. Checks if dedicated server already exists
+        2. If not, triggers dedicated server provisioning task
+        3. Waits for provisioning to complete (polls status)
+        4. Returns server details once ready
+
+        Args:
+            instance_id: UUID of the Odoo instance
+            customer_id: UUID of the customer
+            plan_tier: Subscription plan tier
+
+        Returns:
+            Dictionary with dedicated server details
+
+        Raises:
+            Exception: If provisioning fails or times out
+        """
+        import asyncio
+
+        logger.info("Provisioning dedicated server",
+                   instance_id=instance_id,
+                   customer_id=customer_id,
+                   plan_tier=plan_tier)
+
+        # Check if server already exists
+        existing_server = await self._find_dedicated_server_for_instance(
+            instance_id, customer_id
+        )
+
+        if existing_server:
+            if existing_server['status'] == 'active':
+                logger.info("Dedicated server already active",
+                           instance_id=instance_id,
+                           server_name=existing_server['name'])
+                return {
+                    'id': str(existing_server['id']),
+                    'name': existing_server['name'],
+                    'host': existing_server['host'],
+                    'port': existing_server['port'],
+                    'status': existing_server['status']
+                }
+            elif existing_server['status'] in ('provisioning', 'initializing'):
+                logger.info("Dedicated server provisioning in progress",
+                           instance_id=instance_id,
+                           server_name=existing_server['name'],
+                           status=existing_server['status'])
+                # Fall through to polling loop
+            else:
+                raise Exception(f"Dedicated server in unexpected status: {existing_server['status']}")
+        else:
+            # Trigger provisioning
+            logger.info("Triggering dedicated server provisioning task",
+                       instance_id=instance_id)
+            from app.tasks.provisioning import provision_dedicated_server
+            provision_dedicated_server.delay(instance_id, customer_id, plan_tier)
+
+        # Poll for completion (max 5 minutes)
+        max_attempts = 60  # 60 * 5 seconds = 5 minutes
+        attempt = 0
+
+        while attempt < max_attempts:
+            await asyncio.sleep(5)  # Wait 5 seconds between checks
+            attempt += 1
+
+            # Check status
+            server = await self._find_dedicated_server_for_instance(
+                instance_id, customer_id
+            )
+
+            if not server:
+                logger.warning("Dedicated server not found during polling",
+                             instance_id=instance_id,
+                             attempt=attempt)
+                continue
+
+            if server['status'] == 'active':
+                logger.info("Dedicated server provisioned successfully",
+                           instance_id=instance_id,
+                           server_name=server['name'],
+                           attempts=attempt)
+                return {
+                    'id': str(server['id']),
+                    'name': server['name'],
+                    'host': server['host'],
+                    'port': server['port'],
+                    'status': server['status']
+                }
+            elif server['status'] == 'error':
+                raise Exception(f"Dedicated server provisioning failed: {server['name']}")
+
+            logger.info("Waiting for dedicated server",
+                       instance_id=instance_id,
+                       status=server['status'],
+                       attempt=attempt)
+
+        raise Exception(f"Dedicated server provisioning timeout after {max_attempts * 5} seconds")
