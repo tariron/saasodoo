@@ -39,6 +39,9 @@ async def lifespan(app: FastAPI):
             for row in entitlements_rows
         }
         logger.info(f"Loaded entitlements for {len(app.state.plan_entitlements)} plans (with db_type)")
+        # DEBUG: Log premium-monthly specifically
+        if 'premium-monthly' in app.state.plan_entitlements:
+            logger.info(f"DEBUG premium-monthly cache: {app.state.plan_entitlements['premium-monthly']}")
     except Exception as e:
         logger.error(f"Failed to load plan entitlements: {e}")
         app.state.plan_entitlements = {}

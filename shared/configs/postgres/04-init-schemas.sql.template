@@ -150,7 +150,8 @@ CREATE TABLE IF NOT EXISTS instances (
     db_host VARCHAR(255),
     db_port INTEGER DEFAULT 5432,
     db_user VARCHAR(255),
-    
+    db_type VARCHAR(20) DEFAULT 'shared' CHECK (db_type IN ('shared', 'dedicated')),
+
     -- Addons and modules (stored as JSON arrays)
     custom_addons JSONB DEFAULT '[]',
     disabled_modules JSONB DEFAULT '[]',

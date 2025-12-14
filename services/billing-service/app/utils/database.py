@@ -116,7 +116,7 @@ async def get_all_current_entitlements():
     pool = get_pool()
     query = """
         SELECT DISTINCT ON (plan_name)
-            plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+            plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date, db_type
         FROM plan_entitlements
         ORDER BY plan_name, effective_date DESC
     """
