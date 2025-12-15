@@ -30,28 +30,6 @@ def parse_size_to_bytes(size_str: str) -> int:
     return int(size_str)
 
 
-# Module-level app state reference for accessing plan entitlements
-_app_state = None
-
-def _set_app_state(request: Request):
-    """Set module-level app state reference from request"""
-    global _app_state
-    if request and request.app:
-        _app_state = request.app.state
-
-def _get_plan_entitlements_db_type(plan_name: str) -> str:
-    """Get db_type for a plan from cached plan_entitlements"""
-    global _app_state
-
-    if _app_state and hasattr(_app_state, 'plan_entitlements'):
-        plan_entitlements = _app_state.plan_entitlements.get(plan_name, {})
-        db_type = plan_entitlements.get('db_type', 'shared')
-        logger.info(f"Retrieved db_type '{db_type}' for plan '{plan_name}' from plan_entitlements")
-        return db_type
-    else:
-        logger.warning(f"Plan entitlements not available, using default db_type 'shared' for plan '{plan_name}'")
-        return 'shared'
-
 # Module-level singleton KillBill client
 def _get_killbill_client() -> KillBillClient:
     """Get or create singleton KillBill client instance"""
@@ -68,9 +46,6 @@ def _get_killbill_client() -> KillBillClient:
 @router.post("/killbill")
 async def handle_killbill_webhook(request: Request, response: Response):
     """Handle webhook events from KillBill"""
-
-    # Set module-level app state for accessing plan_entitlements
-    _set_app_state(request)
 
     # Set response headers to prevent HTTP/2 upgrade attempts
     response.headers["Connection"] = "close"
@@ -1056,9 +1031,11 @@ async def _create_instance_for_subscription(customer_id: str, subscription_id: s
             logger.error(f"Missing required metadata fields for subscription {subscription_id}: {missing_fields}")
             raise Exception(f"Cannot create instance - missing required configuration: {', '.join(missing_fields)}")
 
-        # NEW: Get db_type from plan_entitlements
-        db_type = _get_plan_entitlements_db_type(plan_name)
-        logger.info(f"INSTANCE CREATION: Using db_type '{db_type}' for plan '{plan_name}'")
+        # Get db_type directly from database (always current, no cache issues)
+        from ..utils.database import get_plan_entitlements
+        plan_entitlements = await get_plan_entitlements(plan_name)
+        db_type = plan_entitlements.get('db_type', 'shared') if plan_entitlements else 'shared'
+        logger.info(f"INSTANCE CREATION: Retrieved db_type '{db_type}' for plan '{plan_name}' from database")
 
         # Create instance data with custom parameters from subscription metadata
         instance_data = {

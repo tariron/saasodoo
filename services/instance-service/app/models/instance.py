@@ -148,7 +148,7 @@ class InstanceCreate(InstanceBase):
     subscription_id: Optional[UUID] = Field(None, description="Pre-existing billing subscription ID")
     billing_status: BillingStatus = Field(default=BillingStatus.PAYMENT_REQUIRED, description="Billing status provided by the billing service")
     provisioning_status: ProvisioningStatus = Field(default=ProvisioningStatus.PENDING, description="Provisioning status provided by the billing service")
-    db_type: str = Field(default="shared", description="Database type: 'shared' or 'dedicated' (from plan_entitlements)")  # NEW: Database type from plan_entitlements
+    db_type: str = Field(default="shared", description="Database type: 'shared' or 'dedicated' (from plan_entitlements)")
 
 
 # Update instance schema (for API requests)

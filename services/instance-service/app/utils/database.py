@@ -83,8 +83,8 @@ class InstanceDatabase:
                         cpu_limit, memory_limit, storage_limit, admin_email, admin_password,
                         database_name, subdomain, demo_data, custom_addons, disabled_modules,
                         environment_vars, metadata, status, billing_status, provisioning_status,
-                        created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                        db_type, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
                     RETURNING id
                 """,
                     instance_data.customer_id,
@@ -107,6 +107,7 @@ class InstanceDatabase:
                     InstanceStatus.CREATING.value,
                     billing_status.value,
                     provisioning_status.value,
+                    instance_data.db_type,
                     datetime.utcnow(),
                     datetime.utcnow()
                 )

@@ -81,13 +81,13 @@ async def get_plan_entitlements(plan_name: str, effective_date: str = None):
         effective_date: Date to query entitlements for (ISO format string or None for latest)
 
     Returns:
-        asyncpg.Record with fields: plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+        asyncpg.Record with fields: plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date, db_type
     """
     pool = get_pool()
 
     if effective_date:
         query = """
-            SELECT plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+            SELECT plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date, db_type
             FROM plan_entitlements
             WHERE plan_name = $1 AND effective_date <= $2
             ORDER BY effective_date DESC
@@ -97,7 +97,7 @@ async def get_plan_entitlements(plan_name: str, effective_date: str = None):
             return await conn.fetchrow(query, plan_name, effective_date)
     else:
         query = """
-            SELECT plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date
+            SELECT plan_name, cpu_limit, memory_limit, storage_limit, description, effective_date, db_type
             FROM plan_entitlements
             WHERE plan_name = $1
             ORDER BY effective_date DESC
