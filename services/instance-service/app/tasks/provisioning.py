@@ -294,7 +294,7 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
         await conn.close()
 
 
-async def _update_instance_database_info(instance_id: str, db_server_id: str, db_host: str, db_port: int, db_user: str):
+async def _update_instance_database_info(instance_id: str, db_server_id: str, db_host: str, db_port: int, db_name: str, db_user: str):
     """Update instance with database connection info (non-sensitive data only)"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
@@ -307,9 +307,9 @@ async def _update_instance_database_info(instance_id: str, db_server_id: str, db
     try:
         await conn.execute("""
             UPDATE instances
-            SET db_server_id = $1, db_host = $2, db_port = $3, db_user = $4, updated_at = $5
-            WHERE id = $6
-        """, UUID(db_server_id), db_host, db_port, db_user, datetime.utcnow(), UUID(instance_id))
+            SET db_server_id = $1, db_host = $2, db_port = $3, db_name = $4, db_user = $5, updated_at = $6
+            WHERE id = $7
+        """, UUID(db_server_id), db_host, db_port, db_name, db_user, datetime.utcnow(), UUID(instance_id))
 
         logger.info("Instance database info updated",
                    instance_id=instance_id,
@@ -667,6 +667,7 @@ def wait_for_database_and_provision(
                 db_server_id=db_info['db_server_id'],
                 db_host=db_info['db_host'],
                 db_port=db_info['db_port'],
+                db_name=db_info['db_name'],
                 db_user=db_info['db_user']
             ))
 

@@ -246,13 +246,19 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         # Step 3: Restore database from backup
         await _restore_database_backup(instance, backup_info)
         logger.info("Database restored from backup")
-        
+
+        # Get database server info for permission and state operations
+        db_server = await _get_db_server_for_instance(instance)
+
+        # Use actual allocated database name with fallback for backward compatibility
+        db_name = instance.get('db_name') or instance['database_name']
+
         # Step 3.5: Restore database permissions
-        await _restore_database_permissions(instance['database_name'], instance, db_server)
+        await _restore_database_permissions(db_name, instance, db_server)
         logger.info("Database permissions restored")
 
         # Step 3.6: Reset Odoo database state to prevent startup conflicts
-        await _reset_odoo_database_state(instance['database_name'], instance, db_server)
+        await _reset_odoo_database_state(db_name, instance, db_server)
         logger.info("Odoo database state reset for clean startup")
         
         # Step 4: Restore data volume from backup
@@ -401,12 +407,14 @@ async def _create_database_backup(instance: Dict[str, Any], backup_name: str) ->
     db_server = await _get_db_server_for_instance(instance)
 
     # Use pg_dump to create database backup from correct pool
+    # Use db_name (actual allocated database) with fallback to database_name for backward compatibility
+    db_name = instance.get('db_name') or instance['database_name']
     cmd = [
         "pg_dump",
         f"--host={db_server['host']}",
         f"--port={db_server['port']}",
         f"--username={db_server['admin_user']}",
-        f"--dbname={instance['database_name']}",
+        f"--dbname={db_name}",
         f"--file={backup_file}",
         "--verbose",
         "--no-password"
@@ -531,8 +539,11 @@ async def _restore_database_backup(instance: Dict[str, Any], backup_info: Dict[s
     # Get database server connection info for this instance
     db_server = await _get_db_server_for_instance(instance)
 
+    # Use db_name (actual allocated database) with fallback to database_name for backward compatibility
+    db_name = instance.get('db_name') or instance['database_name']
+
     # Drop existing database and recreate on correct pool
-    await _recreate_database(instance['database_name'], db_server)
+    await _recreate_database(db_name, db_server)
 
     # Restore from backup to correct pool
     cmd = [
@@ -540,7 +551,7 @@ async def _restore_database_backup(instance: Dict[str, Any], backup_info: Dict[s
         f"--host={db_server['host']}",
         f"--port={db_server['port']}",
         f"--username={db_server['admin_user']}",
-        f"--dbname={instance['database_name']}",
+        f"--dbname={db_name}",
         f"--file={backup_file}",
         "--quiet"
     ]
@@ -959,8 +970,8 @@ async def _recreate_database(database_name: str, db_server: Dict[str, str]):
 
 async def _restore_database_permissions(database_name: str, instance: Dict[str, Any], db_server: Dict[str, str]):
     """Restore proper database permissions for instance user on specified database server"""
-    # Extract database user from instance metadata or derive it
-    db_user = f"odoo_{database_name}"
+    # Use the actual db_user from instance (allocated by database-service)
+    db_user = instance.get('db_user') or f"odoo_{instance['database_name']}"
 
     conn = await asyncpg.connect(
         host=db_server['host'],

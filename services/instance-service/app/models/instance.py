@@ -217,6 +217,7 @@ class Instance(InstanceBase):
     # Database information
     db_host: Optional[str] = Field(None, description="Database host")
     db_port: int = Field(default=5432, description="Database port")
+    db_name: Optional[str] = Field(None, description="Actual database name allocated by database-service")
     db_user: Optional[str] = Field(None, description="Database user")
     db_server_id: Optional[UUID] = Field(None, description="Database server ID (foreign key to db_servers table)")
     db_type: str = Field(default="shared", description="Database type: 'shared' or 'dedicated'")

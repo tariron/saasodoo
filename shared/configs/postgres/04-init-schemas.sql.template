@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS instances (
     -- Database information
     db_host VARCHAR(255),
     db_port INTEGER DEFAULT 5432,
+    db_name VARCHAR(255), -- Actual database name allocated by database-service
     db_user VARCHAR(255),
     db_type VARCHAR(20) DEFAULT 'shared' CHECK (db_type IN ('shared', 'dedicated')),
 
