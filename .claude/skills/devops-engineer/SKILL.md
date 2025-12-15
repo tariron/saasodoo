@@ -166,6 +166,27 @@ docker exec -it $PGID psql -U auth_service -d auth
 docker exec -it $PGID psql -U billing_service -d billing
 ```
 
+**⚠️ Troubleshooting: Command Substitution Failures**
+
+If command substitution `$(...)` fails (common in some bash environments or when commands are piped), use this **two-step workaround**:
+
+```bash
+# Step 1: Get the container name (not ID) - copy the output
+docker ps -f name=saasodoo_postgres --format "{{.Names}}" | head -1
+# Output example: saasodoo_postgres.1.hd580auaswznnxgdfbksger7e
+
+# Step 2: Use the full container name directly
+docker exec saasodoo_postgres.1.hd580auaswznnxgdfbksger7e \
+  psql -U instance_service -d instance -c \
+  "SELECT id, name, db_type FROM instances WHERE name='TestInstance';"
+
+# Or for interactive sessions
+docker exec -it saasodoo_postgres.1.hd580auaswznnxgdfbksger7e \
+  psql -U instance_service -d instance
+```
+
+**Why this happens:** In Docker Swarm, containers have dynamic names like `<service>.<replica>.<task-id>`. Some environments escape `$(...)` preventing proper command substitution.
+
 #### Database Pools (postgres-pool-N)
 **Purpose:** Dynamically provisioned PostgreSQL servers for hosting Odoo instance databases
 

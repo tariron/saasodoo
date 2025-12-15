@@ -294,7 +294,7 @@ async def _update_instance_status(instance_id: str, status: InstanceStatus, erro
         await conn.close()
 
 
-async def _update_instance_database_info(instance_id: str, db_host: str, db_port: int, db_user: str):
+async def _update_instance_database_info(instance_id: str, db_server_id: str, db_host: str, db_port: int, db_user: str):
     """Update instance with database connection info (non-sensitive data only)"""
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
@@ -307,12 +307,13 @@ async def _update_instance_database_info(instance_id: str, db_host: str, db_port
     try:
         await conn.execute("""
             UPDATE instances
-            SET db_host = $1, db_port = $2, db_user = $3, updated_at = $4
-            WHERE id = $5
-        """, db_host, db_port, db_user, datetime.utcnow(), UUID(instance_id))
+            SET db_server_id = $1, db_host = $2, db_port = $3, db_user = $4, updated_at = $5
+            WHERE id = $6
+        """, UUID(db_server_id), db_host, db_port, db_user, datetime.utcnow(), UUID(instance_id))
 
         logger.info("Instance database info updated",
                    instance_id=instance_id,
+                   db_server_id=db_server_id,
                    db_host=db_host,
                    db_port=db_port,
                    db_user=db_user)
@@ -644,6 +645,7 @@ def wait_for_database_and_provision(
             # Database is now allocated!
             # Extract credentials into db_info dictionary
             db_info = {
+                'db_server_id': db_allocation.get('db_server_id'),
                 'db_host': db_allocation.get('db_host'),
                 'db_port': db_allocation.get('db_port'),
                 'db_name': db_allocation.get('db_name'),
@@ -662,6 +664,7 @@ def wait_for_database_and_provision(
             # Persist non-sensitive database info to instances table
             asyncio.run(_update_instance_database_info(
                 instance_id=instance_id,
+                db_server_id=db_info['db_server_id'],
                 db_host=db_info['db_host'],
                 db_port=db_info['db_port'],
                 db_user=db_info['db_user']

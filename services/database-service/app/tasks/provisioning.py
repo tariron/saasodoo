@@ -375,11 +375,11 @@ async def _provision_dedicated_server_workflow(
         )
 
         try:
-            # Step 1: Generate server name
-            customer_short = customer_id[:8]
-            server_name = f"postgres-dedicated-{customer_short}"
+            # Step 1: Generate server name (use instance_id for uniqueness, not customer_id)
+            instance_short = instance_id[:8]
+            server_name = f"postgres-dedicated-{instance_short}"
 
-            logger.info("Determined server name", server_name=server_name)
+            logger.info("Determined server name", server_name=server_name, instance_id=instance_id)
 
             # Step 2: Setup CephFS storage
             cephfs_base = os.getenv('CEPHFS_MOUNT_PATH', '/mnt/cephfs')
@@ -415,7 +415,7 @@ async def _provision_dedicated_server_workflow(
                 VALUES (
                     $1, $2, 5432, 'dedicated', 1, 0,
                     'provisioning', 'unknown', $3, '16', 'postgres:16-alpine',
-                    '4', '8G', 'manual',
+                    '4', '6G', 'manual',
                     $4, $5,
                     'provisioning_task', NOW(), 'postgres', $6
                 )
@@ -437,7 +437,7 @@ async def _provision_dedicated_server_workflow(
                     postgres_password=admin_password,
                     storage_path=storage_path,
                     cpu_limit="4",  # Double the resources
-                    memory_limit="8G",
+                    memory_limit="6G",  # Fits within node's 7.75GB total memory
                     max_instances=1  # Only one database
                 )
 

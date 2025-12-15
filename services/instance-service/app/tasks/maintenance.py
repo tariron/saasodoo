@@ -248,11 +248,11 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         logger.info("Database restored from backup")
         
         # Step 3.5: Restore database permissions
-        await _restore_database_permissions(instance['database_name'], instance)
+        await _restore_database_permissions(instance['database_name'], instance, db_server)
         logger.info("Database permissions restored")
-        
+
         # Step 3.6: Reset Odoo database state to prevent startup conflicts
-        await _reset_odoo_database_state(instance['database_name'], instance)
+        await _reset_odoo_database_state(instance['database_name'], instance, db_server)
         logger.info("Odoo database state reset for clean startup")
         
         # Step 4: Restore data volume from backup
@@ -394,15 +394,18 @@ def _ensure_backup_directories():
 
 
 async def _create_database_backup(instance: Dict[str, Any], backup_name: str) -> str:
-    """Create PostgreSQL database backup from postgres2"""
+    """Create PostgreSQL database backup from instance's database server"""
     backup_file = f"{BACKUP_ACTIVE_PATH}/{backup_name}_database.sql"
 
-    # Use pg_dump to create database backup from postgres2
+    # Get database server connection info for this instance
+    db_server = await _get_db_server_for_instance(instance)
+
+    # Use pg_dump to create database backup from correct pool
     cmd = [
         "pg_dump",
-        f"--host={os.getenv('ODOO_POSTGRES_HOST', 'postgres')}",
-        f"--port={os.getenv('ODOO_POSTGRES_PORT', '5432')}",
-        f"--username={os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin')}",
+        f"--host={db_server['host']}",
+        f"--port={db_server['port']}",
+        f"--username={db_server['admin_user']}",
         f"--dbname={instance['database_name']}",
         f"--file={backup_file}",
         "--verbose",
@@ -410,7 +413,7 @@ async def _create_database_backup(instance: Dict[str, Any], backup_name: str) ->
     ]
 
     env = os.environ.copy()
-    env['PGPASSWORD'] = os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
+    env['PGPASSWORD'] = db_server['admin_password']
     
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -519,28 +522,31 @@ async def _create_backup_metadata(instance: Dict[str, Any], backup_name: str, db
 # ===== RESTORE OPERATIONS =====
 
 async def _restore_database_backup(instance: Dict[str, Any], backup_info: Dict[str, Any]):
-    """Restore PostgreSQL database from backup to postgres2"""
+    """Restore PostgreSQL database from backup to instance's database server"""
     backup_file = backup_info['database_backup_path']
 
     if not os.path.exists(backup_file):
         raise FileNotFoundError(f"Database backup file not found: {backup_file}")
 
-    # Drop existing database and recreate
-    await _recreate_database(instance['database_name'])
+    # Get database server connection info for this instance
+    db_server = await _get_db_server_for_instance(instance)
 
-    # Restore from backup to postgres2
+    # Drop existing database and recreate on correct pool
+    await _recreate_database(instance['database_name'], db_server)
+
+    # Restore from backup to correct pool
     cmd = [
         "psql",
-        f"--host={os.getenv('ODOO_POSTGRES_HOST', 'postgres')}",
-        f"--port={os.getenv('ODOO_POSTGRES_PORT', '5432')}",
-        f"--username={os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin')}",
+        f"--host={db_server['host']}",
+        f"--port={db_server['port']}",
+        f"--username={db_server['admin_user']}",
         f"--dbname={instance['database_name']}",
         f"--file={backup_file}",
         "--quiet"
     ]
 
     env = os.environ.copy()
-    env['PGPASSWORD'] = os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
+    env['PGPASSWORD'] = db_server['admin_password']
     
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -748,6 +754,84 @@ async def _run_database_migration(instance: Dict[str, Any], from_version: str, t
 
 # ===== DATABASE UTILITIES (duplicated from lifecycle.py for now) =====
 
+async def _get_db_server_for_instance(instance: Dict[str, Any]) -> Dict[str, str]:
+    """Get database server connection info for instance
+
+    Args:
+        instance: Instance dictionary with db_server_id and/or db_host
+
+    Returns:
+        Dict with host, port, admin_user, admin_password
+    """
+    conn = await asyncpg.connect(
+        host=os.getenv('POSTGRES_HOST', 'postgres'),
+        port=int(os.getenv('POSTGRES_PORT', '5432')),
+        database=os.getenv('POSTGRES_DB', 'instance'),
+        user=os.getenv('DB_SERVICE_USER', 'instance_service'),
+        password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
+    )
+
+    try:
+        # Prefer db_server_id if available
+        if instance.get('db_server_id'):
+            row = await conn.fetchrow("""
+                SELECT host, port, admin_user, admin_password
+                FROM db_servers
+                WHERE id = $1
+            """, instance['db_server_id'])
+
+            if row:
+                logger.info("Retrieved database server info by db_server_id",
+                           instance_id=str(instance['id']),
+                           db_server=row['host'])
+
+                return {
+                    'host': row['host'],
+                    'port': str(row['port']),
+                    'admin_user': row['admin_user'],
+                    'admin_password': row['admin_password']
+                }
+
+        # Fallback: Query by db_host (for old instances without db_server_id)
+        if instance.get('db_host'):
+            logger.info("Querying database server by db_host (fallback for old instance)",
+                       instance_id=str(instance['id']),
+                       db_host=instance['db_host'])
+
+            row = await conn.fetchrow("""
+                SELECT host, port, admin_user, admin_password
+                FROM db_servers
+                WHERE host = $1
+            """, instance['db_host'])
+
+            if row:
+                logger.info("Retrieved database server info by db_host",
+                           instance_id=str(instance['id']),
+                           db_server=row['host'])
+
+                return {
+                    'host': row['host'],
+                    'port': str(row['port']),
+                    'admin_user': row['admin_user'],
+                    'admin_password': row['admin_password']
+                }
+
+        # Last resort: Use environment variables (legacy fallback)
+        logger.warning("Using legacy environment variables for database connection",
+                      instance_id=str(instance['id']),
+                      reason="No db_server_id or db_host found in db_servers")
+
+        return {
+            'host': os.getenv('ODOO_POSTGRES_HOST', 'postgres'),
+            'port': os.getenv('ODOO_POSTGRES_PORT', '5432'),
+            'admin_user': os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin'),
+            'admin_password': os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
+        }
+
+    finally:
+        await conn.close()
+
+
 async def _get_instance_from_db(instance_id: str) -> Dict[str, Any]:
     """Get instance details from database"""
     conn = await asyncpg.connect(
@@ -843,10 +927,16 @@ async def _get_backup_record(backup_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-async def _recreate_database(database_name: str):
-    """Drop and recreate database with proper permissions on postgres2"""
-    conn = await OdooInstanceDatabaseManager.get_admin_connection()
-    
+async def _recreate_database(database_name: str, db_server: Dict[str, str]):
+    """Drop and recreate database with proper permissions on specified database server"""
+    conn = await asyncpg.connect(
+        host=db_server['host'],
+        port=int(db_server['port']),
+        database='postgres',  # Connect to postgres database to drop/create
+        user=db_server['admin_user'],
+        password=db_server['admin_password']
+    )
+
     try:
         # Terminate existing connections
         await conn.execute(f"""
@@ -855,22 +945,30 @@ async def _recreate_database(database_name: str):
             WHERE pg_stat_activity.datname = '{database_name}'
               AND pid <> pg_backend_pid()
         """)
-        
+
         # Drop and recreate database
         await conn.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
         await conn.execute(f'CREATE DATABASE "{database_name}"')
-        
-        logger.info("Database recreated", database=database_name)
+
+        logger.info("Database recreated on pool",
+                   database=database_name,
+                   db_server=db_server['host'])
     finally:
         await conn.close()
 
 
-async def _restore_database_permissions(database_name: str, instance: Dict[str, Any]):
-    """Restore proper database permissions for instance user on postgres2"""
+async def _restore_database_permissions(database_name: str, instance: Dict[str, Any], db_server: Dict[str, str]):
+    """Restore proper database permissions for instance user on specified database server"""
     # Extract database user from instance metadata or derive it
     db_user = f"odoo_{database_name}"
 
-    conn = await OdooInstanceDatabaseManager.get_instance_db_connection(database_name)
+    conn = await asyncpg.connect(
+        host=db_server['host'],
+        port=int(db_server['port']),
+        database=database_name,
+        user=db_server['admin_user'],
+        password=db_server['admin_password']
+    )
     
     try:
         # Grant all privileges on database to instance user
@@ -900,10 +998,16 @@ async def _restore_database_permissions(database_name: str, instance: Dict[str, 
         await conn.close()
 
 
-async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any]):
-    """Reset Odoo database state to prevent startup conflicts after restore on postgres2"""
+async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any], db_server: Dict[str, str]):
+    """Reset Odoo database state to prevent startup conflicts after restore on specified database server"""
 
-    conn = await OdooInstanceDatabaseManager.get_instance_db_connection(database_name)
+    conn = await asyncpg.connect(
+        host=db_server['host'],
+        port=int(db_server['port']),
+        database=database_name,
+        user=db_server['admin_user'],
+        password=db_server['admin_password']
+    )
     
     try:
         # Clear module update flags that can cause startup hangs
