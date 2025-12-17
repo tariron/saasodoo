@@ -415,7 +415,7 @@ async def _provision_dedicated_server_workflow(
                 VALUES (
                     $1, $2, 5432, 'dedicated', 1, 0,
                     'provisioning', 'unknown', $3, '16', 'postgres:16-alpine',
-                    '4', '6G', 'manual',
+                    '2', '4G', 'manual',
                     $4, $5,
                     'provisioning_task', NOW(), 'postgres', $6
                 )
@@ -430,14 +430,14 @@ async def _provision_dedicated_server_workflow(
 
             logger.info("Dedicated server record created", db_server_id=db_server_id)
 
-            # Step 5: Create Docker service with premium resources
+            # Step 5: Create Docker service with same resources as shared pools
             try:
                 service_info = self.docker_client.create_postgres_pool_service(
                     pool_name=server_name,
                     postgres_password=admin_password,
                     storage_path=storage_path,
-                    cpu_limit="4",  # Double the resources
-                    memory_limit="6G",  # Fits within node's 7.75GB total memory
+                    cpu_limit="2",  # Same as shared pools
+                    memory_limit="4G",  # Same as shared pools
                     max_instances=1  # Only one database
                 )
 

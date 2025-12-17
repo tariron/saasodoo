@@ -591,8 +591,8 @@ async def _get_user_info(customer_id: str) -> Dict[str, Any]:
     bind=True,
     name="instance.wait_for_database_and_provision",
     queue="instance_provisioning",
-    max_retries=30,  # 30 attempts × 10 seconds = 5 minutes
-    default_retry_delay=10  # Wait 10 seconds between retries
+    max_retries=10,  # 10 attempts × 60 seconds = 10 minutes
+    default_retry_delay=60  # Wait 60 seconds between retries
 )
 def wait_for_database_and_provision(
     self,
@@ -713,8 +713,8 @@ def wait_for_database_and_provision(
 
                 raise Exception("Database allocation timeout after 5 minutes")
 
-            # Retry after 10 seconds
-            raise self.retry(countdown=10)
+            # Retry after configured delay (60 seconds)
+            raise self.retry()
 
     except httpx.HTTPStatusError as e:
         logger.error(

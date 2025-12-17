@@ -103,8 +103,10 @@ class DatabaseAllocationService:
         db_server = await self._find_available_shared_pool()
 
         if not db_server:
-            logger.info("No available shared pools - provisioning needed",
+            logger.info("No available shared pools - triggering auto-provisioning",
                        instance_id=instance_id)
+            from app.tasks.provisioning import provision_database_pool
+            provision_database_pool.delay(max_instances=50)
             return None
 
         # Generate database name
