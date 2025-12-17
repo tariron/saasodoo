@@ -1300,12 +1300,15 @@ async def apply_resource_upgrade(
     db: InstanceDatabase = Depends(get_database)
 ):
     """Apply live resource upgrades to running service (zero downtime)"""
+    # DEBUG: Log at the VERY START
+    print(f"DEBUG: apply_resource_upgrade called for {instance_id}")
     import subprocess
     # Import helper from provisioning task
     from app.tasks.provisioning import _parse_size_to_bytes
     from app.utils.docker_client import get_docker_client
 
     try:
+        print(f"DEBUG: Inside try block for {instance_id}")
         logger.info("Applying live resource upgrade", instance_id=str(instance_id))
 
         # Get instance from database

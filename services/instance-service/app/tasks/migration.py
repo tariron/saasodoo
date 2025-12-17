@@ -104,7 +104,11 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
 
         # Step 4: Provision dedicated database server
         logger.info("Provisioning dedicated database server", instance_id=instance_id)
-        dedicated = await _provision_dedicated_via_api(instance_id)
+        dedicated = await _provision_dedicated_via_api(
+            instance_id=instance_id,
+            customer_id=str(instance['customer_id']),
+            plan_tier=instance.get('plan_tier', 'premium')
+        )
         logger.info("Dedicated server provisioned",
                    db_server_id=dedicated['db_server_id'],
                    db_host=dedicated['db_host'])
@@ -161,7 +165,7 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
 
 # Helper functions
 
-async def _provision_dedicated_via_api(instance_id: str) -> Dict[str, Any]:
+async def _provision_dedicated_via_api(instance_id: str, customer_id: str, plan_tier: str) -> Dict[str, Any]:
     """
     Call database-service to provision dedicated server
 
@@ -173,7 +177,11 @@ async def _provision_dedicated_via_api(instance_id: str) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=600.0) as client:
         response = await client.post(
             f"{database_service_url}/api/database/provision-dedicated",
-            json={"instance_id": instance_id}
+            json={
+                "instance_id": instance_id,
+                "customer_id": customer_id,
+                "plan_tier": plan_tier
+            }
         )
 
         if response.status_code != 200:
