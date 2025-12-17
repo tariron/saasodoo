@@ -810,6 +810,7 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                         new_cpu = float(new_entitlements['cpu_limit'])
                         new_memory = new_entitlements['memory_limit']
                         new_storage = new_entitlements['storage_limit']
+                        new_db_type = new_entitlements.get('db_type', 'shared')
 
                         # Convert to comparable numeric values for accurate comparison
                         current_memory_bytes = parse_size_to_bytes(current_memory)
@@ -841,12 +842,14 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                             continue
 
                         if is_upgrade:
+                            current_db_type = existing_instance.get('db_type', 'shared')
                             logger.info(
                                 f"🚀 UPGRADE DETECTED for instance {instance_id}: "
                                 f"New plan: {plan_name} | "
                                 f"CPU: {current_cpu} → {new_cpu}, "
                                 f"Memory: {current_memory} → {new_memory}, "
-                                f"Storage: {current_storage} → {new_storage}"
+                                f"Storage: {current_storage} → {new_storage}, "
+                                f"DB Type: {current_db_type} → {new_db_type}"
                             )
 
                             # Update instance database with new resources
@@ -855,9 +858,10 @@ async def handle_invoice_payment_success(payload: Dict[str, Any]):
                                     instance_id=instance_id,
                                     cpu_limit=new_cpu,
                                     memory_limit=new_memory,
-                                    storage_limit=new_storage
+                                    storage_limit=new_storage,
+                                    db_type=new_db_type
                                 )
-                                logger.info(f"✅ Updated instance {instance_id} database with new plan resources")
+                                logger.info(f"✅ Updated instance {instance_id} database with new plan resources including db_type={new_db_type}")
                             except Exception as db_error:
                                 logger.error(f"❌ Failed to update instance DB for upgrade: {db_error}")
 

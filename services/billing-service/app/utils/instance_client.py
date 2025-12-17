@@ -318,17 +318,19 @@ class InstanceServiceClient:
         instance_id: str,
         cpu_limit: float,
         memory_limit: str,
-        storage_limit: str
+        storage_limit: str,
+        db_type: str
     ) -> Dict[str, Any]:
         """Update instance resource limits in database"""
         endpoint = f"/api/v1/instances/{instance_id}"
         payload = {
             "cpu_limit": cpu_limit,
             "memory_limit": memory_limit,
-            "storage_limit": storage_limit
+            "storage_limit": storage_limit,
+            "db_type": db_type
         }
 
-        logger.info(f"Updating instance {instance_id} resources: {cpu_limit} CPU, {memory_limit} RAM, {storage_limit} storage")
+        logger.info(f"Updating instance {instance_id} resources: {cpu_limit} CPU, {memory_limit} RAM, {storage_limit} storage, db_type={db_type}")
 
         try:
             result = await self._make_request("PUT", endpoint, json=payload)

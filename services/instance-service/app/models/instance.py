@@ -160,6 +160,7 @@ class InstanceUpdate(BaseModel):
     cpu_limit: Optional[float] = Field(None, ge=0.1, le=8.0)
     memory_limit: Optional[str] = None
     storage_limit: Optional[str] = None
+    db_type: Optional[str] = Field(None, description="Database type: 'shared' or 'dedicated'")
     admin_email: Optional[str] = None
     demo_data: Optional[bool] = None
     custom_addons: Optional[List[str]] = None

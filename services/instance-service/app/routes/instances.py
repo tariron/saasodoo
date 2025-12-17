@@ -2,7 +2,7 @@
 Instance management routes
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException, Query, Depends
@@ -1313,6 +1313,29 @@ async def apply_resource_upgrade(
         if not instance:
             raise HTTPException(status_code=404, detail="Instance not found")
 
+        # Check if database migration is needed (db_type='dedicated' but still on shared pool)
+        if instance.db_type == 'dedicated':
+            # Check if we're still on a shared pool
+            db_server_info = await _get_db_server_type(instance.db_server_id)
+
+            if db_server_info and db_server_info['server_type'] == 'shared':
+                logger.info("Database migration needed: shared pool → dedicated server",
+                           instance_id=str(instance_id),
+                           current_pool=db_server_info['name'],
+                           db_type=instance.db_type)
+
+                # Queue database migration task
+                from app.tasks.migration import migrate_database_task
+                job = migrate_database_task.delay(str(instance_id))
+
+                return {
+                    "status": "migrating",
+                    "message": "Database migration from shared to dedicated queued",
+                    "instance_id": str(instance_id),
+                    "job_id": job.id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
         # FIX: Use service_name for Swarm (with fallback if missing in DB)
         service_name = instance.service_name
         if not service_name:
@@ -1403,3 +1426,43 @@ async def apply_resource_upgrade(
                    instance_id=str(instance_id),
                    error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to apply resource upgrade: {str(e)}")
+
+
+# Helper function for migration detection
+
+async def _get_db_server_type(db_server_id: Optional[UUID]) -> Optional[Dict[str, Any]]:
+    """Get database server type (shared/dedicated) from db_servers table"""
+    if not db_server_id:
+        return None
+
+    try:
+        import asyncpg
+        import os
+
+        conn = await asyncpg.connect(
+            host=os.getenv('POSTGRES_HOST', 'postgres'),
+            port=int(os.getenv('POSTGRES_PORT', '5432')),
+            database=os.getenv('POSTGRES_DB', 'instance'),
+            user=os.getenv('DB_SERVICE_USER', 'instance_service'),
+            password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
+        )
+
+        try:
+            row = await conn.fetchrow("""
+                SELECT id, name, server_type
+                FROM db_servers
+                WHERE id = $1
+            """, db_server_id)
+
+            if row:
+                return dict(row)
+            return None
+
+        finally:
+            await conn.close()
+
+    except Exception as e:
+        logger.error("Error getting database server type",
+                    db_server_id=str(db_server_id),
+                    error=str(e))
+        return None
