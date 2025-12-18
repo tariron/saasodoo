@@ -195,29 +195,6 @@ async def get_billing_overview(
         instance_by_subscription = {instance['subscription_id']: instance for instance in customer_instances if instance.get('subscription_id')}
         logger.info(f"Created instance lookup with {len(instance_by_subscription)} subscription mappings")
 
-        # Get all subscription metadata in parallel (batch the N+1 queries)
-        metadata_start = time.time()
-        active_subscription_ids = [sub.get('subscriptionId') for sub in subscriptions if sub.get('state') == 'ACTIVE']
-        logger.info(f"Starting metadata fetch for {len(active_subscription_ids)} active subscriptions")
-
-        # Fetch all subscription metadata in parallel
-        metadata_tasks = [killbill.get_subscription_metadata(sub_id) for sub_id in active_subscription_ids]
-        if metadata_tasks:
-            metadata_results = await asyncio.gather(*metadata_tasks, return_exceptions=True)
-            metadata_lookup = {}
-            for i, sub_id in enumerate(active_subscription_ids):
-                if i < len(metadata_results) and not isinstance(metadata_results[i], Exception):
-                    metadata_lookup[sub_id] = metadata_results[i]
-                else:
-                    metadata_lookup[sub_id] = {}
-                    if isinstance(metadata_results[i], Exception):
-                        logger.warning(f"Failed to get metadata for subscription {sub_id}: {metadata_results[i]}")
-        else:
-            metadata_lookup = {}
-
-        metadata_time = time.time() - metadata_start
-        logger.info(f"Metadata fetch completed in {metadata_time:.2f} seconds")
-
         # Separate processing for all subscription states
         pending_subscriptions = []
         outstanding_invoices = []
@@ -226,9 +203,6 @@ async def get_billing_overview(
 
         for sub in subscriptions:
             if sub.get('state') == 'ACTIVE':
-                # Get subscription metadata from our batched results
-                subscription_metadata = metadata_lookup.get(sub.get('subscriptionId', ''), {})
-
                 # Find linked instance using subscription_id (instances have subscription_id field)
                 subscription_id = sub.get('subscriptionId')
                 linked_instance = instance_by_subscription.get(subscription_id)
@@ -261,7 +235,6 @@ async def get_billing_overview(
                     'billing_end_date': billing_end_date,
                     'trial_start_date': sub.get('trialStartDate'),
                     'trial_end_date': sub.get('trialEndDate'),
-                    'metadata': subscription_metadata,
                     'created_at': sub.get('createdDate'),
                     'updated_at': sub.get('updatedDate'),
                     # Cancellation information
@@ -307,8 +280,6 @@ async def get_billing_overview(
             
             # Handle non-ACTIVE subscriptions (pending payment states)
             elif sub.get('state') in ['COMMITTED']:  # Subscriptions created but not fully activated
-                subscription_metadata = metadata_lookup.get(sub.get('subscriptionId', ''), {})
-
                 # Find linked instance using subscription_id (instances have subscription_id field)
                 subscription_id = sub.get('subscriptionId')
                 linked_instance = instance_by_subscription.get(subscription_id)
