@@ -12,6 +12,17 @@ from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID
 
+# Import helpers globally to fix NameError in exception handlers
+from app.tasks.maintenance import (
+    _get_instance_from_db,
+    _update_instance_status,
+    _stop_docker_service,
+    _backup_instance_workflow,
+    _restore_database_backup,
+    _get_backup_record,
+    _wait_for_odoo_startup
+)
+
 from celery import current_task
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
@@ -62,16 +73,7 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
     6. Update Docker service environment (edit odoo.conf)
     7. Restart instance
     """
-    from app.tasks.maintenance import (
-        _get_instance_from_db,
-        _stop_docker_service,
-        _backup_instance_workflow,
-        _restore_database_backup,
-        _get_backup_record,
-        _wait_for_odoo_startup,
-        _update_instance_status
-    )
-
+ 
     logger.info("Migration workflow started", instance_id=instance_id)
 
     # Get instance details
@@ -80,6 +82,11 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
         raise ValueError(f"Instance {instance_id} not found")
 
     original_status = instance['status']
+    
+    # Get customer ID and set plan tier for provisioning
+    customer_id = str(instance['customer_id'])
+    target_plan_tier = "premium" 
+
     logger.info("Instance retrieved",
                instance_name=instance['name'],
                current_db_type=instance.get('db_type', 'shared'),
@@ -104,11 +111,8 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
 
         # Step 4: Provision dedicated database server
         logger.info("Provisioning dedicated database server", instance_id=instance_id)
-        dedicated = await _provision_dedicated_via_api(
-            instance_id=instance_id,
-            customer_id=str(instance['customer_id']),
-            plan_tier=instance.get('plan_tier', 'premium')
-        )
+        # Pass required arguments to fix 422 error
+        dedicated = await _provision_dedicated_via_api(instance_id, customer_id, target_plan_tier)
         logger.info("Dedicated server provisioned",
                    db_server_id=dedicated['db_server_id'],
                    db_host=dedicated['db_host'])
@@ -119,10 +123,28 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
 
         # Step 6: Restore backup to dedicated server
         logger.info("Restoring backup to dedicated server", instance_id=instance_id, backup_id=backup_id)
-        backup_info = await _get_backup_record(backup_id)
-        instance = await _get_instance_from_db(instance_id)  # Reload with new db info
+        
+        # FIX: Construct info from memory (backup_result) instead of reading from disk
+        # This prevents the 'NoneType' error if the file isn't immediately visible
+        backup_info = {
+            'backup_id': backup_id,
+            'backup_name': backup_result.get('backup_name'),
+            'database_backup_path': backup_result.get('database_backup'),
+            'data_backup_path': backup_result.get('data_backup')
+        }
+
+        # Reload instance to get the NEW db_host/db_type we just updated in Step 5
+        instance = await _get_instance_from_db(instance_id)
+
+        # Step 6a: Create PostgreSQL user on dedicated server with existing credentials
+        # Get db_server info to access admin credentials
+        from app.tasks.maintenance import _get_db_server_for_instance
+        db_server = await _get_db_server_for_instance(instance)
+
+        logger.info("Creating database user on dedicated server", instance_id=instance_id)
+        await _create_db_user_on_dedicated_server(instance, db_server)
+
         await _restore_database_backup(instance, backup_info)
-        logger.info("Backup restored to dedicated server", instance_id=instance_id)
 
         # Step 7: Update Docker service environment (edit odoo.conf)
         logger.info("Updating service configuration", instance_id=instance_id)
@@ -165,23 +187,72 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
 
 # Helper functions
 
+# TODO: Move this to database-service as a proper endpoint
+# This function should be replaced with a database-service endpoint like:
+# POST /api/database/create-user
+# Request: { "db_server_id": "...", "db_user": "...", "db_password": "..." }
+# This is a temporary workaround - proper architecture is to have database-service
+# handle all PostgreSQL user management, not instance-service doing it directly.
+async def _create_db_user_on_dedicated_server(instance: Dict[str, Any], db_server: Dict[str, Any]):
+    """
+    Create PostgreSQL user on dedicated server from existing credentials
+
+    TEMPORARY: This should be moved to database-service.
+    When we provision a dedicated server, database-service should also create
+    the database user using credentials provided in the request.
+    """
+    # Read existing credentials from odoo.conf
+    cephfs_path = f"/mnt/cephfs/odoo_instances/odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
+    odoo_conf_path = f"{cephfs_path}/conf/odoo.conf"
+
+    config = configparser.ConfigParser()
+    config.read(odoo_conf_path)
+
+    db_user = config['options']['db_user']
+    db_password = config['options']['db_password']
+
+    logger.info("Creating PostgreSQL user on dedicated server",
+                db_user=db_user,
+                db_host=db_server['host'])
+
+    # Connect using admin credentials from db_server record
+    conn = await asyncpg.connect(
+        host=db_server['host'],
+        port=int(db_server['port']),
+        database='postgres',
+        user=db_server['admin_user'],
+        password=db_server['admin_password']
+    )
+
+    try:
+        await conn.execute(f"CREATE USER {db_user} WITH PASSWORD '{db_password}'")
+        logger.info("PostgreSQL user created successfully",
+                   db_user=db_user,
+                   db_host=db_server['host'])
+    except asyncpg.exceptions.DuplicateObjectError:
+        logger.info("PostgreSQL user already exists (skipping)",
+                   db_user=db_user)
+    finally:
+        await conn.close()
+
+
 async def _provision_dedicated_via_api(instance_id: str, customer_id: str, plan_tier: str) -> Dict[str, Any]:
     """
     Call database-service to provision dedicated server
-
-    Returns:
-        Dict with: db_server_id, db_host, db_port, db_user, db_password
     """
     database_service_url = os.getenv('DATABASE_SERVICE_URL', 'http://database-service:8005')
+
+    # Construct the correct payload required by database-service
+    payload = {
+        "instance_id": instance_id,
+        "customer_id": customer_id,
+        "plan_tier": plan_tier
+    }
 
     async with httpx.AsyncClient(timeout=600.0) as client:
         response = await client.post(
             f"{database_service_url}/api/database/provision-dedicated",
-            json={
-                "instance_id": instance_id,
-                "customer_id": customer_id,
-                "plan_tier": plan_tier
-            }
+            json=payload
         )
 
         if response.status_code != 200:
@@ -211,14 +282,12 @@ async def _update_db_connection(instance_id: str, dedicated: Dict[str, Any]):
     try:
         await conn.execute("""
             UPDATE instances
-            SET db_server_id = $1, db_host = $2, db_port = $3,
-                db_user = $4, db_type = 'dedicated', updated_at = $5
-            WHERE id = $6
+            SET db_server_id = $1, db_host = $2,
+                db_type = 'dedicated', updated_at = $3
+            WHERE id = $4
         """,
             dedicated['db_server_id'],
             dedicated['db_host'],
-            dedicated['db_port'],
-            dedicated['db_user'],
             datetime.utcnow(),
             UUID(instance_id)
         )
@@ -268,11 +337,9 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
     if 'options' not in config:
         config['options'] = {}
 
-    # Update ONLY database connection fields
+    # Update ONLY the database host (credentials remain the same)
     config['options']['db_host'] = dedicated['db_host']
-    config['options']['db_user'] = dedicated['db_user']
-    config['options']['db_password'] = dedicated['db_password']
-    # Note: db_name stays the same (we're moving the same database)
+    # Note: db_user, db_password, and db_name all stay the same (we're just moving the database)
 
     # Write back complete config
     with open(odoo_conf_path, 'w') as f:
@@ -289,19 +356,11 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
         current_spec = service.attrs['Spec']
         current_env = current_spec.get('TaskTemplate', {}).get('ContainerSpec', {}).get('Env', [])
 
-        # Filter out old database connection vars
-        new_env = [e for e in current_env if not any(e.startswith(prefix) for prefix in [
-            'ODOO_DATABASE_HOST=',
-            'ODOO_DATABASE_USER=',
-            'ODOO_DATABASE_PASSWORD='
-        ])]
+        # Filter out old database host var
+        new_env = [e for e in current_env if not e.startswith('ODOO_DATABASE_HOST=')]
 
-        # Add new database connection vars
-        new_env.extend([
-            f'ODOO_DATABASE_HOST={dedicated["db_host"]}',
-            f'ODOO_DATABASE_USER={dedicated["db_user"]}',
-            f'ODOO_DATABASE_PASSWORD={dedicated["db_password"]}'
-        ])
+        # Add new database host var (credentials remain unchanged)
+        new_env.append(f'ODOO_DATABASE_HOST={dedicated["db_host"]}')
 
         # Update service with new environment
         service.update(
@@ -327,9 +386,9 @@ async def _start_docker_service_after_migration(instance: Dict[str, Any]) -> Dic
     """
     Start Docker service after migration (reuses logic from lifecycle)
     """
-    from app.tasks.lifecycle import _start_docker_service
+    from app.tasks.lifecycle import _start_docker_container
 
-    container_info = await _start_docker_service(instance)
+    container_info = await _start_docker_container(instance)
     logger.info("Service started after migration", instance_id=str(instance['id']))
 
     return container_info

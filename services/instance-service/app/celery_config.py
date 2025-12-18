@@ -15,7 +15,7 @@ celery_app = Celery(
     "instance_service",
     broker=f"amqp://{os.getenv('RABBITMQ_USER', 'saasodoo')}:{os.getenv('RABBITMQ_PASSWORD', 'saasodoo123')}@{os.getenv('RABBITMQ_HOST', 'rabbitmq')}:{os.getenv('RABBITMQ_PORT', '5672')}/{os.getenv('RABBITMQ_VHOST', 'saasodoo')}",
     backend=f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}",
-    include=['app.tasks.provisioning', 'app.tasks.lifecycle', 'app.tasks.maintenance', 'app.tasks.monitoring']
+    include=['app.tasks.provisioning', 'app.tasks.lifecycle', 'app.tasks.maintenance', 'app.tasks.monitoring', 'app.tasks.migration']
 )
 
 # Explicitly define queues as quorum queues
@@ -44,6 +44,7 @@ celery_app.conf.update(
         'app.tasks.lifecycle.*': {'queue': 'instance_operations'},
         'app.tasks.maintenance.*': {'queue': 'instance_maintenance'},
         'app.tasks.monitoring.*': {'queue': 'instance_monitoring'},
+        'app.tasks.migration.*': {'queue': 'instance_maintenance'},
     },
     # No automatic retry - admin manual retry only
     task_retry_jitter=False,
