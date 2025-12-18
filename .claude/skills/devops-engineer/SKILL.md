@@ -41,6 +41,30 @@ Manage and maintain the infrastructure, handle deployments, troubleshoot issues,
 - Investigate failed deployments
 - Track down performance bottlenecks
 
+## Service Image Architecture
+
+### Shared Images
+Services that share the same codebase use the **same Docker image** in the compose file. This simplifies rebuilds and makes the architecture clearer.
+
+**Instance Services** (share `services/instance-service/` codebase):
+- `instance-service` - FastAPI REST API
+- `instance-worker` - Celery worker for background tasks
+- **Image**: `registry.62.171.153.219.nip.io/compose-instance-service:latest`
+
+**Database Services** (share `services/database-service/` codebase):
+- `database-service` - FastAPI REST API
+- `database-worker` - Celery worker for database provisioning
+- `database-beat` - Celery beat scheduler
+- **Image**: `registry.62.171.153.219.nip.io/compose-database-service:latest`
+
+### Rebuild Process
+When rebuilding services with shared images:
+1. **Build once** - Build the base service image
+2. **Push once** - Push to registry
+3. **Redeploy** - All services using that image get updated
+
+**No tagging required** - The compose file references the same image name for all related services.
+
 ## Common Commands Reference
 
 ### Docker Stack Operations
@@ -214,23 +238,6 @@ docker exec $POOL_ID psql -U postgres -c \
   "SELECT datname, count(*) as connections FROM pg_stat_activity GROUP BY datname;"
 ```
 
-#### Legacy PostgreSQL (postgres2)
-**Note:** This is kept for backward compatibility but NOT used for new allocations
-```bash
-# Check database status
-docker exec <postgres2-container> pg_isready -U odoo_user
-
-# List databases
-docker exec <postgres2-container> psql -U odoo_user -l
-
-# Connect to database
-docker exec -it <postgres2-container> psql -U odoo_user -d <database>
-
-# Check connections
-docker exec <postgres2-container> psql -U odoo_user -d postgres -c \
-  "SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;"
-```
-
 #### KillBill/MariaDB
 ```bash
 # Check databases
@@ -389,36 +396,26 @@ docker build -t registry.62.171.153.219.nip.io/compose-billing-service:latest -f
 # 3. Build frontend-service image (NOTE: Use services/frontend-service/ as build context, not root)
 docker build -t registry.62.171.153.219.nip.io/compose-frontend-service:latest -f services/frontend-service/Dockerfile services/frontend-service/
 
-# 4. Tag worker image (instance-worker uses same image as instance-service)
-docker tag registry.62.171.153.219.nip.io/compose-instance-service:latest registry.62.171.153.219.nip.io/compose-instance-worker:latest
-
-# 5. Push to registry
+# 4. Push to registry (instance-worker uses same image as instance-service)
 docker push registry.62.171.153.219.nip.io/compose-instance-service:latest && \
-docker push registry.62.171.153.219.nip.io/compose-instance-worker:latest && \
 docker push registry.62.171.153.219.nip.io/compose-billing-service:latest && \
 docker push registry.62.171.153.219.nip.io/compose-frontend-service:latest
 
-# 6. Redeploy the stack (picks up new images)
+# 5. Redeploy the stack (picks up new images)
 set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
 ```
 
 ### Rebuild Database Service (IMPORTANT!)
-**CRITICAL:** When rebuilding database-service, you MUST also rebuild database-worker and database-beat since they share the same codebase!
+**NOTE:** database-service, database-worker, and database-beat all use the same image. Building once updates all three services.
 
 ```bash
 # 1. Build database-service image (uses root as build context)
 docker build -t registry.62.171.153.219.nip.io/compose-database-service:latest -f services/database-service/Dockerfile .
 
-# 2. Tag database-worker and database-beat (they use the SAME image)
-docker tag registry.62.171.153.219.nip.io/compose-database-service:latest registry.62.171.153.219.nip.io/compose-database-worker:latest
-docker tag registry.62.171.153.219.nip.io/compose-database-service:latest registry.62.171.153.219.nip.io/compose-database-beat:latest
+# 2. Push to registry (database-worker and database-beat use the same image)
+docker push registry.62.171.153.219.nip.io/compose-database-service:latest
 
-# 3. Push all three images to registry
-docker push registry.62.171.153.219.nip.io/compose-database-service:latest && \
-docker push registry.62.171.153.219.nip.io/compose-database-worker:latest && \
-docker push registry.62.171.153.219.nip.io/compose-database-beat:latest
-
-# 4. Redeploy the stack (picks up new images)
+# 3. Redeploy the stack (picks up new images for all three services)
 set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
 ```
 

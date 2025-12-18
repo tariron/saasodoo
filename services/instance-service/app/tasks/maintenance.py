@@ -17,7 +17,6 @@ from pathlib import Path
 
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
-from app.utils.database import OdooInstanceDatabaseManager
 from app.utils.notification_client import send_backup_completed_email, send_backup_failed_email, send_restore_completed_email, send_restore_failed_email
 import structlog
 

@@ -75,42 +75,6 @@ services:
       update_config:
         parallelism: 1
         delay: 10s
-
-  # PostgreSQL 2 - Odoo Instance Databases (Separate server for customer Odoo databases)
-  postgres2:
-    image: postgres:18-alpine
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: ${POSTGRES2_USER:-odoo_admin}
-      POSTGRES_PASSWORD: ${POSTGRES2_PASSWORD:-odoo_admin_secure_pass}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - /mnt/cephfs/postgres2_data:/var/lib/postgresql
-    networks:
-      - saasodoo-network
-    # SECURITY: PostgreSQL port NOT exposed publicly - only accessible via internal Docker network
-    # ports:
-    #   - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES2_USER:-odoo_admin}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    labels:
-      - "traefik.enable=false"
-    deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.role == manager
-      restart_policy:
-        condition: any
-        delay: 5s
-        max_attempts: 3
-      update_config:
-        parallelism: 1
-        delay: 10s
       resources:
         limits:
           cpus: '2'
@@ -449,13 +413,6 @@ services:
       DB_SERVICE_USER: ${POSTGRES_INSTANCE_SERVICE_USER:-instance_service}
       DB_SERVICE_PASSWORD: ${POSTGRES_INSTANCE_SERVICE_PASSWORD:-instance_service_secure_pass_change_me}
 
-      # Odoo Instance Database Configuration (postgres2)
-      ODOO_POSTGRES_HOST: postgres2
-      ODOO_POSTGRES_PORT: 5432
-      ODOO_POSTGRES_DEFAULT_DB: postgres
-      ODOO_POSTGRES_ADMIN_USER: ${POSTGRES2_USER:-odoo_admin}
-      ODOO_POSTGRES_ADMIN_PASSWORD: ${POSTGRES2_PASSWORD:-odoo_admin_secure_pass}
-
       # Redis Configuration
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -529,7 +486,7 @@ services:
 
   # Instance Service Worker - Background Task Processing
   instance-worker:
-    image: registry.62.171.153.219.nip.io/compose-instance-worker:latest
+    image: registry.62.171.153.219.nip.io/compose-instance-service:latest
     stop_signal: SIGQUIT
     stop_grace_period: 120s
     command: celery -A app.celery_config worker --loglevel=info --pool=threads --concurrency=16 --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
@@ -545,13 +502,6 @@ services:
       # Legacy Admin credentials (kept for backward compatibility - will be deprecated)
       POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_me}
-
-      # Odoo Instance Database Configuration (postgres2)
-      ODOO_POSTGRES_HOST: postgres2
-      ODOO_POSTGRES_PORT: 5432
-      ODOO_POSTGRES_DEFAULT_DB: postgres
-      ODOO_POSTGRES_ADMIN_USER: ${POSTGRES2_USER:-odoo_admin}
-      ODOO_POSTGRES_ADMIN_PASSWORD: ${POSTGRES2_PASSWORD:-odoo_admin_secure_pass}
 
       # Redis Configuration
       REDIS_HOST: redis
@@ -765,7 +715,7 @@ services:
 
   # Database Worker - Celery Worker for Database Provisioning Tasks
   database-worker:
-    image: registry.62.171.153.219.nip.io/compose-database-worker:latest
+    image: registry.62.171.153.219.nip.io/compose-database-service:latest
     stop_signal: SIGQUIT
     stop_grace_period: 120s
     command: celery -A app.celery_config worker --loglevel=info --pool=threads --concurrency=4 --queues=database_provisioning,database_monitoring,database_maintenance
@@ -851,7 +801,7 @@ services:
         - "traefik.enable=false"
 
   database-beat:
-    image: registry.62.171.153.219.nip.io/compose-database-beat:latest
+    image: registry.62.171.153.219.nip.io/compose-database-service:latest
     stop_signal: SIGTERM
     stop_grace_period: 30s
     command: celery -A app.celery_config beat --loglevel=info

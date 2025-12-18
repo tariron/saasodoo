@@ -15,7 +15,6 @@ from uuid import UUID
 from celery import current_task
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
-from app.utils.database import OdooInstanceDatabaseManager
 from app.utils.notification_client import send_instance_provisioning_started_email, send_instance_ready_email, send_instance_provisioning_failed_email
 from app.utils.password_generator import generate_secure_password
 import structlog

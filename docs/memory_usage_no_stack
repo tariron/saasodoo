@@ -1,0 +1,40 @@
+Memory Usage by Program Across Cluster
+
+  Node 1: vmi2887102 (Manager) - 7.8Gi total
+
+  | Program       | %MEM  | Approx RAM |
+  |---------------|-------|------------|
+  | ceph-osd      | 27.2% | 2.1 Gi     |
+  | claude (CLI)  | 7.7%  | 600 Mi     |
+  | vscode-server | 6.2%  | 480 Mi     |
+  | ceph-mgr      | 6.1%  | 475 Mi     |
+  | ceph-mon      | 5.5%  | 430 Mi     |
+  | dockerd       | 3.2%  | 250 Mi     |
+  | grafana       | 1.7%  | 133 Mi     |
+  | prometheus    | 1.4%  | 109 Mi     |
+
+  Node 2: vmi2887101 (Worker) - 7.8Gi total
+
+  | Program  | %MEM  | Approx RAM |
+  |----------|-------|------------|
+  | ceph-osd | 25.1% | 1.9 Gi     |
+  | ceph-mgr | 10.5% | 820 Mi     |
+  | ceph-mon | 6.2%  | 480 Mi     |
+  | ceph-mds | 2.9%  | 226 Mi     |
+  | dockerd  | 1.2%  | 94 Mi      |
+
+  Node 3: vmi2887103 (Worker) - 7.8Gi total
+
+  | Program  | %MEM  | Approx RAM |
+  |----------|-------|------------|
+  | ceph-osd | 25.5% | 2.0 Gi     |
+  | ceph-mon | 5.8%  | 452 Mi     |
+  | dockerd  | 1.4%  | 109 Mi     |
+
+  Summary
+
+  Ceph Storage Cluster is the primary memory consumer:
+  - ceph-osd (storage): ~6.0 Gi across 3 nodes
+  - ceph-mon (monitor): ~1.3 Gi across 3 nodes
+  - ceph-mgr (management): ~1.3 Gi across 2 nodes
+  - ceph-mds (metadata): ~226 Mi on 1 node
