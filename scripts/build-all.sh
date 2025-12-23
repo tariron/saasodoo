@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Load environment variables
-ENV_FILE="infrastructure/compose/.env.swarm"
+ENV_FILE="infrastructure/orchestration/swarm/.env.swarm"
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${RED}Error: Environment file not found: $ENV_FILE${NC}"
     exit 1
@@ -75,20 +75,20 @@ echo ""
 echo -e "${YELLOW}Building Infrastructure Services...${NC}"
 echo ""
 
-build_and_push "postgres" "infrastructure/postgres/Dockerfile" "."
-build_and_push "redis" "infrastructure/redis/Dockerfile" "."
+build_and_push "postgres" "infrastructure/images/postgres/Dockerfile" "."
+build_and_push "redis" "infrastructure/images/redis/Dockerfile" "."
 
 echo ""
 echo -e "${YELLOW}Building Application Services...${NC}"
 echo ""
 
-# Build application services
-build_and_push "user-service" "services/user-service/Dockerfile" "services/user-service/"
-build_and_push "instance-service" "services/instance-service/Dockerfile" "services/instance-service/"
-build_and_push "instance-worker" "services/instance-service/Dockerfile" "services/instance-service/"
-build_and_push "billing-service" "services/billing-service/Dockerfile" "services/billing-service/"
-build_and_push "notification-service" "services/notification-service/Dockerfile" "services/notification-service/"
-build_and_push "frontend-service" "services/frontend-service/Dockerfile" "services/frontend-service/"
+# Build application services (use root context for access to shared/)
+build_and_push "user-service" "services/user-service/Dockerfile" "."
+build_and_push "instance-service" "services/instance-service/Dockerfile" "."
+build_and_push "instance-worker" "services/instance-service/Dockerfile" "."
+build_and_push "billing-service" "services/billing-service/Dockerfile" "."
+build_and_push "notification-service" "services/notification-service/Dockerfile" "."
+build_and_push "frontend-service" "services/frontend-service/Dockerfile" "."
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -96,5 +96,5 @@ echo -e "${GREEN}  Build Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${YELLOW}To deploy the updated services, run:${NC}"
-echo -e "  set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo"
+echo -e "  set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo"
 echo ""

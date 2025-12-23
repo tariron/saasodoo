@@ -72,8 +72,8 @@ When rebuilding services with shared images:
 #### Deploy/Update Stack
 ```bash
 # Source environment variables and deploy
-set -a && source infrastructure/compose/.env.swarm && set +a && \
-docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && \
+docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo
 ```
 
 #### Remove Stack
@@ -381,8 +381,8 @@ docker stack rm saasodoo
 sleep 10
 
 # 3. Redeploy
-set -a && source infrastructure/compose/.env.swarm && set +a && \
-docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && \
+docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo
 ```
 
 ### Rebuild and Redeploy Service from Source
@@ -402,7 +402,7 @@ docker push registry.62.171.153.219.nip.io/compose-billing-service:latest && \
 docker push registry.62.171.153.219.nip.io/compose-frontend-service:latest
 
 # 5. Redeploy the stack (picks up new images)
-set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo
 ```
 
 ### Rebuild Database Service (IMPORTANT!)
@@ -416,15 +416,15 @@ docker build -t registry.62.171.153.219.nip.io/compose-database-service:latest -
 docker push registry.62.171.153.219.nip.io/compose-database-service:latest
 
 # 3. Redeploy the stack (picks up new images for all three services)
-set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo
 ```
 
 ### Rebuild Platform Postgres with Schema Changes
-**When to use:** After modifying schema files in `shared/configs/postgres/`
+**When to use:** After modifying schema files in `infrastructure/images/postgres/init-scripts/`
 
 ```bash
 # 1. Build custom postgres image with init scripts
-docker build -t registry.62.171.153.219.nip.io/compose-postgres:latest -f infrastructure/postgres/Dockerfile .
+docker build -t registry.62.171.153.219.nip.io/compose-postgres:latest -f infrastructure/images/postgres/Dockerfile .
 
 # 2. Push to registry
 docker push registry.62.171.153.219.nip.io/compose-postgres:latest
@@ -436,7 +436,7 @@ docker service scale saasodoo_postgres=0
 rm -rf /mnt/cephfs/postgres_data/*
 
 # 5. Redeploy stack (postgres will reinitialize with new schema)
-set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo
+set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo
 
 # 6. Wait for postgres to be healthy
 sleep 30
@@ -570,15 +570,15 @@ docker service logs saasodoo_database-beat --tail 50
 
 ## Important File Locations
 
-- **Docker Compose**: `/root/saasodoo/infrastructure/compose/docker-compose.ceph.yml`
-- **Environment**: `/root/saasodoo/infrastructure/compose/.env.swarm`
+- **Docker Compose**: `/root/saasodoo/infrastructure/orchestration/swarm/docker-compose.ceph.yml`
+- **Environment**: `/root/saasodoo/infrastructure/orchestration/swarm/.env.swarm`
 - **CephFS Mount**: `/mnt/cephfs/`
 - **Service Data**: `/mnt/cephfs/<service>_data/`
 - **Instance Data**: `/mnt/cephfs/odoo_instances/`
 - **Database Pools**: `/mnt/cephfs/postgres_pools/pool-N/`
 - **Backups**: `/mnt/cephfs/odoo_backups/`
 - **Docker Registry**: `/mnt/cephfs/docker-registry/`
-- **Postgres Init Scripts**: `/root/saasodoo/shared/configs/postgres/`
+- **Postgres Init Scripts**: `/root/saasodoo/infrastructure/images/postgres/init-scripts/`
 
 ## Monitoring Checklist
 

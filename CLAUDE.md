@@ -36,30 +36,30 @@ SaaSOdoo is a multi-tenant SaaS platform for provisioning and managing Odoo ERP 
 
 ### Start Development Environment
 ```bash
-docker compose -f infrastructure/compose/docker-compose.dev.yml up --build -d
+docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml up --build -d
 ```
 
 ### Stop Environment
 ```bash
-docker compose -f infrastructure/compose/docker-compose.dev.yml down
+docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml down
 ```
 
 ### View Logs
 ```bash
 # All services
-docker compose -f infrastructure/compose/docker-compose.dev.yml logs -f
+docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml logs -f
 
 # Specific service
-docker compose -f infrastructure/compose/docker-compose.dev.yml logs -f user-service
+docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml logs -f user-service
 
 # Instance worker (Celery)
-docker compose -f infrastructure/compose/docker-compose.dev.yml logs -f instance-worker
+docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml logs -f instance-worker
 ```
 
 ### Rebuild Specific Service
 ```bash
 # Always rebuild instance-worker when rebuilding instance-service
-docker compose -f infrastructure/compose/docker-compose.dev.yml up --build -d instance-service instance-worker
+docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml up --build -d instance-service instance-worker
 ```
 
 ### Run Tests

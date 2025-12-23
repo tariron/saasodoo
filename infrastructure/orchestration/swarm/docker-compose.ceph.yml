@@ -208,7 +208,6 @@ services:
       MYSQL_ROOT_PASSWORD: ${KILLBILL_MYSQL_ROOT_PASSWORD:-killbill}
     volumes:
       - /mnt/cephfs/killbill_db_data:/var/lib/mysql
-      #- ../../shared/configs/killbill:/docker-entrypoint-initdb.d:ro
     networks:
       - saasodoo-network
     #healthcheck:
@@ -997,11 +996,11 @@ services:
 
 configs:
   traefik_config:
-    file: ../traefik/traefik.yml
+    file: ../../networking/traefik/static/traefik.yml
   traefik_middlewares:
-    file: ../traefik/dynamic/middlewares.yml
+    file: ../../networking/traefik/dynamic/middlewares.yml
   traefik_dashboard:
-    file: ../traefik/dynamic/dashboard.yml
+    file: ../../networking/traefik/dynamic/dashboard.yml
 
 networks:
   saasodoo-network:

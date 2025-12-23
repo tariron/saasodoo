@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Load environment variables
-ENV_FILE="infrastructure/compose/.env.swarm"
+ENV_FILE="infrastructure/orchestration/swarm/.env.swarm"
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${RED}Error: Environment file not found: $ENV_FILE${NC}"
     exit 1
@@ -68,30 +68,30 @@ declare -A DOCKERFILES
 declare -A BUILD_CONTEXTS
 
 # Infrastructure services
-DOCKERFILES[postgres]="infrastructure/postgres/Dockerfile"
+DOCKERFILES[postgres]="infrastructure/images/postgres/Dockerfile"
 BUILD_CONTEXTS[postgres]="."
 
-DOCKERFILES[redis]="infrastructure/redis/Dockerfile"
+DOCKERFILES[redis]="infrastructure/images/redis/Dockerfile"
 BUILD_CONTEXTS[redis]="."
 
-# Application services
+# Application services (use root context for access to shared/)
 DOCKERFILES[user-service]="services/user-service/Dockerfile"
-BUILD_CONTEXTS[user-service]="services/user-service/"
+BUILD_CONTEXTS[user-service]="."
 
 DOCKERFILES[instance-service]="services/instance-service/Dockerfile"
-BUILD_CONTEXTS[instance-service]="services/instance-service/"
+BUILD_CONTEXTS[instance-service]="."
 
 DOCKERFILES[instance-worker]="services/instance-service/Dockerfile"
-BUILD_CONTEXTS[instance-worker]="services/instance-service/"
+BUILD_CONTEXTS[instance-worker]="."
 
 DOCKERFILES[billing-service]="services/billing-service/Dockerfile"
-BUILD_CONTEXTS[billing-service]="services/billing-service/"
+BUILD_CONTEXTS[billing-service]="."
 
 DOCKERFILES[notification-service]="services/notification-service/Dockerfile"
-BUILD_CONTEXTS[notification-service]="services/notification-service/"
+BUILD_CONTEXTS[notification-service]="."
 
 DOCKERFILES[frontend-service]="services/frontend-service/Dockerfile"
-BUILD_CONTEXTS[frontend-service]="services/frontend-service/"
+BUILD_CONTEXTS[frontend-service]="."
 
 # Check if service exists
 if [ -z "${DOCKERFILES[$SERVICE_NAME]}" ]; then
@@ -135,7 +135,7 @@ if docker build ${NO_CACHE} -t ${IMAGE_TAG} -f ${DOCKERFILE_PATH} ${BUILD_CONTEX
         echo -e "  docker service update --image ${IMAGE_TAG} saasodoo_${SERVICE_NAME}"
         echo ""
         echo -e "${YELLOW}Or redeploy the entire stack:${NC}"
-        echo -e "  set -a && source infrastructure/compose/.env.swarm && set +a && docker stack deploy -c infrastructure/compose/docker-compose.ceph.yml saasodoo"
+        echo -e "  set -a && source infrastructure/orchestration/swarm/.env.swarm && set +a && docker stack deploy -c infrastructure/orchestration/swarm/docker-compose.ceph.yml saasodoo"
         echo ""
     else
         echo -e "${RED}✗ Failed to push ${SERVICE_NAME}${NC}"
