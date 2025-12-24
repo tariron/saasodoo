@@ -1,0 +1,142 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-beat
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: database-beat
+    app.kubernetes.io/component: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: database-beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: database-beat
+        app.kubernetes.io/component: scheduler
+    spec:
+      serviceAccountName: saasodoo-service-sa
+      containers:
+        - name: database-beat
+          image: registry.62.171.153.219.nip.io/database-service:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - app.celery_config
+            - beat
+            - --loglevel=info
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              value: "instance"
+            - name: POSTGRES_DEFAULT_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_DEFAULT_DB
+            - name: DB_SERVICE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_DATABASE_SERVICE_USER
+            - name: DB_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_DATABASE_SERVICE_PASSWORD
+            # Legacy credentials for backward compatibility
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_PORT
+            - name: REDIS_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_DB
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_VHOST
+            - name: RABBITMQ_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: LOG_LEVEL
+            - name: C_FORCE_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: C_FORCE_ROOT
+          volumeMounts:
+            - name: cephfs
+              mountPath: /mnt/cephfs
+              readOnly: true
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+      volumes:
+        - name: cephfs
+          hostPath:
+            path: /mnt/cephfs
+            type: Directory
+      terminationGracePeriodSeconds: 30

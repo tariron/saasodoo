@@ -18,9 +18,31 @@ spec:
         app.kubernetes.io/name: postgres
         app.kubernetes.io/component: database
     spec:
+      initContainers:
+      - name: ensure-clean-init
+        image: alpine:latest
+        command:
+          - sh
+          - -c
+          - |
+            echo "Checking for existing PostgreSQL database..."
+            if [ -f /data/18/docker/PG_VERSION ]; then
+              echo "✓ Found existing database at /data/18/docker/ - preserving data"
+            elif [ -f /data/17/docker/PG_VERSION ]; then
+              echo "✓ Found existing database at /data/17/docker/ - preserving data"
+            elif [ -f /data/16/docker/PG_VERSION ]; then
+              echo "✓ Found existing database at /data/16/docker/ - preserving data"
+            else
+              echo "✗ No existing database found - ensuring clean directory for initialization"
+              rm -rf /data/* /data/..?* /data/.[!.]* 2>/dev/null || true
+              echo "✓ Directory cleaned - PostgreSQL will run init scripts"
+            fi
+        volumeMounts:
+          - name: postgres-storage
+            mountPath: /data
       containers:
       - name: postgres
-        image: host.docker.internal:5001/saasodoo-postgres:latest
+        image: registry.62.171.153.219.nip.io/postgres:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 5432
@@ -38,61 +60,30 @@ spec:
             configMapKeyRef:
               name: postgres-config
               key: POSTGRES_DB
-        # Service-specific users
-        - name: DB_AUTH_USER
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: DB_AUTH_USER
-        - name: DB_AUTH_PASSWORD
+        # Service-specific users (for init scripts)
+        - name: POSTGRES_AUTH_SERVICE_PASSWORD
           valueFrom:
             secretKeyRef:
               name: saasodoo-secrets
-              key: DB_AUTH_PASSWORD
-        - name: DB_BILLING_USER
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: DB_BILLING_USER
-        - name: DB_BILLING_PASSWORD
+              key: POSTGRES_AUTH_SERVICE_PASSWORD
+        - name: POSTGRES_BILLING_SERVICE_PASSWORD
           valueFrom:
             secretKeyRef:
               name: saasodoo-secrets
-              key: DB_BILLING_PASSWORD
-        - name: DB_INSTANCE_USER
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: DB_INSTANCE_USER
-        - name: DB_INSTANCE_PASSWORD
+              key: POSTGRES_BILLING_SERVICE_PASSWORD
+        - name: POSTGRES_INSTANCE_SERVICE_PASSWORD
           valueFrom:
             secretKeyRef:
               name: saasodoo-secrets
-              key: DB_INSTANCE_PASSWORD
-        - name: DB_COMMUNICATION_USER
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: DB_COMMUNICATION_USER
-        - name: DB_COMMUNICATION_PASSWORD
+              key: POSTGRES_INSTANCE_SERVICE_PASSWORD
+        - name: POSTGRES_DATABASE_SERVICE_PASSWORD
           valueFrom:
             secretKeyRef:
               name: saasodoo-secrets
-              key: DB_COMMUNICATION_PASSWORD
-        - name: DB_DATABASE_USER
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: DB_DATABASE_USER
-        - name: DB_DATABASE_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: saasodoo-secrets
-              key: DB_DATABASE_PASSWORD
+              key: POSTGRES_DATABASE_SERVICE_PASSWORD
         volumeMounts:
         - name: postgres-storage
-          mountPath: /var/lib/postgresql/data
-          subPath: pgdata
+          mountPath: /var/lib/postgresql
         resources:
           requests:
             memory: "512Mi"
@@ -122,5 +113,6 @@ spec:
           failureThreshold: 3
       volumes:
       - name: postgres-storage
-        persistentVolumeClaim:
-          claimName: postgres-pvc
+        hostPath:
+          path: /mnt/cephfs/postgres_data
+          type: DirectoryOrCreate

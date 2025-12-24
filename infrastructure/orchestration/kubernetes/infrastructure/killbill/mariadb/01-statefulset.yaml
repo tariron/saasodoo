@@ -1,0 +1,51 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: killbill-db
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill-db
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: killbill
+spec:
+  serviceName: killbill-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: killbill-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: killbill-db
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: killbill
+    spec:
+      containers:
+        - name: mariadb
+          image: killbill/mariadb:0.24
+          ports:
+            - containerPort: 3306
+              name: mysql
+              protocol: TCP
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: KILLBILL_MYSQL_ROOT_PASSWORD
+          volumeMounts:
+            - name: killbill-db-data
+              mountPath: /var/lib/mysql
+          resources:
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+      volumes:
+        - name: killbill-db-data
+          hostPath:
+            path: /mnt/cephfs/killbill_db_data
+            type: DirectoryOrCreate

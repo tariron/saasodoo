@@ -21,7 +21,7 @@ spec:
       serviceAccountName: instance-service-sa
       containers:
         - name: instance-worker
-          image: localhost:5001/instance-service:latest
+          image: registry.62.171.153.219.nip.io/instance-service:latest
           imagePullPolicy: Always
           command:
             - celery
@@ -187,8 +187,9 @@ spec:
               memory: "1Gi"
       volumes:
         - name: odoo-backups
-          persistentVolumeClaim:
-            claimName: odoo-backups-pvc
+          hostPath:
+            path: /mnt/cephfs/odoo_backups
+            type: DirectoryOrCreate
         - name: cephfs
           hostPath:
             path: /mnt/cephfs

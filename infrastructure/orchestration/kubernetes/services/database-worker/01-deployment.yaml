@@ -21,7 +21,7 @@ spec:
       serviceAccountName: database-service-sa
       containers:
         - name: database-worker
-          image: localhost:5001/database-service:latest
+          image: registry.62.171.153.219.nip.io/database-service:latest
           imagePullPolicy: Always
           command:
             - celery

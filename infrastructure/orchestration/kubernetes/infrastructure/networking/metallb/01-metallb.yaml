@@ -1,0 +1,11 @@
+# MetalLB v0.14.0 Installation
+# This file references the official MetalLB manifests
+# Apply with: kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.0/config/manifests/metallb-native.yaml
+
+# To apply MetalLB, run this command first:
+# kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.0/config/manifests/metallb-native.yaml
+
+# This file serves as documentation for the MetalLB installation.
+# The actual manifests are maintained by MetalLB and should be applied from their official repository.
+
+# After installation, apply the IP pool and L2 advertisement configurations in this directory.

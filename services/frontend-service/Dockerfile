@@ -3,7 +3,7 @@
 # ======================
 FROM node:18-alpine AS deps
 WORKDIR /app
-COPY services/frontend-service/frontend/package*.json ./
+COPY frontend/package*.json ./
 RUN npm install --only=production && npm cache clean --force
 
 # ======================
@@ -13,11 +13,11 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Copy package files and install all dependencies
-COPY services/frontend-service/frontend/package*.json ./
+COPY frontend/package*.json ./
 RUN npm install
 
 # Copy source code and build
-COPY services/frontend-service/frontend/ ./
+COPY frontend/ ./
 RUN npm run build
 
 # Verify build output
@@ -37,14 +37,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install Python dependencies
-COPY services/frontend-service/backend/requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy React build output
 COPY --from=builder /app/build ./frontend/build
 
 # Copy Flask application
-COPY services/frontend-service/backend/ .
+COPY backend/ .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash frontend_user \

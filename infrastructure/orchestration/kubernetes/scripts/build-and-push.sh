@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Build and Push Images to Local Kubernetes Registry
-# This script builds all service images and pushes them to localhost:5001
+# Build and Push Images to Kubernetes Registry
+# This script builds all service images and pushes them to registry.62.171.153.219.nip.io
 
 set -e
 
-REGISTRY="localhost:5001"
-PROJECT_ROOT="/home/tariron/Projects/saasodoo"
+REGISTRY="registry.62.171.153.219.nip.io"
+PROJECT_ROOT="/root/Projects/saasodoo"
 
 echo "============================================"
 echo "Building and Pushing Images to $REGISTRY"
@@ -74,4 +74,4 @@ echo "✓ All images built and pushed successfully!"
 echo "============================================"
 echo ""
 echo "View registry catalog:"
-echo "  curl http://localhost:5001/v2/_catalog"
+echo "  curl http://registry.62.171.153.219.nip.io/v2/_catalog"

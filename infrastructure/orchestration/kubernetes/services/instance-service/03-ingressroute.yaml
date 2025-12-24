@@ -1,6 +1,6 @@
 ---
 # Instance Service IngressRoute with Path Prefix Stripping
-# Accessible at: http://api.saasodoo.local/instance
+# Accessible at: http://api.62.171.153.219.nip.io/instance
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -13,7 +13,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`api.saasodoo.local`) && PathPrefix(`/instance`)
+    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/instance`)
       kind: Rule
       services:
         - name: instance-service

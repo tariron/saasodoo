@@ -1,0 +1,15 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: docker-registry
+  namespace: saasodoo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`registry.62.171.153.219.nip.io`)
+      kind: Rule
+      services:
+        - name: docker-registry
+          port: 5000

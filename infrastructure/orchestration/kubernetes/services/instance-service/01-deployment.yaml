@@ -21,7 +21,7 @@ spec:
       serviceAccountName: instance-service-sa
       containers:
         - name: instance-service
-          image: localhost:5001/instance-service:latest
+          image: registry.62.171.153.219.nip.io/instance-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8003
@@ -85,6 +85,16 @@ spec:
                 configMapKeyRef:
                   name: saasodoo-config
                   key: RABBITMQ_VHOST
+            - name: RABBITMQ_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: RABBITMQ_PASSWORD
             # Kubernetes-specific configuration
             - name: ORCHESTRATOR
               valueFrom:
@@ -189,11 +199,13 @@ spec:
               memory: "512Mi"
       volumes:
         - name: odoo-instances
-          persistentVolumeClaim:
-            claimName: odoo-instances-pvc
+          hostPath:
+            path: /mnt/cephfs/odoo_instances
+            type: DirectoryOrCreate
         - name: odoo-backups
-          persistentVolumeClaim:
-            claimName: odoo-backups-pvc
+          hostPath:
+            path: /mnt/cephfs/odoo_backups
+            type: DirectoryOrCreate
         - name: cephfs
           hostPath:
             path: /mnt/cephfs

@@ -33,9 +33,7 @@ data:
 
     # Provider Configuration
     providers:
-      kubernetesCRD:
-        namespaces:
-          - saasodoo
+      kubernetesCRD: {}  # Watch all namespaces
       kubernetesIngress: {}  # Disabled by default when not configured
 
     # Logging

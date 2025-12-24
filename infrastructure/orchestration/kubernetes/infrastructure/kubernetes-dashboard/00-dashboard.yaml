@@ -1,0 +1,22 @@
+# Kubernetes Dashboard v2.7.0
+# Official web-based UI for Kubernetes clusters
+
+# To deploy the Kubernetes Dashboard, run:
+# kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+
+# This file serves as documentation for the Kubernetes Dashboard installation.
+# The actual manifests are maintained by Kubernetes and should be applied from their official repository.
+
+# After installation:
+# 1. Apply the admin user: kubectl apply -f 01-serviceaccount.yaml
+# 2. Apply the role binding: kubectl apply -f 02-clusterrolebinding.yaml
+# 3. Expose via Traefik: kubectl apply -f 03-ingressroute.yaml
+# 4. Get access token: ./get-token.sh
+
+# Dashboard components installed:
+# - Namespace: kubernetes-dashboard
+# - Deployment: kubernetes-dashboard
+# - Service: kubernetes-dashboard
+# - ServiceAccount: kubernetes-dashboard
+# - ClusterRole: kubernetes-dashboard
+# - ClusterRoleBinding: kubernetes-dashboard

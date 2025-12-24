@@ -57,7 +57,6 @@ END
 $$;
 
 -- Grant permissions to read-only user
-GRANT CONNECT ON DATABASE saas_odoo TO readonly_user;
 GRANT CONNECT ON DATABASE auth TO readonly_user;
 GRANT CONNECT ON DATABASE billing TO readonly_user;
 GRANT CONNECT ON DATABASE instance TO readonly_user;
@@ -99,11 +98,10 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO database_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO database_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO database_service;
 
--- Return to main database
-\c saas_odoo;
+-- Return to postgres database
+\c postgres;
 
 -- Grant backup permissions
-GRANT CONNECT ON DATABASE saas_odoo TO backup_user;
 GRANT CONNECT ON DATABASE auth TO backup_user;
 GRANT CONNECT ON DATABASE billing TO backup_user;
 GRANT CONNECT ON DATABASE instance TO backup_user;

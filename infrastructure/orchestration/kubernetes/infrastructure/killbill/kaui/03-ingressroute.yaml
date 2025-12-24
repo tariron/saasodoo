@@ -1,0 +1,15 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kaui
+  namespace: saasodoo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`billing-admin.62.171.153.219.nip.io`)
+      kind: Rule
+      services:
+        - name: kaui
+          port: 8080

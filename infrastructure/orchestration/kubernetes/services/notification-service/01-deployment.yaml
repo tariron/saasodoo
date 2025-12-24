@@ -21,7 +21,7 @@ spec:
       serviceAccountName: saasodoo-service-sa
       containers:
         - name: notification-service
-          image: localhost:5001/notification-service:latest
+          image: registry.62.171.153.219.nip.io/notification-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 5000

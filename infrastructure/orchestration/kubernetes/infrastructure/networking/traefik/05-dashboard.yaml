@@ -10,9 +10,9 @@ metadata:
     app.kubernetes.io/component: networking
 spec:
   entryPoints:
-    - traefik
+    - web
   routes:
-    - match: PathPrefix(`/dashboard`) || PathPrefix(`/api`)
+    - match: Host(`traefik.62.171.153.219.nip.io`)
       kind: Rule
       services:
         - kind: TraefikService

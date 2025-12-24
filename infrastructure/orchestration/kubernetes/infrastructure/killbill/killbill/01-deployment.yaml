@@ -1,0 +1,115 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: killbill
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill
+    app.kubernetes.io/component: billing-engine
+    app.kubernetes.io/part-of: killbill
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: killbill
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: killbill
+        app.kubernetes.io/component: billing-engine
+        app.kubernetes.io/part-of: killbill
+    spec:
+      containers:
+        - name: killbill
+          image: killbill/killbill:0.24.15
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            # Database Configuration
+            - name: KILLBILL_DAO_URL
+              value: "jdbc:mysql://killbill-db.saasodoo.svc.cluster.local:3306/killbill"
+            - name: KILLBILL_DAO_USER
+              value: "root"
+            - name: KILLBILL_DAO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: KILLBILL_MYSQL_ROOT_PASSWORD
+
+            # Server Configuration
+            - name: KILLBILL_SERVER_MULTITENANT
+              value: "true"
+            - name: KILLBILL_CONFIG_OSGI_BUNDLE_CACHE_NAME
+              value: "felix-cache"
+
+            # API Credentials
+            - name: KILLBILL_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KILLBILL_USERNAME
+            - name: KILLBILL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: KILLBILL_PASSWORD
+            - name: KILLBILL_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: KILLBILL_API_SECRET
+            - name: KILLBILL_API_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KILLBILL_API_KEY
+
+            # JVM Memory Settings
+            - name: KILLBILL_JVM_PERM_SIZE
+              value: "512m"
+            - name: KILLBILL_JVM_MAX_PERM_SIZE
+              value: "1G"
+
+            # Webhook Configuration
+            - name: KILLBILL_NOTIFICATION_URL
+              value: "http://billing-service.saasodoo.svc.cluster.local:8004/api/billing/webhooks/killbill"
+            - name: KILLBILL_NOTIFICATION_NB_THREADS
+              value: "3"
+            - name: KILLBILL_NOTIFICATION_QUEUE_CAPACITY
+              value: "100"
+
+            # HTTP Client Configuration
+            - name: KILLBILL_SERVER_HTTP_CLIENT_ENABLE_HTTP2
+              value: "false"
+            - name: KILLBILL_HTTP_CLIENT_DISABLE_HTTP2
+              value: "true"
+
+            # Test Mode (for development/staging)
+            - name: KILLBILL_SERVER_TEST_MODE
+              value: "true"
+          livenessProbe:
+            httpGet:
+              path: /1.0/healthcheck
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /1.0/healthcheck
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          resources:
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+            requests:
+              cpu: "500m"
+              memory: "1Gi"

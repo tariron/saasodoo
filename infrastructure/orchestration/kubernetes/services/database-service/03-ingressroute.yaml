@@ -1,6 +1,6 @@
 ---
 # Database Service IngressRoute with Path Prefix Stripping
-# Accessible at: http://api.saasodoo.local/database
+# Accessible at: http://api.62.171.153.219.nip.io/database
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -13,7 +13,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`api.saasodoo.local`) && PathPrefix(`/database`)
+    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/database`)
       kind: Rule
       services:
         - name: database-service
