@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: saasodoo
+data:
+  # Database names
+  POSTGRES_DB: "auth"
+
+  # Service-specific DB users (passwords come from secrets)
+  DB_AUTH_USER: "auth_service"
+  DB_BILLING_USER: "billing_service"
+  DB_INSTANCE_USER: "instance_service"
+  DB_COMMUNICATION_USER: "communication_service"
+  DB_DATABASE_USER: "database_service"
+
+  # Connection settings
+  POSTGRES_MAX_CONNECTIONS: "200"
+  POSTGRES_SHARED_BUFFERS: "256MB"

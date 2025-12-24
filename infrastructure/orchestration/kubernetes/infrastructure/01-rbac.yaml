@@ -1,0 +1,45 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: instance-service-sa
+  namespace: saasodoo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: instance-service-role
+  namespace: saasodoo
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: instance-service-rolebinding
+  namespace: saasodoo
+subjects:
+  - kind: ServiceAccount
+    name: instance-service-sa
+    namespace: saasodoo
+roleRef:
+  kind: Role
+  name: instance-service-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: database-service-sa
+  namespace: saasodoo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: saasodoo-service-sa
+  namespace: saasodoo

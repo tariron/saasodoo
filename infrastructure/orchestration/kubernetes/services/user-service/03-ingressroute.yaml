@@ -1,0 +1,37 @@
+---
+# User Service IngressRoute with Path Prefix Stripping
+# Accessible at: http://api.saasodoo.local/user
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: user-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`api.saasodoo.local`) && PathPrefix(`/user`)
+      kind: Rule
+      services:
+        - name: user-service
+          port: 8001
+      middlewares:
+        - name: user-stripprefix
+
+---
+# Middleware to strip /user prefix
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: user-stripprefix
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: networking
+spec:
+  stripPrefix:
+    prefixes:
+      - /user

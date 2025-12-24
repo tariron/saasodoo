@@ -1,0 +1,196 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: instance-worker
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: instance-worker
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: instance-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: instance-worker
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: instance-service-sa
+      containers:
+        - name: instance-worker
+          image: localhost:5001/instance-service:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - app.celery_config
+            - worker
+            - --loglevel=info
+            - --pool=threads
+            - --concurrency=16
+            - --queues=instance_provisioning,instance_operations,instance_maintenance,instance_monitoring
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              value: "instance"
+            - name: POSTGRES_DEFAULT_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_DEFAULT_DB
+            - name: DB_SERVICE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_INSTANCE_SERVICE_USER
+            - name: DB_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_INSTANCE_SERVICE_PASSWORD
+            # Legacy credentials for backward compatibility
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_PORT
+            - name: REDIS_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_DB
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_VHOST
+            - name: RABBITMQ_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: RABBITMQ_PASSWORD
+            # Kubernetes-specific configuration
+            - name: ORCHESTRATOR
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: ORCHESTRATOR
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KUBERNETES_NAMESPACE
+            - name: KUBERNETES_IN_CLUSTER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KUBERNETES_IN_CLUSTER
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: LOG_LEVEL
+            - name: BASE_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: BASE_DOMAIN
+            - name: C_FORCE_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: C_FORCE_ROOT
+            - name: CELERY_POOL
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: CELERY_POOL
+          volumeMounts:
+            - name: odoo-backups
+              mountPath: /var/lib/odoo/backups
+            - name: cephfs
+              mountPath: /mnt/cephfs
+              readOnly: false
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+            requests:
+              cpu: "1000m"
+              memory: "1Gi"
+      volumes:
+        - name: odoo-backups
+          persistentVolumeClaim:
+            claimName: odoo-backups-pvc
+        - name: cephfs
+          hostPath:
+            path: /mnt/cephfs
+            type: Directory
+      terminationGracePeriodSeconds: 120

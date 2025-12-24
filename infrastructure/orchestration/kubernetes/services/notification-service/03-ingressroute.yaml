@@ -1,0 +1,20 @@
+---
+# Notification Service IngressRoute
+# Accessible at: http://notification.saasodoo.local
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: notification-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`notification.saasodoo.local`)
+      kind: Rule
+      services:
+        - name: notification-service
+          port: 5000

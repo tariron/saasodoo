@@ -1,0 +1,37 @@
+---
+# Database Service IngressRoute with Path Prefix Stripping
+# Accessible at: http://api.saasodoo.local/database
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: database-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: database-service
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`api.saasodoo.local`) && PathPrefix(`/database`)
+      kind: Rule
+      services:
+        - name: database-service
+          port: 8005
+      middlewares:
+        - name: database-stripprefix
+
+---
+# Middleware to strip /database prefix
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: database-stripprefix
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: database-service
+    app.kubernetes.io/component: networking
+spec:
+  stripPrefix:
+    prefixes:
+      - /database

@@ -1,0 +1,20 @@
+---
+# Frontend Service IngressRoute
+# Accessible at: http://app.saasodoo.local
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: frontend-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: frontend-service
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`app.saasodoo.local`)
+      kind: Rule
+      services:
+        - name: frontend-service
+          port: 3000

@@ -1,0 +1,200 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: instance-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: instance-service
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: instance-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: instance-service
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: instance-service-sa
+      containers:
+        - name: instance-service
+          image: localhost:5001/instance-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8003
+              name: http
+              protocol: TCP
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              value: "instance"
+            - name: POSTGRES_DEFAULT_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_DEFAULT_DB
+            - name: DB_SERVICE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_INSTANCE_SERVICE_USER
+            - name: DB_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_INSTANCE_SERVICE_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_PORT
+            - name: REDIS_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_DB
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_VHOST
+            # Kubernetes-specific configuration
+            - name: ORCHESTRATOR
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: ORCHESTRATOR
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KUBERNETES_NAMESPACE
+            - name: KUBERNETES_IN_CLUSTER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KUBERNETES_IN_CLUSTER
+            - name: ODOO_INSTANCES_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: ODOO_INSTANCES_PATH
+            - name: ODOO_BACKUPS_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: ODOO_BACKUPS_PATH
+            - name: DEFAULT_ODOO_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DEFAULT_ODOO_VERSION
+            - name: MAX_INSTANCES_PER_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: MAX_INSTANCES_PER_USER
+            - name: INSTANCE_CPU_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: INSTANCE_CPU_LIMIT
+            - name: INSTANCE_MEMORY_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: INSTANCE_MEMORY_LIMIT
+            - name: INSTANCE_STORAGE_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: INSTANCE_STORAGE_LIMIT
+            - name: AUTO_START_MONITORING
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: AUTO_START_MONITORING
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: LOG_LEVEL
+            - name: BASE_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: BASE_DOMAIN
+          volumeMounts:
+            - name: odoo-instances
+              mountPath: /var/lib/odoo/instances
+            - name: odoo-backups
+              mountPath: /var/lib/odoo/backups
+            - name: cephfs
+              mountPath: /mnt/cephfs
+              readOnly: false
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: odoo-instances
+          persistentVolumeClaim:
+            claimName: odoo-instances-pvc
+        - name: odoo-backups
+          persistentVolumeClaim:
+            claimName: odoo-backups-pvc
+        - name: cephfs
+          hostPath:
+            path: /mnt/cephfs
+            type: Directory

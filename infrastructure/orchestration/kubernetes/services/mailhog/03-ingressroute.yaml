@@ -1,0 +1,20 @@
+---
+# MailHog IngressRoute
+# Accessible at: http://mail.saasodoo.local
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mailhog
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: mailhog
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`mail.saasodoo.local`)
+      kind: Rule
+      services:
+        - name: mailhog-service
+          port: 8025

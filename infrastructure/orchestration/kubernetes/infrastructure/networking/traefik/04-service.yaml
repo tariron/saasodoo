@@ -1,0 +1,23 @@
+---
+# Traefik Service (LoadBalancer for Docker Desktop)
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: networking
+spec:
+  type: LoadBalancer
+  ports:
+    - name: web
+      port: 80
+      targetPort: web
+      protocol: TCP
+    - name: admin
+      port: 8080
+      targetPort: admin
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: traefik

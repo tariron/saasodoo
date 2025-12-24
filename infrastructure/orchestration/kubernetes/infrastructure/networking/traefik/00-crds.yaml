@@ -1,0 +1,21 @@
+# Traefik v3 Custom Resource Definitions
+# Apply official CRDs from Traefik repository
+# Reference: https://doc.traefik.io/traefik/v3.4/providers/kubernetes-crd
+
+# To apply these CRDs, run:
+# kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.0/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+
+# This file serves as documentation for the required CRDs.
+# The actual CRD definitions are maintained by Traefik and should be applied from their official repository.
+
+# CRDs included:
+# - IngressRoute (HTTP routing)
+# - IngressRouteTCP (TCP routing)
+# - IngressRouteUDP (UDP routing)
+# - Middleware (HTTP middleware)
+# - MiddlewareTCP (TCP middleware)
+# - ServersTransport (HTTP transport settings)
+# - ServersTransportTCP (TCP transport settings)
+# - TLSOption (TLS configuration)
+# - TLSStore (TLS certificate storage)
+# - TraefikService (service load balancing)

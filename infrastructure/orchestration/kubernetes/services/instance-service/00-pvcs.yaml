@@ -1,0 +1,37 @@
+---
+# Odoo Instances PVC (references global PV)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-instances-pvc
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: instance-service
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ceph-filesystem
+  resources:
+    requests:
+      storage: 200Gi
+  volumeName: odoo-instances-pv  # Binds to the specific PV
+
+---
+# Odoo Backups PVC (references global PV)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-backups-pvc
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: instance-service
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ceph-filesystem
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: odoo-backups-pv  # Binds to the specific PV

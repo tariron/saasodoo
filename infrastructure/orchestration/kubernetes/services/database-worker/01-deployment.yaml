@@ -1,0 +1,204 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-worker
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: database-worker
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: database-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: database-worker
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: database-service-sa
+      containers:
+        - name: database-worker
+          image: localhost:5001/database-service:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - app.celery_config
+            - worker
+            - --loglevel=info
+            - --pool=threads
+            - --concurrency=4
+            - --queues=database_provisioning,database_monitoring,database_maintenance
+          env:
+            # Database Configuration
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              value: "instance"
+            - name: DB_SERVICE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_DATABASE_SERVICE_USER
+            - name: DB_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_DATABASE_SERVICE_PASSWORD
+            # PostgreSQL Admin Credentials
+            - name: POSTGRES_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_ADMIN_USER
+            - name: POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: POSTGRES_ADMIN_PASSWORD
+            # Redis Configuration
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_PORT
+            - name: REDIS_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: REDIS_DB
+            # RabbitMQ Configuration
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_VHOST
+            - name: RABBITMQ_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: RABBITMQ_PASSWORD
+            # Docker Configuration
+            - name: DOCKER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DOCKER_HOST
+            # CephFS Configuration
+            - name: CEPHFS_MOUNT_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: CEPHFS_MOUNT_PATH
+            # Pool Configuration
+            - name: DB_POOL_MAX_INSTANCES
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DB_POOL_MAX_INSTANCES
+            - name: DB_POOL_CPU_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DB_POOL_CPU_LIMIT
+            - name: DB_POOL_MEMORY_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DB_POOL_MEMORY_LIMIT
+            # Application Configuration
+            - name: DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: DEBUG
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: LOG_LEVEL
+            # Celery Configuration
+            - name: C_FORCE_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: C_FORCE_ROOT
+            - name: CELERY_POOL
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: CELERY_POOL
+          volumeMounts:
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+            - name: cephfs
+              mountPath: /mnt/cephfs
+              readOnly: false
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        - name: cephfs
+          hostPath:
+            path: /mnt/cephfs
+            type: Directory
+      terminationGracePeriodSeconds: 120

@@ -1,0 +1,37 @@
+---
+# Billing Service IngressRoute with Path Prefix Stripping
+# Accessible at: http://api.saasodoo.local/billing
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: billing-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: billing-service
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`api.saasodoo.local`) && PathPrefix(`/billing`)
+      kind: Rule
+      services:
+        - name: billing-service
+          port: 8004
+      middlewares:
+        - name: billing-stripprefix
+
+---
+# Middleware to strip /billing prefix
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: billing-stripprefix
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: billing-service
+    app.kubernetes.io/component: networking
+spec:
+  stripPrefix:
+    prefixes:
+      - /billing

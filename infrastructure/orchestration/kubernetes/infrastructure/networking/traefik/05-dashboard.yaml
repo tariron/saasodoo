@@ -1,0 +1,19 @@
+---
+# Traefik Dashboard IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: networking
+spec:
+  entryPoints:
+    - traefik
+  routes:
+    - match: PathPrefix(`/dashboard`) || PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - kind: TraefikService
+          name: api@internal

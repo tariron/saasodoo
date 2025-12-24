@@ -1,0 +1,52 @@
+---
+# Traefik Static Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: networking
+data:
+  traefik.yaml: |
+    # Static Configuration
+    global:
+      checkNewVersion: false
+      sendAnonymousUsage: false
+
+    # API and Dashboard
+    api:
+      dashboard: true
+      insecure: true  # Dev mode - disable for production
+
+    # Ping endpoint for health checks
+    ping:
+      entryPoint: traefik
+
+    # Entry Points
+    entryPoints:
+      web:
+        address: ":80"
+      traefik:
+        address: ":8080"
+
+    # Provider Configuration
+    providers:
+      kubernetesCRD:
+        namespaces:
+          - saasodoo
+      kubernetesIngress: {}  # Disabled by default when not configured
+
+    # Logging
+    log:
+      level: INFO
+      format: json
+
+    # Access Logs
+    accessLog:
+      format: json
+      fields:
+        defaultMode: keep
+        headers:
+          defaultMode: keep
