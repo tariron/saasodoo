@@ -6,9 +6,6 @@ import os
 import json
 import asyncio
 import asyncpg
-import docker
-import tarfile
-import shutil
 import httpx
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -18,6 +15,7 @@ from pathlib import Path
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
 from app.utils.notification_client import send_backup_completed_email, send_backup_failed_email, send_restore_completed_email, send_restore_failed_email
+from app.utils.k8s_client import KubernetesClient
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -127,7 +125,7 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         
         if was_running:
             logger.info("Stopping instance for consistent backup")
-            await _stop_docker_service(instance)
+            await _stop_kubernetes_deployment(instance)
             # Wait a moment for clean shutdown
             await asyncio.sleep(5)
         
@@ -151,8 +149,8 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         # Step 7: Restart instance if it was running before backup
         if was_running:
             logger.info("Restarting instance after backup")
-            container_result = await _start_docker_service(instance)
-            await _wait_for_odoo_startup(container_result, timeout=300) #120 seconds
+            container_result = await _start_kubernetes_deployment(instance)
+            await _wait_for_odoo_startup(container_result, timeout=300)
             await _update_instance_network_info(instance_id, container_result)
             await _update_instance_status(instance_id, InstanceStatus.RUNNING)
         else:
@@ -193,7 +191,7 @@ async def _backup_instance_workflow(instance_id: str, backup_name: str = None) -
         if was_running:
             try:
                 logger.info("Attempting to restart instance after backup failure")
-                container_result = await _start_docker_service(instance)
+                container_result = await _start_kubernetes_deployment(instance)
                 await _update_instance_network_info(instance_id, container_result)
                 await _update_instance_status(instance_id, InstanceStatus.RUNNING)
             except Exception as restore_error:
@@ -239,7 +237,7 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         # Step 2: Stop instance if running
         was_running = instance['status'] == InstanceStatus.RUNNING.value
         if was_running:
-            await _stop_docker_service(instance)
+            await _stop_kubernetes_deployment(instance)
             logger.info("Instance stopped for restore")
         
         # Step 3: Restore database from backup
@@ -264,9 +262,9 @@ async def _restore_instance_workflow(instance_id: str, backup_id: str) -> Dict[s
         await _restore_data_volume_backup(instance, backup_info)
         logger.info("Data volume restored from backup")
         
-        # Step 5: Recreate service with restore-optimized configuration and start it
-        container_result = await _start_docker_service_for_restore(instance)
-        logger.info("Service recreated after restore")
+        # Step 5: Start deployment with restore-optimized configuration
+        container_result = await _start_kubernetes_deployment_for_restore(instance)
+        logger.info("Deployment started after restore")
 
         # Step 6: Wait for Odoo to start and update network info (always start after restore)
         await _wait_for_odoo_startup(container_result, timeout=300)
@@ -352,8 +350,8 @@ async def _update_instance_workflow(instance_id: str, target_version: str) -> Di
         # Step 3: Update status to UPDATING
         await _update_instance_status(instance_id, InstanceStatus.MAINTENANCE, f"Updating to {target_version}")
         
-        # Step 4: Stop current service
-        await _stop_docker_service(instance)
+        # Step 4: Stop current deployment
+        await _stop_kubernetes_deployment(instance)
         logger.info("Instance stopped for update")
         
         # Step 5: Update instance record with new version
@@ -440,58 +438,65 @@ async def _create_database_backup(instance: Dict[str, Any], backup_name: str) ->
 
 
 async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str) -> tuple[str, int]:
-    """Create backup of Odoo data volume"""
-    client = docker.from_env()
-    backup_file = f"{BACKUP_ACTIVE_PATH}/{backup_name}_data.tar.gz"
+    """Create backup of Odoo data volume using Kubernetes Job"""
+    backup_file = f"{backup_name}_data.tar.gz"
+    backup_full_path = f"{BACKUP_ACTIVE_PATH}/{backup_file}"
 
     try:
         # Get CephFS path for instance data
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
         cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
 
-        # Run tar command using direct CephFS path
-        logger.info("Starting data volume backup", volume_name=volume_name, cephfs_path=cephfs_path, backup_file=backup_file)
+        # Check if CephFS path exists
+        if not os.path.exists(cephfs_path):
+            logger.warning("CephFS path not found, skipping data volume backup", path=cephfs_path)
+            Path(backup_full_path).touch()
+            return backup_full_path, 0
 
-        try:
-            result = client.containers.run(
-                image="alpine:latest",
-                command=f"tar -czf /backup/active/{backup_name}_data.tar.gz -C /data .",
-                volumes={
-                    cephfs_path: {'bind': '/data', 'mode': 'ro'},
-                    BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'rw'}
-                },
-                remove=True,
-                detach=False
-            )
-            logger.info("Docker tar command output", output=result)
+        logger.info("Starting data volume backup with Kubernetes Job",
+                   volume_name=volume_name,
+                   cephfs_path=cephfs_path,
+                   backup_file=backup_file)
 
-            # Get file size from within the volume using another container
-            size_result = client.containers.run(
-                image="alpine:latest",
-                command=f"stat -c %s /backup/active/{backup_name}_data.tar.gz",
-                volumes={BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}},
-                remove=True,
-                detach=False
-            )
-            backup_size = int(size_result.decode().strip())
-            logger.info("Data volume backup completed", file=backup_file, size=backup_size)
-            return backup_file, backup_size
-            
-        except Exception as docker_error:
-            logger.error("Docker tar command failed", error=str(docker_error))
-            # Create empty backup file to maintain consistency
-            Path(backup_file).touch()
-            logger.info("Created empty backup file as fallback", file=backup_file)
-            return backup_file, 0
-        
-    except docker.errors.NotFound:
-        logger.warning("Volume not found, skipping data volume backup", volume_name=volume_name)
-        # Create empty backup file to maintain consistency
-        Path(backup_file).touch()
-        return backup_file, 0
+        # Create Kubernetes client
+        k8s_client = KubernetesClient()
+
+        # Generate unique job name
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        job_name = f"backup-{instance['id'].hex[:8]}-{timestamp}".lower()
+
+        # Create backup job
+        success = k8s_client.create_backup_job(
+            job_name=job_name,
+            source_path=cephfs_path,
+            backup_file=backup_file,
+            backup_base_path=BACKUP_BASE_PATH
+        )
+
+        if not success:
+            raise RuntimeError("Failed to create backup job")
+
+        # Wait for job to complete (10 minute timeout)
+        job_success = k8s_client.wait_for_job_completion(job_name, timeout=600)
+
+        if not job_success:
+            raise RuntimeError("Backup job failed or timed out")
+
+        # Get backup file size
+        if os.path.exists(backup_full_path):
+            backup_size = os.path.getsize(backup_full_path)
+            logger.info("Data volume backup completed", file=backup_full_path, size=backup_size)
+            return backup_full_path, backup_size
+        else:
+            logger.warning("Backup file not found after job completion", file=backup_full_path)
+            Path(backup_full_path).touch()
+            return backup_full_path, 0
+
     except Exception as e:
-        logger.error("Failed to backup data volume", error=str(e))
-        raise
+        logger.error("Failed to backup data volume", error=str(e), exc_info=True)
+        # Create empty backup file to maintain consistency
+        Path(backup_full_path).touch()
+        return backup_full_path, 0
 
 
 async def _create_backup_metadata(instance: Dict[str, Any], backup_name: str, db_backup_path: str, data_backup_path: str, data_size: int = None) -> Dict[str, Any]:
@@ -573,66 +578,61 @@ async def _restore_database_backup(instance: Dict[str, Any], backup_info: Dict[s
 
 
 async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dict[str, Any]):
-    """Restore Odoo data volume from backup"""
-    client = docker.from_env()
+    """Restore Odoo data volume from backup using Kubernetes Job"""
     backup_file = backup_info['data_backup_path']
     backup_filename = os.path.basename(backup_file)
-    
-    # Check if backup file exists in the Docker volume
-    try:
-        check_result = client.containers.run(
-            image="alpine:latest",
-            command=f"test -f /backup/active/{backup_filename}",
-            volumes={BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}},
-            remove=True,
-            detach=False
-        )
-        logger.info("Data backup file found", file=backup_filename)
-    except Exception:
-        logger.warning("Data backup file not found in volume, skipping data restore", file=backup_filename)
+
+    # Check if backup file exists
+    if not os.path.exists(backup_file):
+        logger.warning("Data backup file not found, skipping data restore", file=backup_file)
         return
-    
+
     volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
+    cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
 
     try:
-        # Remove existing service that might be using the volume
-        service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
-        try:
-            existing_service = client.services.get(service_name)
-            existing_service.remove()
-            logger.info("Existing service removed for volume cleanup", service=service_name)
-            # Wait for service to be fully removed
-            await asyncio.sleep(5)
-        except docker.errors.NotFound:
-            pass
-        
         # Get storage limit from instance for CephFS quota
         storage_limit = instance.get('storage_limit', '10G')
-        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
 
         # Import helper function from provisioning
         from app.tasks.provisioning import _create_cephfs_directory_with_quota
 
-        # Create CephFS directory with quota for restore
+        # Create CephFS directory with quota for restore (or clear existing)
         _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
-        logger.info("Created CephFS directory with quota for restore", path=cephfs_path, storage_limit=storage_limit)
+        logger.info("Created CephFS directory with quota for restore",
+                   path=cephfs_path,
+                   storage_limit=storage_limit)
 
-        # Extract backup to CephFS directory
-        client.containers.run(
-            image="alpine:latest",
-            command=f"tar -xzf /backup/active/{backup_filename} -C /data",
-            volumes={
-                cephfs_path: {'bind': '/data', 'mode': 'rw'},
-                BACKUP_BASE_PATH: {'bind': '/backup', 'mode': 'ro'}
-            },
-            remove=True,
-            detach=False
+        # Create Kubernetes client
+        k8s_client = KubernetesClient()
+
+        # Generate unique job name
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        job_name = f"restore-{instance['id'].hex[:8]}-{timestamp}".lower()
+
+        # Create restore job
+        success = k8s_client.create_restore_job(
+            job_name=job_name,
+            backup_file=backup_filename,
+            dest_path=cephfs_path,
+            backup_base_path=BACKUP_BASE_PATH
         )
-        
-        logger.info("Data volume restored from backup", volume=volume_name, backup_file=backup_filename)
-        
+
+        if not success:
+            raise RuntimeError("Failed to create restore job")
+
+        # Wait for job to complete (10 minute timeout)
+        job_success = k8s_client.wait_for_job_completion(job_name, timeout=600)
+
+        if not job_success:
+            raise RuntimeError("Restore job failed or timed out")
+
+        logger.info("Data volume restored from backup",
+                   volume=volume_name,
+                   backup_file=backup_filename)
+
     except Exception as e:
-        logger.error("Failed to restore data volume", error=str(e))
+        logger.error("Failed to restore data volume", error=str(e), exc_info=True)
         raise
 
 
@@ -681,61 +681,73 @@ async def _update_instance_version(instance_id: str, target_version: str):
 
 async def _deploy_updated_service(instance: Dict[str, Any]) -> Dict[str, Any]:
     """Deploy service with updated Odoo version"""
-    client = docker.from_env()
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    odoo_version = instance.get('odoo_version', '17.0')
+    new_image = f"bitnamilegacy/odoo:{odoo_version}"
 
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
-
-    # Remove old service if exists
     try:
-        old_service = client.services.get(service_name)
-        old_service.remove()
-        logger.info("Old service removed", service_name=service_name)
-        # Wait for service to be fully removed
-        await asyncio.sleep(5)
-    except docker.errors.NotFound:
-        pass
+        k8s_client = KubernetesClient()
 
-    # Deploy new service with updated version
-    # This reuses the service deployment logic from provisioning
-    from app.tasks.provisioning import _deploy_odoo_service
+        logger.info("Updating deployment image", deployment_name=deployment_name, image=new_image)
 
-    # Create minimal db_info for deployment
-    db_info = {
-        'host': os.getenv('POSTGRES_HOST', 'postgres'),
-        'port': int(os.getenv('POSTGRES_PORT', '5432')),
-        'database': instance['database_name'],
-        'user': f"odoo_{instance['database_name']}",
-        'password': 'generated_password'  # This should be retrieved from secure storage
-    }
+        # Update deployment with new image
+        success = k8s_client.update_deployment_image(deployment_name, new_image)
 
-    return await _deploy_odoo_service(instance, db_info)
+        if not success:
+            raise RuntimeError(f"Failed to update deployment image to {new_image}")
+
+        # Scale to 1 replica (in case it was scaled down)
+        success = k8s_client.scale_deployment(deployment_name, replicas=1)
+
+        if not success:
+            raise RuntimeError(f"Failed to scale deployment {deployment_name} to 1")
+
+        # Wait for deployment to be ready with new image
+        ready = k8s_client.wait_for_deployment_ready(deployment_name, timeout=180)
+
+        if not ready:
+            raise RuntimeError("Deployment failed to become ready after update")
+
+        # Get pod status
+        pod_status = k8s_client.get_pod_status(deployment_name)
+
+        # Service DNS
+        service_name = f"{deployment_name}-service"
+        service_dns = f"{service_name}.{k8s_client.namespace}.svc.cluster.local"
+
+        logger.info("Deployment updated successfully", deployment_name=deployment_name, image=new_image)
+
+        return {
+            'service_id': deployment_name,
+            'service_name': service_name,
+            'container_id': pod_status.get('name') if pod_status else None,
+            'internal_url': f'http://{service_dns}:8069',
+            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        }
+
+    except Exception as e:
+        logger.error("Failed to deploy updated service", deployment_name=deployment_name, error=str(e))
+        raise
 
 
 async def _run_database_migration(instance: Dict[str, Any], from_version: str, to_version: str):
-    """Run Odoo database migration"""
+    """Run Odoo database migration using Kubernetes exec"""
     if from_version == to_version:
         logger.info("Same version, skipping migration")
         return
-    
-    client = docker.from_env()
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
     try:
-        # Get the service
-        service = client.services.get(service_name)
+        k8s_client = KubernetesClient()
 
-        # Get running task from service
-        tasks = service.tasks(filters={'desired-state': 'running'})
-        running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+        # Get pod name for deployment
+        pod_name = k8s_client.get_pod_name_for_deployment(deployment_name)
 
-        if not running_task:
-            raise RuntimeError(f"No running task found for service {service_name}")
+        if not pod_name:
+            raise RuntimeError(f"No running pod found for deployment {deployment_name}")
 
-        # Extract container ID from task
-        container_id = running_task['Status']['ContainerStatus']['ContainerID']
-
-        # Get the actual container to exec into
-        container = client.containers.get(container_id)
+        logger.info("Running database migration", pod=pod_name, from_version=from_version, to_version=to_version)
 
         # Run Odoo with --update=all to migrate database
         migration_command = [
@@ -746,19 +758,15 @@ async def _run_database_migration(instance: Dict[str, Any], from_version: str, t
             "--log-level=info"
         ]
 
-        exec_result = container.exec_run(migration_command, stream=True)
+        success, output = k8s_client.exec_in_pod(pod_name, migration_command)
 
-        # Monitor migration output
-        for line in exec_result.output:
-            logger.info("Migration output", line=line.decode().strip())
+        if not success:
+            raise RuntimeError(f"Database migration failed: {output}")
 
-        if exec_result.exit_code != 0:
-            raise RuntimeError(f"Database migration failed with exit code {exec_result.exit_code}")
-
-        logger.info("Database migration completed successfully")
+        logger.info("Database migration completed successfully", output=output)
 
     except Exception as e:
-        logger.error("Database migration failed", error=str(e))
+        logger.error("Database migration failed", error=str(e), exc_info=True)
         raise
 
 
@@ -1098,92 +1106,150 @@ async def _reset_odoo_database_state(database_name: str, instance: Dict[str, Any
         await conn.close()
 
 
-# Import functions from lifecycle.py that we need
-async def _stop_docker_service(instance: Dict[str, Any]):
-    """Stop Docker service gracefully (scale to 0)"""
-    client = docker.from_env()
-
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+# Kubernetes-based maintenance helper functions
+async def _stop_kubernetes_deployment(instance: Dict[str, Any]):
+    """Stop Kubernetes deployment gracefully (scale to 0)"""
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
     try:
-        service = client.services.get(service_name)
+        logger.info("Stopping deployment (scaling to 0)", deployment_name=deployment_name)
 
-        logger.info("Stopping service (scaling to 0)", service_name=service_name)
+        k8s_client = KubernetesClient()
 
         # Scale to 0 replicas
-        service.update(mode={'Replicated': {'Replicas': 0}})
+        success = k8s_client.scale_deployment(deployment_name, replicas=0)
 
-        # Wait for tasks to shutdown
-        for _ in range(30):  # 60 second timeout
+        if not success:
+            raise RuntimeError(f"Failed to scale deployment {deployment_name} to 0")
+
+        # Wait for pods to terminate (60 second timeout)
+        for _ in range(30):
             await asyncio.sleep(2)
-            service.reload()
-            tasks = service.tasks()
+            pod_status = k8s_client.get_pod_status(deployment_name)
 
-            # Check if all tasks are shutdown/complete
-            active_tasks = [t for t in tasks if t['Status']['State'] in ['running', 'starting', 'pending']]
-            if not active_tasks:
-                logger.info("Service stopped successfully", service_name=service_name)
+            if not pod_status:
+                logger.info("Deployment stopped successfully", deployment_name=deployment_name)
                 return
 
-        logger.warning("Service did not stop within timeout", service_name=service_name)
+        logger.warning("Deployment did not stop within timeout", deployment_name=deployment_name)
 
-    except docker.errors.NotFound:
-        logger.warning("Service not found during stop", service_name=service_name)
     except Exception as e:
-        logger.error("Failed to stop service", service_name=service_name, error=str(e))
+        logger.error("Failed to stop deployment", deployment_name=deployment_name, error=str(e))
         raise
 
 
-async def _start_docker_service(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Start existing Docker service (scale to 1)"""
-    client = docker.from_env()
-
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+async def _start_kubernetes_deployment(instance: Dict[str, Any]) -> Dict[str, Any]:
+    """Start existing Kubernetes deployment (scale to 1)"""
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
     try:
-        # Try to get existing service
-        service = client.services.get(service_name)
+        logger.info("Starting deployment (scaling to 1)", deployment_name=deployment_name)
 
-        logger.info("Starting service (scaling to 1)", service_name=service_name)
+        k8s_client = KubernetesClient()
 
         # Scale to 1 replica
-        service.update(mode={'Replicated': {'Replicas': 1}})
+        success = k8s_client.scale_deployment(deployment_name, replicas=1)
 
-        # Wait for task to be running
-        for _ in range(30):  # 60 second timeout
-            await asyncio.sleep(2)
-            service.reload()
-            tasks = service.tasks(filters={'desired-state': 'running'})
+        if not success:
+            raise RuntimeError(f"Failed to scale deployment {deployment_name} to 1")
 
-            running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
-            if running_task:
-                # Extract network IP from task
-                internal_ip = None
-                network_attachments = running_task.get('NetworksAttachments', [])
-                if network_attachments and network_attachments[0].get('Addresses'):
-                    internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+        # Wait for deployment to be ready
+        ready = k8s_client.wait_for_deployment_ready(deployment_name, timeout=120)
 
-                logger.info("Service started successfully", service_name=service_name)
-                return {
-                    'service_id': service.id,
-                    'service_name': service_name,
-                    'task_id': running_task['ID'],
-                    'internal_ip': internal_ip,
-                    'internal_url': f'http://{internal_ip}:8069' if internal_ip else None,
-                    'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
-                }
+        if not ready:
+            raise RuntimeError("Deployment failed to become ready within timeout")
 
-        raise RuntimeError("Service failed to start within timeout")
+        # Get pod status for network info
+        pod_status = k8s_client.get_pod_status(deployment_name)
 
-    except docker.errors.NotFound:
-        # Service doesn't exist - this shouldn't happen for existing instances
-        raise ValueError(f"Service {service_name} not found. Instance may need reprovisioning.")
+        if not pod_status:
+            logger.warning("Could not get pod status, using service DNS")
+            pod_ip = None
+        else:
+            pod_ip = pod_status.get('pod_ip')
+
+        # Service DNS (this is what we use for health checks)
+        service_name = f"{deployment_name}-service"
+        service_dns = f"{service_name}.{k8s_client.namespace}.svc.cluster.local"
+
+        logger.info("Deployment started successfully", deployment_name=deployment_name)
+
+        return {
+            'service_id': deployment_name,  # Using deployment name as service_id
+            'service_name': service_name,
+            'pod_ip': pod_ip,
+            'internal_url': f'http://{service_dns}:8069',
+            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        }
+
     except Exception as e:
-        logger.error("Failed to start service", service_name=service_name, error=str(e))
+        logger.error("Failed to start deployment", deployment_name=deployment_name, error=str(e))
         raise
 
 
-async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 300): #120 seconds
+async def _start_kubernetes_deployment_for_restore(instance: Dict[str, Any]) -> Dict[str, Any]:
+    """Start Kubernetes deployment with restore-optimized environment variables"""
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+
+    try:
+        logger.info("Starting deployment with restore optimization", deployment_name=deployment_name)
+
+        k8s_client = KubernetesClient()
+
+        # Environment optimized for restored instance
+        restore_env = {
+            'ODOO_SKIP_BOOTSTRAP': 'yes',  # Skip database initialization
+            'ODOO_SKIP_MODULES_UPDATE': 'yes',  # Skip module updates on startup
+            'BITNAMI_DEBUG': 'true',  # Enable debug logging
+        }
+
+        # Update deployment environment variables
+        success = k8s_client.update_deployment_env(deployment_name, restore_env)
+
+        if not success:
+            logger.warning("Failed to update environment variables, continuing anyway")
+
+        # Scale to 1 replica
+        success = k8s_client.scale_deployment(deployment_name, replicas=1)
+
+        if not success:
+            raise RuntimeError(f"Failed to scale deployment {deployment_name} to 1")
+
+        # Wait for deployment to be ready
+        ready = k8s_client.wait_for_deployment_ready(deployment_name, timeout=180)
+
+        if not ready:
+            raise RuntimeError("Deployment failed to become ready within timeout")
+
+        # Get pod status for network info
+        pod_status = k8s_client.get_pod_status(deployment_name)
+
+        if not pod_status:
+            logger.warning("Could not get pod status, using service DNS")
+            pod_ip = None
+        else:
+            pod_ip = pod_status.get('pod_ip')
+
+        # Service DNS
+        service_name = f"{deployment_name}-service"
+        service_dns = f"{service_name}.{k8s_client.namespace}.svc.cluster.local"
+
+        logger.info("Deployment started successfully after restore", deployment_name=deployment_name)
+
+        return {
+            'service_id': deployment_name,
+            'service_name': service_name,
+            'pod_ip': pod_ip,
+            'internal_url': f'http://{service_dns}:8069',
+            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        }
+
+    except Exception as e:
+        logger.error("Failed to start deployment for restore", deployment_name=deployment_name, error=str(e))
+        raise
+
+
+async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 300):
     """Wait for Odoo to start up and be accessible"""
     import httpx
     
@@ -1235,164 +1301,6 @@ async def _update_instance_network_info(instance_id: str, container_info: Dict[s
         logger.info("Instance network info updated", instance_id=instance_id)
     finally:
         await conn.close()
-
-
-async def _start_docker_service_for_restore(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Start Docker Swarm service with Bitnami optimization for restore operations"""
-    import asyncio
-    client = docker.from_env()
-
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
-
-    try:
-        # Try to get existing service
-        service = client.services.get(service_name)
-
-        # Update service to scale to 0 replicas first to ensure clean restart
-        logger.info("Scaling service to 0 for restore optimization", service_name=service_name)
-        service.update(mode={'Replicated': {'Replicas': 0}})
-
-        # Wait for tasks to shutdown
-        for _ in range(15):
-            await asyncio.sleep(2)
-            service.reload()
-            tasks = service.tasks()
-            active_tasks = [t for t in tasks if t['Status']['State'] in ['running', 'starting', 'pending']]
-            if not active_tasks:
-                break
-
-        logger.info("Service scaled to 0, will recreate with optimized config", service_name=service_name)
-
-    except docker.errors.NotFound:
-        logger.info("No existing service found, will create new one", service_name=service_name)
-
-    # Create optimized service configuration for restore
-    db_user = f"odoo_{instance['database_name']}"
-    db_password = f"odoo_pass_{instance['id'].hex[:8]}"
-
-    # Environment optimized for restored instance
-    environment = {
-        'ODOO_DATABASE_HOST': os.getenv('POSTGRES_HOST', 'postgres'),
-        'ODOO_DATABASE_PORT_NUMBER': os.getenv('POSTGRES_PORT', '5432'),
-        'ODOO_DATABASE_NAME': instance['database_name'],
-        'ODOO_DATABASE_USER': db_user,
-        'ODOO_DATABASE_PASSWORD': db_password,
-        'ODOO_EMAIL': instance['admin_email'],
-        'ODOO_PASSWORD': f"admin_{instance['id'].hex[:8]}",
-        'ODOO_LOAD_DEMO_DATA': 'no',  # Skip demo data for restored instances
-        # Bitnami-specific variables to optimize startup for restored databases
-        'ODOO_SKIP_BOOTSTRAP': 'yes',  # Skip database initialization
-        'ODOO_SKIP_MODULES_UPDATE': 'yes',  # Skip module updates on startup
-        'BITNAMI_DEBUG': 'true',  # Enable debug logging for troubleshooting
-    }
-
-    # Add custom environment variables from instance if any
-    if instance.get('environment_vars'):
-        environment.update(instance['environment_vars'])
-
-    # Resource limits
-    mem_limit = instance['memory_limit']
-    cpu_limit = instance['cpu_limit']
-
-    try:
-        # Convert memory limit from string like "2G" to bytes
-        mem_limit_bytes = _parse_size_to_bytes(mem_limit) if isinstance(mem_limit, str) else mem_limit
-        resources = docker.types.Resources(
-            cpu_limit=int(cpu_limit * 1_000_000_000),  # Convert to nanocpus
-            mem_limit=mem_limit_bytes
-        )
-
-        # Create mount for CephFS directory (direct bind mount)
-        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
-        mount = docker.types.Mount(
-            target='/bitnami/odoo',
-            source=cephfs_path,
-            type='bind'
-        )
-
-        # Get Odoo version
-        odoo_version = instance.get('odoo_version', '17')
-
-        try:
-            # Get existing service to update with new environment
-            service = client.services.get(service_name)
-
-            # Update existing service with optimized environment and scale to 1
-            service.update(
-                env=environment,
-                mode={'Replicated': {'Replicas': 1}}
-            )
-            logger.info("Updated existing service with restore optimization", service_name=service_name)
-
-        except docker.errors.NotFound:
-            # Create new service if it doesn't exist
-            service = client.services.create(
-                image=f'bitnamilegacy/odoo:{odoo_version}',
-                name=service_name,
-                env=environment,
-                resources=resources,
-                mode=docker.types.ServiceMode('replicated', replicas=1),
-                mounts=[mount],
-                networks=['saasodoo-network'],
-                labels={
-                    'saasodoo.instance.id': str(instance['id']),
-                    'saasodoo.instance.name': instance['name'],
-                    'saasodoo.customer.id': str(instance['customer_id']),
-                    'saasodoo.restore.optimized': 'true',
-                    # Traefik labels for automatic routing
-                    'traefik.enable': 'true',
-                    f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}`)',
-                    f'traefik.http.routers.{service_name}.service': service_name,
-                    f'traefik.http.services.{service_name}.loadbalancer.server.port': '8069',
-                },
-                restart_policy=docker.types.RestartPolicy(condition='any')
-            )
-            logger.info("Created new service for restore", service_id=service.id, service_name=service_name)
-
-        # Wait for task to start running
-        await asyncio.sleep(5)  # Give Swarm time to schedule
-
-        # Get running task information
-        max_wait = 60
-        waited = 5
-        running_task = None
-
-        while waited < max_wait:
-            service.reload()
-            tasks = service.tasks(filters={'desired-state': 'running'})
-            running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
-
-            if running_task:
-                break
-
-            await asyncio.sleep(5)
-            waited += 5
-
-        if not running_task:
-            raise Exception(f"Service {service_name} failed to start a running task within {max_wait} seconds")
-
-        # Extract task information
-        internal_ip = None
-        network_attachments = running_task.get('NetworksAttachments', [])
-        if network_attachments and network_attachments[0].get('Addresses'):
-            internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
-
-        if not internal_ip:
-            internal_ip = 'localhost'  # Fallback
-
-        return {
-            'service_id': service.id,
-            'service_name': service_name,
-            'task_id': running_task['ID'],
-            'internal_ip': internal_ip,
-            'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
-        }
-        
-    except Exception as e:
-        logger.error("Failed to start optimized service for restore", service_name=service_name, error=str(e))
-        raise
 
 
 async def _get_user_info(customer_id: str) -> Dict[str, Any]:

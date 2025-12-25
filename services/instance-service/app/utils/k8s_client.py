@@ -511,3 +511,428 @@ class KubernetesClient:
             logger.error("Failed to get pod logs",
                        instance_name=instance_name, error=str(e))
             return None
+
+    def update_deployment_image(self, deployment_name: str, new_image: str) -> bool:
+        """
+        Update deployment container image
+
+        Args:
+            deployment_name: Name of deployment
+            new_image: New container image (e.g., 'bitnamilegacy/odoo:18')
+
+        Returns:
+            True if successful
+        """
+        try:
+            self._ensure_connection()
+
+            # Patch deployment with new image
+            self.apps_v1.patch_namespaced_deployment(
+                name=deployment_name,
+                namespace=self.namespace,
+                body={
+                    'spec': {
+                        'template': {
+                            'spec': {
+                                'containers': [{
+                                    'name': 'odoo',
+                                    'image': new_image
+                                }]
+                            }
+                        }
+                    }
+                }
+            )
+
+            logger.info("Deployment image updated",
+                       name=deployment_name,
+                       image=new_image)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to update deployment image",
+                       name=deployment_name,
+                       image=new_image,
+                       error=str(e))
+            return False
+
+    def update_deployment_env(self, deployment_name: str, env_vars: Dict[str, str]) -> bool:
+        """
+        Update deployment environment variables
+
+        Args:
+            deployment_name: Name of deployment
+            env_vars: Environment variables dict to update/add
+
+        Returns:
+            True if successful
+        """
+        try:
+            self._ensure_connection()
+
+            # Convert env vars to Kubernetes format
+            env_list = [{'name': k, 'value': str(v)} for k, v in env_vars.items()]
+
+            # Patch deployment with new env vars
+            self.apps_v1.patch_namespaced_deployment(
+                name=deployment_name,
+                namespace=self.namespace,
+                body={
+                    'spec': {
+                        'template': {
+                            'spec': {
+                                'containers': [{
+                                    'name': 'odoo',
+                                    'env': env_list
+                                }]
+                            }
+                        }
+                    }
+                }
+            )
+
+            logger.info("Deployment environment updated",
+                       name=deployment_name,
+                       env_count=len(env_vars))
+            return True
+
+        except Exception as e:
+            logger.error("Failed to update deployment environment",
+                       name=deployment_name,
+                       error=str(e))
+            return False
+
+    def create_backup_job(
+        self,
+        job_name: str,
+        source_path: str,
+        backup_file: str,
+        backup_base_path: str = "/mnt/cephfs/odoo_backups"
+    ) -> bool:
+        """
+        Create Kubernetes Job to backup CephFS data using tar
+
+        Args:
+            job_name: Name for the job (e.g., 'backup-fffff-20250125')
+            source_path: Source CephFS path to backup
+            backup_file: Backup filename (e.g., 'backup_name_data.tar.gz')
+            backup_base_path: Base path for backups
+
+        Returns:
+            True if job created successfully
+        """
+        try:
+            self._ensure_connection()
+
+            batch_v1 = client.BatchV1Api()
+
+            # Job specification
+            job = client.V1Job(
+                api_version="batch/v1",
+                kind="Job",
+                metadata=client.V1ObjectMeta(
+                    name=job_name,
+                    labels={"app": "backup", "job-type": "backup"}
+                ),
+                spec=client.V1JobSpec(
+                    ttl_seconds_after_finished=300,  # Auto-cleanup after 5 minutes
+                    backoff_limit=2,  # Retry twice on failure
+                    template=client.V1PodTemplateSpec(
+                        metadata=client.V1ObjectMeta(labels={"app": "backup"}),
+                        spec=client.V1PodSpec(
+                            restart_policy="Never",
+                            containers=[client.V1Container(
+                                name="backup",
+                                image="alpine:latest",
+                                command=[
+                                    "tar",
+                                    "-czf",
+                                    f"/backup/active/{backup_file}",
+                                    "-C",
+                                    "/data",
+                                    "."
+                                ],
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="source-data",
+                                        mount_path="/data",
+                                        read_only=True
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="backup-storage",
+                                        mount_path="/backup"
+                                    )
+                                ]
+                            )],
+                            volumes=[
+                                client.V1Volume(
+                                    name="source-data",
+                                    host_path=client.V1HostPathVolumeSource(
+                                        path=source_path,
+                                        type="Directory"
+                                    )
+                                ),
+                                client.V1Volume(
+                                    name="backup-storage",
+                                    host_path=client.V1HostPathVolumeSource(
+                                        path=backup_base_path,
+                                        type="Directory"
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                )
+            )
+
+            batch_v1.create_namespaced_job(namespace=self.namespace, body=job)
+
+            logger.info("Backup job created",
+                       job_name=job_name,
+                       source=source_path,
+                       backup_file=backup_file)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to create backup job",
+                       job_name=job_name,
+                       error=str(e))
+            return False
+
+    def create_restore_job(
+        self,
+        job_name: str,
+        backup_file: str,
+        dest_path: str,
+        backup_base_path: str = "/mnt/cephfs/odoo_backups"
+    ) -> bool:
+        """
+        Create Kubernetes Job to restore CephFS data from tar backup
+
+        Args:
+            job_name: Name for the job (e.g., 'restore-fffff-20250125')
+            backup_file: Backup filename (e.g., 'backup_name_data.tar.gz')
+            dest_path: Destination CephFS path
+            backup_base_path: Base path for backups
+
+        Returns:
+            True if job created successfully
+        """
+        try:
+            self._ensure_connection()
+
+            batch_v1 = client.BatchV1Api()
+
+            # Job specification
+            job = client.V1Job(
+                api_version="batch/v1",
+                kind="Job",
+                metadata=client.V1ObjectMeta(
+                    name=job_name,
+                    labels={"app": "restore", "job-type": "restore"}
+                ),
+                spec=client.V1JobSpec(
+                    ttl_seconds_after_finished=300,  # Auto-cleanup after 5 minutes
+                    backoff_limit=2,  # Retry twice on failure
+                    template=client.V1PodTemplateSpec(
+                        metadata=client.V1ObjectMeta(labels={"app": "restore"}),
+                        spec=client.V1PodSpec(
+                            restart_policy="Never",
+                            containers=[client.V1Container(
+                                name="restore",
+                                image="alpine:latest",
+                                command=[
+                                    "tar",
+                                    "-xzf",
+                                    f"/backup/active/{backup_file}",
+                                    "-C",
+                                    "/data"
+                                ],
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="dest-data",
+                                        mount_path="/data"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="backup-storage",
+                                        mount_path="/backup",
+                                        read_only=True
+                                    )
+                                ]
+                            )],
+                            volumes=[
+                                client.V1Volume(
+                                    name="dest-data",
+                                    host_path=client.V1HostPathVolumeSource(
+                                        path=dest_path,
+                                        type="DirectoryOrCreate"
+                                    )
+                                ),
+                                client.V1Volume(
+                                    name="backup-storage",
+                                    host_path=client.V1HostPathVolumeSource(
+                                        path=backup_base_path,
+                                        type="Directory"
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                )
+            )
+
+            batch_v1.create_namespaced_job(namespace=self.namespace, body=job)
+
+            logger.info("Restore job created",
+                       job_name=job_name,
+                       backup_file=backup_file,
+                       dest=dest_path)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to create restore job",
+                       job_name=job_name,
+                       error=str(e))
+            return False
+
+    def wait_for_job_completion(
+        self,
+        job_name: str,
+        timeout: int = 600,
+        check_interval: int = 5
+    ) -> bool:
+        """
+        Wait for Kubernetes Job to complete
+
+        Args:
+            job_name: Name of the job
+            timeout: Timeout in seconds (default 10 minutes)
+            check_interval: Check interval in seconds
+
+        Returns:
+            True if job succeeded, False if failed or timeout
+        """
+        try:
+            self._ensure_connection()
+            batch_v1 = client.BatchV1Api()
+
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                try:
+                    job = batch_v1.read_namespaced_job(job_name, self.namespace)
+
+                    # Check if job succeeded
+                    if job.status.succeeded and job.status.succeeded > 0:
+                        logger.info("Job completed successfully", name=job_name)
+                        return True
+
+                    # Check if job failed
+                    if job.status.failed and job.status.failed > 0:
+                        logger.error("Job failed", name=job_name, failed_count=job.status.failed)
+                        return False
+
+                    logger.debug("Waiting for job to complete",
+                               name=job_name,
+                               active=job.status.active or 0)
+
+                except ApiException as e:
+                    if e.status == 404:
+                        logger.warning("Job not found", name=job_name)
+                        return False
+
+                time.sleep(check_interval)
+
+            logger.warning("Job did not complete within timeout",
+                         name=job_name, timeout=timeout)
+            return False
+
+        except Exception as e:
+            logger.error("Error waiting for job",
+                       name=job_name, error=str(e))
+            return False
+
+    def exec_in_pod(
+        self,
+        pod_name: str,
+        command: List[str],
+        container: str = "odoo"
+    ) -> tuple[bool, str]:
+        """
+        Execute command in a running pod
+
+        Args:
+            pod_name: Name of the pod
+            command: Command to execute as list
+            container: Container name (default: 'odoo')
+
+        Returns:
+            Tuple of (success: bool, output: str)
+        """
+        try:
+            self._ensure_connection()
+
+            from kubernetes.stream import stream
+
+            # Execute command in pod
+            resp = stream(
+                self.core_v1.connect_get_namespaced_pod_exec,
+                pod_name,
+                self.namespace,
+                command=command,
+                container=container,
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False
+            )
+
+            logger.info("Command executed in pod",
+                       pod=pod_name,
+                       command=' '.join(command))
+
+            return True, resp
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error("Failed to exec in pod",
+                       pod=pod_name,
+                       command=' '.join(command),
+                       error=error_msg)
+            return False, error_msg
+
+    def get_pod_name_for_deployment(self, deployment_name: str) -> Optional[str]:
+        """
+        Get pod name for a deployment
+
+        Args:
+            deployment_name: Name of the deployment
+
+        Returns:
+            Pod name or None if not found
+        """
+        try:
+            self._ensure_connection()
+
+            pods = self.core_v1.list_namespaced_pod(
+                namespace=self.namespace,
+                label_selector=f"app=odoo,instance={deployment_name}"
+            )
+
+            if not pods.items:
+                logger.warning("No pods found for deployment", deployment=deployment_name)
+                return None
+
+            # Return first running pod
+            for pod in pods.items:
+                if pod.status.phase == "Running":
+                    return pod.metadata.name
+
+            # If no running pods, return first pod
+            return pods.items[0].metadata.name
+
+        except Exception as e:
+            logger.error("Failed to get pod name",
+                       deployment=deployment_name,
+                       error=str(e))
+            return None

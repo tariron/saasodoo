@@ -19,7 +19,6 @@ from app.utils.orchestrator_client import get_docker_client  # Uses orchestrator
 from app.tasks.monitoring import (
     monitor_docker_events_task,
     stop_docker_events_monitoring_task,
-    reconcile_instance_statuses_task,
     update_instance_status_from_event,
     _monitoring_active,
     _k8s_monitor
@@ -86,13 +85,13 @@ async def start_monitoring(request: StartMonitoringRequest = StartMonitoringRequ
         
         # Start monitoring task
         task = monitor_docker_events_task.delay()
-        
-        # Optional: Perform initial reconciliation
-        if request.auto_reconcile:
-            logger.info("Performing initial status reconciliation")
-            reconcile_task = reconcile_instance_statuses_task.delay()
-            logger.info("Initial reconciliation task started", task_id=reconcile_task.id)
-        
+
+        # TODO: Re-implement reconciliation for Kubernetes
+        # if request.auto_reconcile:
+        #     logger.info("Performing initial status reconciliation")
+        #     reconcile_task = reconcile_instance_statuses_task.delay()
+        #     logger.info("Initial reconciliation task started", task_id=reconcile_task.id)
+
         return StartMonitoringResponse(
             success=True,
             message="Docker event monitoring started successfully",
@@ -165,13 +164,19 @@ async def restart_monitoring(request: StartMonitoringRequest = StartMonitoringRe
 @router.post("/reconcile", response_model=ReconciliationResponse)
 async def reconcile_statuses(request: ReconciliationRequest = ReconciliationRequest()):
     """Manually trigger status reconciliation"""
+    # TODO: Re-implement reconciliation for Kubernetes
+    raise HTTPException(
+        status_code=501,
+        detail="Reconciliation not yet implemented for Kubernetes. Real-time monitoring handles most cases."
+    )
+
     try:
-        logger.info("Starting manual status reconciliation", 
-                   force_update=request.force_update, 
+        logger.info("Starting manual status reconciliation",
+                   force_update=request.force_update,
                    dry_run=request.dry_run)
-        
+
         # Start reconciliation task
-        task = reconcile_instance_statuses_task.delay()
+        # task = reconcile_instance_statuses_task.delay()
         
         # Wait for completion (with timeout)
         try:

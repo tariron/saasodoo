@@ -5,7 +5,6 @@ Database migration tasks for instance upgrades (shared → dedicated)
 import os
 import asyncio
 import asyncpg
-import docker
 import httpx
 import configparser
 from datetime import datetime
@@ -16,12 +15,14 @@ from uuid import UUID
 from app.tasks.maintenance import (
     _get_instance_from_db,
     _update_instance_status,
-    _stop_docker_service,
+    _stop_kubernetes_deployment,
+    _start_kubernetes_deployment,
     _backup_instance_workflow,
     _restore_database_backup,
     _get_backup_record,
     _wait_for_odoo_startup
 )
+from app.utils.k8s_client import KubernetesClient
 
 from celery import current_task
 from app.celery_config import celery_app
@@ -70,7 +71,7 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
     3. Provision dedicated server
     4. Update instance record with new DB connection
     5. Restore backup to dedicated server
-    6. Update Docker service environment (edit odoo.conf)
+    6. Update Kubernetes deployment environment (edit odoo.conf)
     7. Restart instance
     """
  
@@ -99,7 +100,7 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 2: Stop instance if it's running
         if original_status in ['running', 'starting']:
             logger.info("Stopping instance for migration", instance_id=instance_id)
-            await _stop_docker_service(instance)
+            await _stop_kubernetes_deployment(instance)
         else:
             logger.info("Instance not running, skipping stop", instance_id=instance_id, status=original_status)
 
@@ -146,13 +147,13 @@ async def _migrate_workflow(instance_id: str) -> Dict[str, Any]:
 
         await _restore_database_backup(instance, backup_info)
 
-        # Step 7: Update Docker service environment (edit odoo.conf)
-        logger.info("Updating service configuration", instance_id=instance_id)
+        # Step 7: Update Kubernetes deployment environment (edit odoo.conf)
+        logger.info("Updating deployment configuration", instance_id=instance_id)
         await _update_service_environment(instance, dedicated)
 
         # Step 8: Restart instance
         logger.info("Starting instance with new database connection", instance_id=instance_id)
-        container_info = await _start_docker_service_after_migration(instance)
+        container_info = await _start_kubernetes_deployment_after_migration(instance)
 
         # Step 9: Wait for Odoo to start
         logger.info("Waiting for Odoo startup", instance_id=instance_id)
@@ -303,7 +304,7 @@ async def _update_db_connection(instance_id: str, dedicated: Dict[str, Any]):
 
 async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[str, Any]):
     """
-    Update Docker service environment variables and odoo.conf
+    Update Kubernetes deployment environment variables and odoo.conf
 
     CRITICAL: Environment variables DO NOT override odoo.conf when ODOO_SKIP_BOOTSTRAP=yes.
     Bitnami Odoo ONLY reads odoo.conf after bootstrap phase.
@@ -314,12 +315,7 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
     - Scenario 2: Delete odoo.conf → FAILED (container crashes)
     - Scenario 3: Manual edit odoo.conf + env vars → SUCCESS ✓
     """
-    client = docker.from_env()
-    service_name = instance.get('service_name')
-
-    if not service_name:
-        # Fallback to constructing service name
-        service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
     # Step 1: Update odoo.conf file (REQUIRED - this is what Odoo actually uses)
     cephfs_path = f"/mnt/cephfs/odoo_instances/odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
@@ -347,48 +343,39 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
 
     logger.info("odoo.conf updated successfully")
 
-    # Step 2: Update Docker service environment variables (for consistency & documentation)
+    # Step 2: Update Kubernetes deployment environment variables (for consistency & documentation)
     # These won't override odoo.conf, but keeps env vars in sync
     try:
-        service = client.services.get(service_name)
+        k8s_client = KubernetesClient()
 
-        # Get current environment
-        current_spec = service.attrs['Spec']
-        current_env = current_spec.get('TaskTemplate', {}).get('ContainerSpec', {}).get('Env', [])
+        # Update deployment environment with new database host
+        new_env = {
+            'ODOO_DATABASE_HOST': dedicated['db_host']
+        }
 
-        # Filter out old database host var
-        new_env = [e for e in current_env if not e.startswith('ODOO_DATABASE_HOST=')]
+        success = k8s_client.update_deployment_env(deployment_name, new_env)
 
-        # Add new database host var (credentials remain unchanged)
-        new_env.append(f'ODOO_DATABASE_HOST={dedicated["db_host"]}')
+        if success:
+            logger.info("Deployment environment variables updated",
+                       deployment_name=deployment_name,
+                       new_db_host=dedicated['db_host'])
+        else:
+            logger.warning("Failed to update deployment environment",
+                          deployment_name=deployment_name)
+            # Continue anyway - odoo.conf is updated which is what matters
 
-        # Update service with new environment
-        service.update(
-            env=new_env,
-            force_update=True  # Force restart to pick up new odoo.conf
-        )
-
-        logger.info("Service environment variables updated and restart triggered",
-                   service_name=service_name)
-
-    except docker.errors.NotFound:
-        logger.warning("Service not found for environment update",
-                      service_name=service_name)
-        # Continue anyway - odoo.conf is updated which is what matters
     except Exception as e:
-        logger.error("Failed to update service environment",
-                    service_name=service_name,
+        logger.error("Failed to update deployment environment",
+                    deployment_name=deployment_name,
                     error=str(e))
         # Don't fail the migration - odoo.conf is updated which is critical
 
 
-async def _start_docker_service_after_migration(instance: Dict[str, Any]) -> Dict[str, Any]:
+async def _start_kubernetes_deployment_after_migration(instance: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Start Docker service after migration (reuses logic from lifecycle)
+    Start Kubernetes deployment after migration (reuses logic from maintenance)
     """
-    from app.tasks.lifecycle import _start_docker_container
+    deployment_info = await _start_kubernetes_deployment(instance)
+    logger.info("Deployment started after migration", instance_id=str(instance['id']))
 
-    container_info = await _start_docker_container(instance)
-    logger.info("Service started after migration", instance_id=str(instance['id']))
-
-    return container_info
+    return deployment_info
