@@ -10,7 +10,10 @@ from datetime import datetime, timedelta
 
 from app.celery_config import celery_app
 from app.utils.database import db_service
-from app.utils.docker_client import DockerClientWrapper
+from app.utils.orchestrator_client import get_orchestrator_client
+
+# Alias for compatibility
+DockerClientWrapper = type(get_orchestrator_client())
 
 logger = structlog.get_logger(__name__)
 
@@ -56,12 +59,12 @@ async def _health_check_db_pools_async():
         )
 
         try:
-            # Query all active pools with admin credentials
+            # Query all pools including error status to allow recovery
             query = """
                 SELECT id, name, host, port, status, health_status, health_check_failures,
                        admin_user, admin_password
                 FROM db_servers
-                WHERE status IN ('active', 'full', 'initializing')
+                WHERE status IN ('active', 'full', 'initializing', 'error')
                 ORDER BY last_health_check ASC NULLS FIRST
             """
             pools = await conn.fetch(query)
@@ -121,15 +124,16 @@ async def _health_check_db_pools_async():
 
                             logger.debug("Pool health check passed", pool_name=pool_name)
 
-                            # If pool was initializing and is now healthy, promote to active
-                            if pool['status'] == 'initializing':
+                            # If pool was initializing/error and is now healthy, promote to active
+                            if pool['status'] in ('initializing', 'error'):
                                 await conn.execute(
                                     "UPDATE db_servers SET status = 'active' WHERE id = $1",
                                     pool_id
                                 )
                                 logger.info(
-                                    "Pool promoted to active",
-                                    pool_name=pool_name
+                                    "Pool recovered and promoted to active",
+                                    pool_name=pool_name,
+                                    previous_status=pool['status']
                                 )
 
                     finally:

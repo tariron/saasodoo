@@ -137,6 +137,22 @@ spec:
                 configMapKeyRef:
                   name: saasodoo-config
                   key: DB_POOL_MEMORY_LIMIT
+            # Kubernetes Configuration
+            - name: ORCHESTRATOR
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: ORCHESTRATOR
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KUBERNETES_NAMESPACE
+            - name: KUBERNETES_IN_CLUSTER
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: KUBERNETES_IN_CLUSTER
             # Application Configuration
             - name: DEBUG
               valueFrom:

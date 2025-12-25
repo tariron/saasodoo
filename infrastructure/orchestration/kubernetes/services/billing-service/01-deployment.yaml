@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/name: billing-service
     app.kubernetes.io/component: api
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: billing-service
@@ -87,8 +87,8 @@ spec:
                   key: REDIS_PORT
             - name: PAYNOW_INTEGRATION_ID
               valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
+                secretKeyRef:
+                  name: saasodoo-secrets
                   key: PAYNOW_INTEGRATION_ID
             - name: PAYNOW_INTEGRATION_KEY
               valueFrom:
@@ -97,8 +97,8 @@ spec:
                   key: PAYNOW_INTEGRATION_KEY
             - name: PAYNOW_MERCHANT_EMAIL
               valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
+                secretKeyRef:
+                  name: saasodoo-secrets
                   key: PAYNOW_MERCHANT_EMAIL
             - name: PAYNOW_RESULT_URL
               valueFrom:

@@ -13,6 +13,7 @@ httpx==0.25.2
 
 # Additional dependencies for instance management
 docker==7.1.0
+kubernetes==28.1.0
 psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 

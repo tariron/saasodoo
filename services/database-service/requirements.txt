@@ -8,6 +8,7 @@ celery==5.5.3
 redis==5.2.1
 kombu==5.5.4
 docker==7.1.0
+kubernetes==28.1.0
 httpx==0.28.1
 structlog==24.4.0
 python-multipart==0.0.20

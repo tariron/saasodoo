@@ -30,10 +30,8 @@ data:
   KILLBILL_USERNAME: "admin"
 
   # PayNow Payment Gateway Configuration
-  PAYNOW_INTEGRATION_ID: "your_integration_id"
-  PAYNOW_MERCHANT_EMAIL: "merchant@example.com"
   PAYNOW_RESULT_URL: "http://api.62.171.153.219.nip.io/billing/webhooks/paynow/result"
-  PAYNOW_BASE_URL: "https://www.paynow.co.zw/interface"
+  PAYNOW_BASE_URL: "https://www.paynow.co.zw"
 
   # JWT Configuration
   JWT_ALGORITHM: "HS256"

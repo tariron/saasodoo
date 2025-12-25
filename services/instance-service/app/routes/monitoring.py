@@ -15,7 +15,7 @@ from app.models.events import (
     EventFilterConfig, MonitoringStatus
 )
 from app.utils.database import InstanceDatabase
-from app.utils.docker_client import get_docker_client
+from app.utils.orchestrator_client import get_docker_client  # Uses orchestrator abstraction
 from app.tasks.monitoring import (
     monitor_docker_events_task,
     stop_docker_events_monitoring_task,

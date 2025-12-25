@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: instance-service-sa
+  namespace: saasodoo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: instance-service-role
+  namespace: saasodoo
+rules:
+  # Pods - for container management (get, list, delete, logs)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "delete"]
+
+  # Services - for Odoo instance services
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+  # Deployments - for Odoo instance deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+  # ConfigMaps - for instance configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "delete", "patch", "update"]
+
+  # PersistentVolumeClaims - for instance storage
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+
+  # Events - for debugging and monitoring
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+  # Ingresses - for subdomain routing
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: instance-service-rolebinding
+  namespace: saasodoo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: instance-service-role
+subjects:
+  - kind: ServiceAccount
+    name: instance-service-sa
+    namespace: saasodoo

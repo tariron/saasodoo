@@ -1305,7 +1305,7 @@ async def apply_resource_upgrade(
     import subprocess
     # Import helper from provisioning task
     from app.tasks.provisioning import _parse_size_to_bytes
-    from app.utils.docker_client import get_docker_client
+    from app.utils.orchestrator_client import get_docker_client  # Uses orchestrator abstraction
 
     try:
         print(f"DEBUG: Inside try block for {instance_id}")

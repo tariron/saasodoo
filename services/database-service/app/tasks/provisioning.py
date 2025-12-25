@@ -12,8 +12,11 @@ from celery import Task
 from celery.exceptions import Reject
 
 from app.celery_config import celery_app
-from app.utils.docker_client import DockerClientWrapper
+from app.utils.orchestrator_client import get_orchestrator_client
 from app.utils.database import db_service
+
+# Alias for compatibility
+DockerClientWrapper = type(get_orchestrator_client())
 
 logger = structlog.get_logger(__name__)
 

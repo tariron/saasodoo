@@ -322,9 +322,10 @@ async def _update_instance_database_info(instance_id: str, db_server_id: str, db
 
 async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, str]) -> Dict[str, Any]:
     """Deploy Bitnami Odoo container"""
-    
-    # Use auto-detection for socket connection
-    client = docker.from_env()
+
+    # Use orchestrator client (Docker Swarm or Kubernetes)
+    from app.utils.orchestrator_client import get_orchestrator_client
+    client = get_orchestrator_client()
 
     # Service naming for Swarm (changed from container_name)
     service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
@@ -354,10 +355,13 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
     cpu_limit = instance['cpu_limit']
     
     try:
-        # Pull Bitnami Odoo image
+        # Pull Bitnami Odoo image (Docker only - Kubernetes pulls automatically)
         odoo_version = instance.get('odoo_version', '17')
-        logger.info("Pulling Bitnami Odoo image", version=odoo_version)
-        client.images.pull(f'bitnamilegacy/odoo:{odoo_version}')
+        if hasattr(client, 'images'):
+            logger.info("Pulling Bitnami Odoo image", version=odoo_version)
+            client.images.pull(f'bitnamilegacy/odoo:{odoo_version}')
+        else:
+            logger.info("Kubernetes will pull image automatically", version=odoo_version)
 
         # Get storage limit from instance
         storage_limit = instance.get('storage_limit', '10G')
@@ -525,8 +529,9 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
     logger.info("Starting cleanup", instance_id=instance_id)
     
     try:
-        # Remove Docker service if created
-        client = docker.from_env()
+        # Remove orchestrator resources if created
+        from app.utils.orchestrator_client import get_orchestrator_client
+        client = get_orchestrator_client()
         service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
         try:
