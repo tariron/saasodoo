@@ -152,6 +152,11 @@ spec:
                 configMapKeyRef:
                   name: saasodoo-config
                   key: CELERY_POOL
+            - name: AUTO_START_MONITORING
+              valueFrom:
+                configMapKeyRef:
+                  name: saasodoo-config
+                  key: AUTO_START_MONITORING
           volumeMounts:
             - name: odoo-backups
               mountPath: /var/lib/odoo/backups

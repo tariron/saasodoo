@@ -1,39 +1,31 @@
 """
 Orchestrator client factory
-Returns appropriate client based on ORCHESTRATOR environment variable
+Returns Kubernetes client for container orchestration
 """
 
 import os
-from typing import Union
 
 # Global orchestrator client instance
 _orchestrator_client = None
 
 
-def get_orchestrator_client() -> Union['DockerClientWrapper', 'KubernetesClientWrapper']:
+def get_orchestrator_client():
     """
-    Get the appropriate orchestrator client based on environment
+    Get the Kubernetes client for orchestration
 
     Returns:
-        DockerClientWrapper for Docker/Swarm
-        KubernetesClientWrapper for Kubernetes
+        KubernetesClient instance
     """
     global _orchestrator_client
 
     if _orchestrator_client is None:
-        orchestrator = os.getenv('ORCHESTRATOR', 'docker').lower()
-
-        if orchestrator == 'kubernetes':
-            from .k8s_client import KubernetesClientWrapper
-            _orchestrator_client = KubernetesClientWrapper()
-        else:
-            from .docker_client import DockerClientWrapper
-            _orchestrator_client = DockerClientWrapper()
+        from .k8s_client import KubernetesClient
+        _orchestrator_client = KubernetesClient()
 
     return _orchestrator_client
 
 
-# Alias for backward compatibility
+# Backward compatibility alias
 def get_docker_client():
-    """Backward compatibility alias - returns orchestrator client"""
+    """Backward compatibility - returns Kubernetes client"""
     return get_orchestrator_client()

@@ -5,7 +5,6 @@ Instance lifecycle management tasks (start, stop, restart)
 import os
 import asyncio
 import asyncpg
-import docker
 from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID
@@ -13,6 +12,7 @@ from uuid import UUID
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
 from app.utils.notification_client import get_notification_client
+from app.utils.orchestrator_client import get_orchestrator_client
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -98,11 +98,15 @@ async def _start_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 3: Wait for Odoo to be accessible
         await _wait_for_odoo_startup(container_result, timeout=300)  # 300 seconds (5 minutes)
         logger.info("Odoo startup confirmed after start")
-        
+
         # Step 4: Update instance with current network info
         await _update_instance_network_info(instance_id, container_result)
 
-        # Step 5: Send instance started email (reconciliation will set RUNNING status)
+        # Step 5: Update status to RUNNING (health check passed)
+        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        logger.info("Instance status updated to RUNNING after health check")
+
+        # Step 6: Send instance started email
         logger.info("Attempting to send instance started email", user_info=user_info)
         if user_info:
             try:
@@ -213,11 +217,13 @@ async def _restart_instance_workflow(instance_id: str) -> Dict[str, Any]:
         # Step 3: Wait for Odoo to be accessible
         await _wait_for_odoo_startup(container_result, timeout=300)  # 300 seconds (5 minutes)
         logger.info("Odoo startup confirmed after restart")
-        
+
         # Step 4: Update instance with current network info
         await _update_instance_network_info(instance_id, container_result)
 
-        # Reconciliation will set RUNNING status based on Docker state
+        # Step 5: Update status to RUNNING (health check passed)
+        await _update_instance_status(instance_id, InstanceStatus.RUNNING)
+        logger.info("Instance status updated to RUNNING after health check")
 
         return {
             "status": "success",
@@ -256,193 +262,199 @@ async def _unpause_instance_workflow(instance_id: str) -> Dict[str, Any]:
 
 
 async def _restart_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Restart Docker service (force update)"""
-    client = docker.from_env()
+    """Restart Kubernetes deployment (delete pods, let deployment recreate them)"""
+    client = get_orchestrator_client()
 
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    service_name = f"{deployment_name}-service"
 
     try:
-        service = client.services.get(service_name)
+        logger.info("Restarting deployment (deleting pod)", deployment_name=deployment_name)
 
-        logger.info("Restarting service (force update)", service_name=service_name)
-        service.force_update()
+        # Get current pod name
+        pod_status = client.get_pod_status(deployment_name)
+        if not pod_status:
+            raise ValueError(f"No pod found for deployment {deployment_name}")
 
-        # Wait for new task to be running
-        for _ in range(30):  # 60 second timeout
-            await asyncio.sleep(2)
-            service.reload()
-            tasks = service.tasks(filters={'desired-state': 'running'})
+        pod_name = pod_status['name']
 
-            # Find most recent running task
-            running_tasks = [t for t in tasks if t['Status']['State'] == 'running']
-            if running_tasks:
-                newest_task = sorted(running_tasks, key=lambda t: t['CreatedAt'], reverse=True)[0]
-
-                # Extract network IP from task
-                internal_ip = None
-                network_attachments = newest_task.get('NetworksAttachments', [])
-                if network_attachments and network_attachments[0].get('Addresses'):
-                    internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
-
-                if not internal_ip:
-                    internal_ip = 'localhost'
-
-                return {
-                    'service_id': service.id,
-                    'service_name': service_name,
-                    'internal_ip': internal_ip,
-                    'internal_url': f'http://{internal_ip}:8069',
-                    'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        # Delete the pod - Kubernetes will automatically recreate it via the deployment
+        try:
+            client.core_v1.delete_namespaced_pod(
+                name=pod_name,
+                namespace=client.namespace
+            )
+            logger.info("Pod deleted, waiting for recreation", pod_name=pod_name)
+        except Exception as delete_error:
+            logger.warning("Failed to delete pod, trying deployment restart", error=str(delete_error))
+            # Fallback: Use kubectl-style rollout restart by patching deployment annotations
+            import time
+            client.apps_v1.patch_namespaced_deployment(
+                name=deployment_name,
+                namespace=client.namespace,
+                body={
+                    'spec': {
+                        'template': {
+                            'metadata': {
+                                'annotations': {
+                                    'kubectl.kubernetes.io/restartedAt': datetime.utcnow().isoformat()
+                                }
+                            }
+                        }
+                    }
                 }
+            )
 
-        raise RuntimeError("Service failed to restart within timeout")
+        # Wait for new pod to be running
+        deployment_ready = client.wait_for_deployment_ready(
+            deployment_name=deployment_name,
+            timeout=180
+        )
 
-    except docker.errors.NotFound:
-        raise ValueError(f"Service {service_name} not found. Instance may need reprovisioning.")
+        if not deployment_ready:
+            raise RuntimeError("Deployment failed to become ready after restart")
+
+        # Use Service DNS for internal URL
+        namespace = os.getenv('KUBERNETES_NAMESPACE', 'saasodoo')
+        service_dns = f"{service_name}.{namespace}.svc.cluster.local"
+
+        # Get new pod status
+        new_pod_status = client.get_pod_status(deployment_name)
+        service_id = new_pod_status['name'] if new_pod_status else deployment_name
+
+        return {
+            'service_id': service_id,
+            'service_name': deployment_name,
+            'service_dns': service_dns,
+            'internal_url': f'http://{service_dns}:8069',
+            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        }
+
     except Exception as e:
-        logger.error("Failed to restart service", service_name=service_name, error=str(e))
-        raise
+        if "not found" in str(e).lower() or "404" in str(e):
+            raise ValueError(f"Deployment {deployment_name} not found. Instance may need reprovisioning.")
+        else:
+            logger.error("Failed to restart deployment", deployment_name=deployment_name, error=str(e))
+            raise
 
 
 async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
-    """Start existing Docker service (scale to 1)"""
-    client = docker.from_env()
+    """Start existing Kubernetes deployment (scale to 1)"""
+    client = get_orchestrator_client()
 
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    service_name = f"{deployment_name}-service"
 
     try:
-        # Try to get existing service
-        service = client.services.get(service_name)
+        # Scale deployment to 1 replica
+        logger.info("Starting deployment (scaling to 1)", deployment_name=deployment_name)
 
-        logger.info("Starting service (scaling to 1)", service_name=service_name)
+        success = client.scale_deployment(deployment_name, replicas=1)
+        if not success:
+            raise RuntimeError(f"Failed to scale deployment {deployment_name}")
 
-        # Scale to 1 replica
-        service.update(mode={'Replicated': {'Replicas': 1}})
+        # Wait for deployment to be ready
+        deployment_ready = client.wait_for_deployment_ready(
+            deployment_name=deployment_name,
+            timeout=180
+        )
 
-        # Wait for task to be running
-        for _ in range(30):  # 60 second timeout
-            await asyncio.sleep(2)
-            service.reload()
-            tasks = service.tasks(filters={'desired-state': 'running'})
+        if not deployment_ready:
+            raise RuntimeError("Deployment failed to become ready within timeout")
 
-            running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
-            if running_task:
-                # Extract network IP from task
-                internal_ip = None
-                network_attachments = running_task.get('NetworksAttachments', [])
-                if network_attachments and network_attachments[0].get('Addresses'):
-                    internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
+        # Use Service DNS for internal URL
+        namespace = os.getenv('KUBERNETES_NAMESPACE', 'saasodoo')
+        service_dns = f"{service_name}.{namespace}.svc.cluster.local"
 
-                if not internal_ip:
-                    internal_ip = 'localhost'
+        # Get pod status to retrieve deployment UID
+        pod_status = client.get_pod_status(deployment_name)
+        service_id = pod_status['name'] if pod_status else deployment_name
 
-                return {
-                    'service_id': service.id,
-                    'service_name': service_name,
-                    'internal_ip': internal_ip,
-                    'internal_url': f'http://{internal_ip}:8069',
-                    'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        return {
+            'service_id': service_id,
+            'service_name': deployment_name,
+            'service_dns': service_dns,
+            'internal_url': f'http://{service_dns}:8069',
+            'external_url': f'http://{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}'
+        }
+
+    except Exception as e:
+        # Check if deployment doesn't exist
+        if "not found" in str(e).lower() or "404" in str(e):
+            # Deployment doesn't exist - this can happen after termination/reactivation
+            # Fall back to provisioning a new deployment
+            logger.info("Deployment not found, falling back to provisioning", deployment_name=deployment_name)
+            from app.tasks.provisioning import _deploy_odoo_container, _create_odoo_database
+
+            # Create database if it doesn't exist
+            try:
+                db_info = await _create_odoo_database(instance)
+                logger.info("Database created/verified", database=instance['database_name'])
+            except Exception as db_e:
+                logger.warning("Database creation failed, assuming it exists", error=str(db_e))
+                db_info = {
+                    'db_host': os.getenv('POSTGRES_HOST', 'postgres'),
+                    'db_port': int(os.getenv('POSTGRES_PORT', '5432')),
+                    'db_name': instance['database_name'],
+                    'db_user': instance['database_name'],
+                    'db_password': instance.get('database_password', 'odoo_pass')
                 }
 
-        raise RuntimeError("Service failed to start within timeout")
-
-    except docker.errors.NotFound:
-        # Service doesn't exist - this can happen after termination/reactivation
-        # Fall back to provisioning a new service
-        logger.info("Service not found, falling back to provisioning", service_name=service_name)
-        from app.tasks.provisioning import _deploy_odoo_container, _create_odoo_database
-
-        # Create database if it doesn't exist
-        try:
-            db_info = await _create_odoo_database(instance)
-            logger.info("Database created/verified", database=instance['database_name'])
-        except Exception as db_e:
-            logger.warning("Database creation failed, assuming it exists", error=str(db_e))
-            db_info = {
-                'db_host': os.getenv('POSTGRES_HOST', 'postgres'),
-                'db_port': int(os.getenv('POSTGRES_PORT', '5432')),
-                'db_name': instance['database_name'],
-                'db_user': instance['database_name'],
-                'db_password': instance.get('database_password', 'odoo_pass')
-            }
-
-        # Deploy new service
-        service_result = await _deploy_odoo_container(instance, db_info)
-        logger.info("New service deployed after missing service", service_id=service_result['service_id'])
-        return service_result
-    except Exception as e:
-        logger.error("Failed to start service", service_name=service_name, error=str(e))
-        raise
+            # Deploy new deployment
+            service_result = await _deploy_odoo_container(instance, db_info)
+            logger.info("New deployment created after missing deployment", service_id=service_result['service_id'])
+            return service_result
+        else:
+            logger.error("Failed to start deployment", deployment_name=deployment_name, error=str(e))
+            raise
 
 
 async def _stop_docker_container(instance: Dict[str, Any]):
-    """Stop Docker service gracefully (scale to 0) and wait for verification"""
-    client = docker.from_env()
+    """Stop Kubernetes deployment gracefully (scale to 0) and wait for verification"""
+    client = get_orchestrator_client()
 
-    service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
+    deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
     try:
-        service = client.services.get(service_name)
-
-        logger.info("Stopping service (scaling to 0)", service_name=service_name)
+        logger.info("Stopping deployment (scaling to 0)", deployment_name=deployment_name)
 
         # Scale to 0 replicas
-        service.update(mode={'Replicated': {'Replicas': 0}})
+        success = client.scale_deployment(deployment_name, replicas=0)
+        if not success:
+            raise RuntimeError(f"Failed to scale deployment {deployment_name} to 0")
 
-        # Wait for all tasks to reach shutdown state
+        # Wait for pods to terminate (check deployment scale)
         for attempt in range(30):  # 60 second timeout
             await asyncio.sleep(2)
-            service.reload()
-            tasks = service.tasks()
 
-            # Check if all tasks are in terminal states
-            terminal_states = ['shutdown', 'failed', 'rejected', 'orphaned', 'remove']
-            active_tasks = [t for t in tasks if t['Status']['State'] not in terminal_states]
-
-            if not active_tasks:
-                logger.info("All tasks stopped successfully", service_name=service_name)
+            # Check pod status - should be None when scaled to 0
+            pod_status = client.get_pod_status(deployment_name)
+            if pod_status is None:
+                logger.info("All pods stopped successfully", deployment_name=deployment_name)
                 return
 
             logger.debug(
-                "Waiting for tasks to stop",
-                service_name=service_name,
-                active_count=len(active_tasks),
+                "Waiting for pods to stop",
+                deployment_name=deployment_name,
                 attempt=attempt + 1,
-                states=[t['Status']['State'] for t in active_tasks]
+                pod_status=pod_status
             )
 
         # If we get here, timeout occurred
-        raise RuntimeError(f"Service failed to stop within timeout (60s): {len(active_tasks)} tasks still active")
+        raise RuntimeError(f"Deployment failed to scale down within timeout (60s)")
 
-    except docker.errors.NotFound:
-        logger.warning("Service not found during stop", service_name=service_name)
     except Exception as e:
-        logger.error("Failed to stop service", service_name=service_name, error=str(e))
-        raise
+        if "not found" in str(e).lower() or "404" in str(e):
+            logger.warning("Deployment not found during stop", deployment_name=deployment_name)
+        else:
+            logger.error("Failed to stop deployment", deployment_name=deployment_name, error=str(e))
+            raise
 
 
 async def _unpause_docker_container(instance: Dict[str, Any]):
-    """Unpause Docker service (Swarm doesn't support pause, so we map to start)"""
-    logger.info("Swarm doesn't support pause/unpause - mapping unpause to start")
+    """Unpause Kubernetes deployment (Kubernetes doesn't support pause, so we map to start)"""
+    logger.info("Kubernetes doesn't support pause/unpause - mapping unpause to start")
     return await _start_docker_container(instance)
-
-
-def _get_container_ip(container) -> str:
-    """Extract container IP address"""
-    container.reload()
-    
-    # Try saasodoo-network first
-    if 'saasodoo-network' in container.attrs['NetworkSettings']['Networks']:
-        network_info = container.attrs['NetworkSettings']['Networks']['saasodoo-network']
-        return network_info['IPAddress']
-    
-    # Fallback to first available network
-    networks = container.attrs['NetworkSettings']['Networks']
-    if networks:
-        first_network = next(iter(networks.values()))
-        return first_network['IPAddress']
-    
-    return 'localhost'  # Final fallback
 
 
 # ===== DATABASE UTILITIES (duplicated from provisioning.py for now) =====

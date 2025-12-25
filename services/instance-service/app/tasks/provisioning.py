@@ -5,7 +5,6 @@ Instance provisioning background tasks
 import os
 import asyncio
 import asyncpg
-import docker
 import subprocess
 import shutil
 from datetime import datetime
@@ -355,19 +354,15 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
     cpu_limit = instance['cpu_limit']
     
     try:
-        # Pull Bitnami Odoo image (Docker only - Kubernetes pulls automatically)
+        # Kubernetes automatically pulls images
         odoo_version = instance.get('odoo_version', '17')
-        if hasattr(client, 'images'):
-            logger.info("Pulling Bitnami Odoo image", version=odoo_version)
-            client.images.pull(f'bitnamilegacy/odoo:{odoo_version}')
-        else:
-            logger.info("Kubernetes will pull image automatically", version=odoo_version)
+        logger.info("Kubernetes will pull image automatically", version=odoo_version)
 
         # Get storage limit from instance
         storage_limit = instance.get('storage_limit', '10G')
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
 
-        # Create CephFS directory with quota for direct bind mount
+        # Create CephFS directory with quota for persistent storage
         cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
         _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
         logger.info("Created CephFS directory with quota",
@@ -375,86 +370,60 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
                    storage_limit=storage_limit,
                    path=cephfs_path)
 
-        # Create Swarm service with persistent volume
-        import asyncio
+        # Prepare labels
+        labels = {
+            'saasodoo.instance.id': str(instance['id']),
+            'saasodoo.instance.name': instance['name'],
+            'saasodoo.customer.id': str(instance['customer_id']),
+        }
 
-        # Create resources specification
-        # Convert memory limit from string like "2G" to bytes
-        mem_limit_bytes = _parse_size_to_bytes(mem_limit) if isinstance(mem_limit, str) else mem_limit
-        resources = docker.types.Resources(
-            cpu_limit=int(cpu_limit * 1_000_000_000),  # Convert to nanocpus
-            mem_limit=mem_limit_bytes
-        )
+        # Prepare ingress hostname
+        ingress_host = f"{instance['database_name']}.{os.getenv('BASE_DOMAIN', 'saasodoo.local')}"
 
-        # Create mount for CephFS directory (direct bind mount)
-        mount = docker.types.Mount(
-            target='/bitnami/odoo',
-            source=cephfs_path,
-            type='bind'
-        )
+        # Create Kubernetes resources using native API
+        logger.info("Creating Kubernetes resources",
+                   instance_name=service_name,
+                   image=f'bitnamilegacy/odoo:{odoo_version}')
 
-        # Create service
-        service = client.services.create(
+        result = client.create_odoo_instance(
+            instance_name=service_name,
+            instance_id=str(instance['id']),
             image=f'bitnamilegacy/odoo:{odoo_version}',
-            name=service_name,
-            env=environment,  # Note: env is dict for services, not list
-            resources=resources,
-            mode=docker.types.ServiceMode('replicated', replicas=1),
-            mounts=[mount],
-            networks=['saasodoo-network'],
-            labels={
-                'saasodoo.instance.id': str(instance['id']),
-                'saasodoo.instance.name': instance['name'],
-                'saasodoo.customer.id': str(instance['customer_id']),
-                # Traefik labels for automatic routing
-                'traefik.enable': 'true',
-                f'traefik.http.routers.{service_name}.rule': f'Host(`{instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}`)',
-                f'traefik.http.routers.{service_name}.service': service_name,
-                f'traefik.http.services.{service_name}.loadbalancer.server.port': '8069',
-            },
-            restart_policy=docker.types.RestartPolicy(condition='any')
+            env_vars=environment,
+            cpu_limit=str(cpu_limit),
+            memory_limit=mem_limit,
+            storage_path=cephfs_path,
+            ingress_host=ingress_host,
+            labels=labels
         )
 
-        logger.info("Service created", service_id=service.id, service_name=service_name)
+        logger.info("Kubernetes resources created",
+                   deployment_uid=result['deployment_uid'],
+                   service_name=result['service_name'],
+                   service_dns=result['service_dns'])
 
-        # Wait for task to start
-        await asyncio.sleep(5)  # Give Swarm time to schedule
+        # Wait for deployment to be ready
+        logger.info("Waiting for deployment to be ready", deployment=service_name)
+        deployment_ready = client.wait_for_deployment_ready(
+            deployment_name=service_name,
+            timeout=180  # 3 minutes for image pull + pod startup
+        )
 
-        # Get running task information
-        service.reload()
-        tasks = service.tasks()
+        if not deployment_ready:
+            raise Exception(f"Deployment {service_name} did not become ready within timeout")
 
-        running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
+        logger.info("Deployment is ready", deployment=service_name)
 
-        # If no running task yet, wait a bit more
-        if not running_task:
-            max_wait = 120  # 2 minutes for image pull + container startup
-            waited = 5
-            while waited < max_wait and not running_task:
-                await asyncio.sleep(5)
-                waited += 5
-                service.reload()
-                tasks = service.tasks()
-                running_task = next((t for t in tasks if t['Status']['State'] == 'running'), None)
-
-        if not running_task:
-            raise Exception(f"Service {service_name} failed to start a running task within {max_wait} seconds")
-
-        # Extract task information
-        internal_ip = None
-        network_attachments = running_task.get('NetworksAttachments', [])
-        if network_attachments and network_attachments[0].get('Addresses'):
-            internal_ip = network_attachments[0]['Addresses'][0].split('/')[0]
-
-        if not internal_ip:
-            internal_ip = 'localhost'  # Fallback
+        # Use Service DNS for health checks (more reliable than pod IP)
+        service_dns = result['service_dns']
+        internal_url = f"http://{service_dns}:8069"
 
         return {
-            'service_id': service.id,
+            'service_id': result['deployment_uid'],
             'service_name': service_name,
-            'internal_ip': internal_ip,
-            'internal_url': f'http://{internal_ip}:8069',
-            'external_url': f'http://{instance.get("subdomain") or instance["database_name"]}.{os.getenv("BASE_DOMAIN", "saasodoo.local")}',
+            'service_dns': service_dns,
+            'internal_url': internal_url,
+            'external_url': f'http://{ingress_host}',
             'admin_password': generated_password  # Return generated password for email
         }
         
@@ -529,17 +498,18 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
     logger.info("Starting cleanup", instance_id=instance_id)
     
     try:
-        # Remove orchestrator resources if created
+        # Remove Kubernetes resources if created
         from app.utils.orchestrator_client import get_orchestrator_client
         client = get_orchestrator_client()
         service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
         try:
-            service = client.services.get(service_name)
-            service.remove()
-            logger.info("Service cleaned up", service_name=service_name)
-        except docker.errors.NotFound:
-            pass  # Service doesn't exist
+            deleted = client.delete_instance(service_name)
+            if deleted:
+                logger.info("Kubernetes resources cleaned up", instance_name=service_name)
+        except Exception as e:
+            logger.warning("Failed to delete Kubernetes resources",
+                         instance_name=service_name, error=str(e))
 
         # Clean up CephFS directory if created
         volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"

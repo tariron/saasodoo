@@ -22,7 +22,7 @@ from app.tasks.monitoring import (
     reconcile_instance_statuses_task,
     update_instance_status_from_event,
     _monitoring_active,
-    _docker_monitor
+    _k8s_monitor
 )
 
 logger = structlog.get_logger(__name__)
@@ -39,12 +39,12 @@ def get_database(request: Request) -> InstanceDatabase:
 async def get_monitoring_status():
     """Get current monitoring service status"""
     try:
-        global _monitoring_active, _docker_monitor
-        
+        global _monitoring_active, _k8s_monitor
+
         # Determine current status
-        if _monitoring_active and _docker_monitor.is_running:
+        if _monitoring_active and _k8s_monitor.is_running:
             status = MonitoringStatus.RUNNING
-        elif _monitoring_active and not _docker_monitor.is_running:
+        elif _monitoring_active and not _k8s_monitor.is_running:
             status = MonitoringStatus.ERROR  # Should be running but isn't
         else:
             status = MonitoringStatus.STOPPED
