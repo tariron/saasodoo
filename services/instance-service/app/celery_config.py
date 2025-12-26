@@ -62,12 +62,13 @@ def start_monitoring_on_worker_ready(sender, **kwargs):
     auto_start = os.getenv('AUTO_START_MONITORING', 'true').lower() == 'true'
 
     if auto_start:
-        logger.info("Worker ready - auto-starting Docker event monitoring")
+        logger.info("Worker ready - auto-starting Docker event monitoring (delayed 5s)")
         from app.tasks.monitoring import monitor_docker_events_task
 
         try:
-            task = monitor_docker_events_task.delay()
-            logger.info(f"Docker event monitoring started from worker: {task.id}")
+            # Delay 5s to ensure old workers are terminated during rolling updates
+            task = monitor_docker_events_task.apply_async(countdown=5)
+            logger.info(f"Docker event monitoring queued with 5s delay: {task.id}")
         except Exception as e:
             logger.error(f"Failed to start monitoring from worker: {e}")
     else:

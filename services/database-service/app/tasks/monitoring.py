@@ -10,10 +10,7 @@ from datetime import datetime, timedelta
 
 from app.celery_config import celery_app
 from app.utils.database import db_service
-from app.utils.orchestrator_client import get_orchestrator_client
-
-# Alias for compatibility
-DockerClientWrapper = type(get_orchestrator_client())
+from app.utils.k8s_client import PostgreSQLKubernetesClient
 
 logger = structlog.get_logger(__name__)
 
@@ -251,7 +248,7 @@ async def _cleanup_failed_pools_async():
     try:
         logger.info("Starting failed pools cleanup task")
 
-        docker_client = DockerClientWrapper()
+        k8s_client = PostgreSQLKubernetesClient()
 
         if not db_service.pool:
             await db_service.connect()
@@ -282,14 +279,14 @@ async def _cleanup_failed_pools_async():
                 service_id = pool['swarm_service_id']
 
                 try:
-                    # Remove Docker service
+                    # Remove Kubernetes StatefulSet
                     if service_id:
                         try:
-                            removed = docker_client.remove_service(service_id)
+                            removed = k8s_client.remove_service(service_id)
                             if removed:
                                 results['removed_services'] += 1
                                 logger.info(
-                                    "Docker service removed",
+                                    "Kubernetes StatefulSet removed",
                                     pool_name=pool_name,
                                     service_id=service_id
                                 )

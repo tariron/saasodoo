@@ -12,11 +12,8 @@ from celery import Task
 from celery.exceptions import Reject
 
 from app.celery_config import celery_app
-from app.utils.orchestrator_client import get_orchestrator_client
+from app.utils.k8s_client import PostgreSQLKubernetesClient
 from app.utils.database import db_service
-
-# Alias for compatibility
-DockerClientWrapper = type(get_orchestrator_client())
 
 logger = structlog.get_logger(__name__)
 
@@ -24,19 +21,19 @@ logger = structlog.get_logger(__name__)
 class ProvisioningTask(Task):
     """
     Base task class for provisioning operations
-    Provides Docker client initialization and error handling
+    Provides Kubernetes client initialization and error handling
     """
 
     def __init__(self):
         super().__init__()
-        self._docker_client = None
+        self._k8s_client = None
 
     @property
-    def docker_client(self):
-        """Lazy initialization of Docker client"""
-        if self._docker_client is None:
-            self._docker_client = DockerClientWrapper()
-        return self._docker_client
+    def k8s_client(self):
+        """Lazy initialization of Kubernetes client"""
+        if self._k8s_client is None:
+            self._k8s_client = PostgreSQLKubernetesClient()
+        return self._k8s_client
 
 
 @celery_app.task(
@@ -176,7 +173,7 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
 
             # Step 5: Create Docker Swarm service
             try:
-                service_info = self.docker_client.create_postgres_pool_service(
+                service_info = self.k8s_client.create_postgres_pool_service(
                     pool_name=pool_name,
                     postgres_password=admin_password,
                     storage_path=storage_path,
@@ -224,7 +221,7 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
 
             # Step 6: Wait for service health
             try:
-                healthy = self.docker_client.wait_for_service_ready(
+                healthy = self.k8s_client.wait_for_service_ready(
                     service_id=service_id,
                     timeout=180,  # 3 minutes
                     check_interval=10
@@ -435,7 +432,7 @@ async def _provision_dedicated_server_workflow(
 
             # Step 5: Create Docker service with same resources as shared pools
             try:
-                service_info = self.docker_client.create_postgres_pool_service(
+                service_info = self.k8s_client.create_postgres_pool_service(
                     pool_name=server_name,
                     postgres_password=admin_password,
                     storage_path=storage_path,
@@ -470,7 +467,7 @@ async def _provision_dedicated_server_workflow(
                 raise
 
             # Step 6: Wait for health
-            healthy = self.docker_client.wait_for_service_ready(
+            healthy = self.k8s_client.wait_for_service_ready(
                 service_id=service_id,
                 timeout=180
             )

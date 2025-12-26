@@ -884,23 +884,22 @@ async def _restore_instance(instance_id: UUID, db: InstanceDatabase, parameters:
 
 
 async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
-    """Suspend instance due to billing issues - ACTUALLY stops the container"""
+    """Suspend instance due to billing issues - ACTUALLY stops the deployment"""
     from datetime import datetime
-    import docker
-    
+
     try:
         # Get current instance to check if it needs to be stopped first
         instance = await db.get_instance(instance_id)
         if not instance:
             raise Exception("Instance not found")
-        
-        # If instance is running, stop the actual Docker container first
-        if instance.status == InstanceStatus.RUNNING:
-            logger.info("Stopping running instance container before suspension", instance_id=str(instance_id))
 
-            # Use the same Docker stopping logic as the lifecycle module
-            await _stop_container_for_suspension(instance)
-            logger.info("Container stopped for suspension", instance_id=str(instance_id))
+        # If instance is running, stop the actual Kubernetes deployment first
+        if instance.status == InstanceStatus.RUNNING:
+            logger.info("Stopping running instance deployment before suspension", instance_id=str(instance_id))
+
+            # Use Kubernetes scaling to stop deployment
+            await _stop_deployment_for_suspension(instance)
+            logger.info("Deployment stopped for suspension", instance_id=str(instance_id))
 
         # Update status to suspended
         await db.update_instance_status(instance_id, InstanceStatus.PAUSED, "Instance suspended due to billing issues")
@@ -926,9 +925,8 @@ async def _suspend_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
 
 
 async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
-    """Terminate instance permanently - stops container and sets status to terminated"""
+    """Terminate instance permanently - stops deployment and sets status to terminated"""
     from datetime import datetime
-    import docker
 
     print(f"DEBUG: _terminate_instance called for {instance_id}")
 
@@ -940,20 +938,20 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
 
         print(f"DEBUG: Instance current status: {instance.status}")
 
-        # If instance has a Docker container that might exist, stop it first
-        container_states = [InstanceStatus.RUNNING, InstanceStatus.STOPPED, InstanceStatus.STARTING,
+        # If instance has a deployment that might exist, stop it first
+        deployment_states = [InstanceStatus.RUNNING, InstanceStatus.STOPPED, InstanceStatus.STARTING,
                           InstanceStatus.STOPPING, InstanceStatus.PAUSED, InstanceStatus.RESTARTING]
-        # Note: CONTAINER_MISSING is not included as there's no container to stop
+        # Note: CONTAINER_MISSING is not included as there's no deployment to stop
 
-        if instance.status in container_states:
-            print(f"DEBUG: Instance in container_states, attempting to stop container")
-            logger.info("Stopping instance container before termination",
+        if instance.status in deployment_states:
+            print(f"DEBUG: Instance in deployment_states, attempting to stop deployment")
+            logger.info("Stopping instance deployment before termination",
                        instance_id=str(instance_id), current_status=instance.status)
 
-            # Use the same Docker stopping logic as the lifecycle module
-            await _stop_container_for_suspension(instance)
-            print(f"DEBUG: Container stop completed")
-            logger.info("Container stopped for termination", instance_id=str(instance_id))
+            # Use Kubernetes scaling to stop deployment
+            await _stop_deployment_for_suspension(instance)
+            print(f"DEBUG: Deployment stop completed")
+            logger.info("Deployment stopped for termination", instance_id=str(instance_id))
 
         # Update status to terminated (permanent)
         print(f"DEBUG: About to update status to TERMINATED")
@@ -1144,40 +1142,44 @@ async def provision_instance_from_webhook(
         raise HTTPException(status_code=500, detail=f"Failed to trigger provisioning: {str(e)}")
 
 
-async def _stop_container_for_suspension(instance):
-    """Stop Docker container for suspension - copied from lifecycle.py logic"""
-    import docker
+async def _stop_deployment_for_suspension(instance):
+    """Stop Kubernetes deployment for suspension - scale to 0"""
     import asyncio
-    
-    client = docker.from_env()
-    container_name = f"odoo_{instance.database_name}_{str(instance.id).replace('-', '')[:8]}"
-    
+
+    deployment_name = f"odoo-{instance.database_name}-{instance.id.hex[:8]}"
+
     try:
-        container = client.containers.get(container_name)
-        
-        if container.status not in ['running']:
-            logger.info("Container already stopped", container_name=container_name, status=container.status)
+        k8s_client = KubernetesClient()
+
+        # Check current replicas
+        deployment = k8s_client.apps_v1.read_namespaced_deployment(
+            name=deployment_name,
+            namespace=k8s_client.namespace
+        )
+
+        if deployment.spec.replicas == 0:
+            logger.info("Deployment already scaled to 0", deployment_name=deployment_name)
             return
-        
-        logger.info("Stopping container for suspension", container_name=container_name)
-        container.stop(timeout=30)  # 30 second graceful shutdown
-        
-        # Wait for container to stop
-        for _ in range(35):  # 35 second timeout (30 + 5 buffer)
-            container.reload()
-            if container.status in ['exited', 'stopped']:
-                break
+
+        logger.info("Scaling deployment to 0 for suspension", deployment_name=deployment_name)
+
+        # Scale to 0 replicas
+        success = k8s_client.scale_deployment(deployment_name, replicas=0)
+
+        if not success:
+            raise Exception(f"Failed to scale deployment {deployment_name} to 0")
+
+        # Wait for pods to terminate (30 second timeout)
+        for _ in range(30):
             await asyncio.sleep(1)
-        else:
-            logger.warning("Container did not stop gracefully, forcing stop", container_name=container_name)
-            container.kill()
-        
-        logger.info("Container stopped for suspension", container_name=container_name)
-        
-    except docker.errors.NotFound:
-        logger.warning("Container not found during suspension stop", container_name=container_name)
+            pod_status = k8s_client.get_pod_status(deployment_name)
+            if not pod_status:
+                break
+
+        logger.info("Deployment stopped for suspension", deployment_name=deployment_name)
+
     except Exception as e:
-        logger.error("Failed to stop container for suspension", container_name=container_name, error=str(e))
+        logger.error("Failed to stop deployment for suspension", deployment_name=deployment_name, error=str(e))
         raise
 
 
@@ -1305,7 +1307,7 @@ async def apply_resource_upgrade(
     import subprocess
     # Import helper from provisioning task
     from app.tasks.provisioning import _parse_size_to_bytes
-    from app.utils.orchestrator_client import get_docker_client  # Uses orchestrator abstraction
+    from app.utils.k8s_client import KubernetesClient
 
     try:
         print(f"DEBUG: Inside try block for {instance_id}")
@@ -1359,11 +1361,10 @@ async def apply_resource_upgrade(
             # Parse memory limit to bytes
             memory_bytes = _parse_size_to_bytes(memory_limit)
 
-            # Get Docker client and update SERVICE (not container)
-            docker_client = get_docker_client()
-            
-            # FIX: Use update_service_resources instead of update_container_resources
-            success = docker_client.update_service_resources(service_name, cpu_limit, memory_bytes)
+            # Update Kubernetes deployment resources
+            k8s_client = KubernetesClient()
+
+            success = k8s_client.update_deployment_resources(service_name, cpu_limit, memory_bytes)
 
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to update service resources")

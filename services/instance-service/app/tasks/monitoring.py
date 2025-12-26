@@ -25,7 +25,7 @@ from kubernetes.client.rest import ApiException
 
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
-from app.utils.orchestrator_client import get_orchestrator_client
+from app.utils.k8s_client import KubernetesClient
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +67,8 @@ class KubernetesPodMonitor:
     def _init_k8s_client(self):
         """Initialize Kubernetes client with error handling"""
         try:
-            self.k8s_client = get_orchestrator_client()
+            from app.utils.k8s_client import KubernetesClient
+            self.k8s_client = KubernetesClient()
             self.core_v1 = self.k8s_client.core_v1
             # Test connection by listing pods
             self.core_v1.list_namespaced_pod(
@@ -384,29 +385,89 @@ class KubernetesPodMonitor:
         self.stop_event.set()
 
     def _monitor_events(self):
-        """Main event monitoring loop using Kubernetes Watch API (runs in separate thread)"""
-        try:
-            logger.info("Kubernetes event monitor thread started")
+        """
+        Main event monitoring loop using Kubernetes Watch API (runs in separate thread)
 
-            w = watch.Watch()
-            for event in w.stream(
-                self.core_v1.list_namespaced_pod,
-                namespace=self.namespace,
-                label_selector="app=odoo",
-                timeout_seconds=0  # Never timeout, watch indefinitely
-            ):
-                if self.stop_event.is_set():
-                    logger.info("Stop event received, exiting monitor loop")
-                    w.stop()
-                    break
+        Implements automatic reconnection with resource version tracking to handle:
+        - Normal watch timeouts (every 1 hour)
+        - Network failures (socket timeout after 60s)
+        - Resource version expiration (410 Gone errors)
+        - Graceful shutdown via stop_event
+        """
+        resource_version = None
+        retry_count = 0
+        max_retries = 3
 
-                self._process_pod_event(event)
+        logger.info("Kubernetes event monitor thread started")
 
-        except Exception as e:
-            logger.error("Kubernetes event monitoring failed", error=str(e))
-            self.is_running = False
-        finally:
-            logger.info("Kubernetes pod event monitoring stopped")
+        while not self.stop_event.is_set():
+            try:
+                logger.info("Starting watch stream",
+                           resource_version=resource_version,
+                           retry_count=retry_count)
+
+                w = watch.Watch()
+                for event in w.stream(
+                    self.core_v1.list_namespaced_pod,
+                    namespace=self.namespace,
+                    label_selector="app=odoo",
+                    timeout_seconds=3600,      # Server-side timeout: 1 hour (auto-reconnects after)
+                    resource_version=resource_version  # Resume from last seen event
+                ):
+                    if self.stop_event.is_set():
+                        logger.info("Stop event received, exiting monitor loop")
+                        w.stop()
+                        return
+
+                    # Track resource version for reconnection (prevents duplicate events)
+                    resource_version = event['object'].metadata.resource_version
+
+                    self._process_pod_event(event)
+                    retry_count = 0  # Reset retry counter on successful event processing
+
+                # Stream ended normally (timeout reached) - reconnect immediately
+                logger.info("Watch stream ended normally (timeout), reconnecting in 1s...")
+                time.sleep(1)  # Brief pause before reconnect
+
+            except ApiException as e:
+                if e.status == 410:
+                    # 410 Gone - resource version too old
+                    logger.warning("Resource version too old (410 Gone), resetting to re-list",
+                                 resource_version=resource_version,
+                                 error=str(e))
+                    resource_version = None  # Reset to get fresh list from current state
+                    time.sleep(1)
+                else:
+                    logger.error("Kubernetes API exception in watch stream",
+                               error=str(e),
+                               status=e.status,
+                               retry_count=retry_count)
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        logger.error("Max API retries exceeded, stopping monitoring",
+                                   max_retries=max_retries)
+                        self.is_running = False
+                        return
+                    backoff = min(2 ** retry_count, 60)  # Exponential backoff, max 60s
+                    logger.info("Retrying watch stream after backoff", backoff_seconds=backoff)
+                    time.sleep(backoff)
+
+            except Exception as e:
+                logger.error("Unexpected error in watch stream",
+                           error=str(e),
+                           error_type=type(e).__name__,
+                           retry_count=retry_count)
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error("Max retries exceeded due to unexpected errors, stopping monitoring",
+                               max_retries=max_retries)
+                    self.is_running = False
+                    return
+                backoff = min(2 ** retry_count, 60)
+                logger.info("Retrying watch stream after backoff", backoff_seconds=backoff)
+                time.sleep(backoff)
+
+        logger.info("Kubernetes pod event monitoring stopped (stop_event set)")
 
 
 # Global monitor instance

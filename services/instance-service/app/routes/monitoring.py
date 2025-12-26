@@ -15,7 +15,7 @@ from app.models.events import (
     EventFilterConfig, MonitoringStatus
 )
 from app.utils.database import InstanceDatabase
-from app.utils.orchestrator_client import get_docker_client  # Uses orchestrator abstraction
+from app.utils.k8s_client import KubernetesClient
 from app.tasks.monitoring import (
     monitor_docker_events_task,
     stop_docker_events_monitoring_task,
@@ -49,13 +49,22 @@ async def get_monitoring_status():
             status = MonitoringStatus.STOPPED
         
         # Get basic statistics
-        docker_client = get_docker_client()
-        saasodoo_containers = docker_client.list_saasodoo_containers()
-        
+        # Count Odoo deployments in namespace
+        try:
+            k8s_client = KubernetesClient()
+            deployments = k8s_client.apps_v1.list_namespaced_deployment(
+                namespace=k8s_client.namespace,
+                label_selector="app=odoo"
+            )
+            deployment_count = len(deployments.items)
+        except Exception as e:
+            logger.warning("Failed to count deployments", error=str(e))
+            deployment_count = 0
+
         return MonitoringServiceStatus(
             status=status,
             started_at=datetime.utcnow() if status == MonitoringStatus.RUNNING else None,
-            containers_monitored=len(saasodoo_containers),
+            containers_monitored=deployment_count,
             total_events_processed=0,  # Would be tracked in production
             successful_events=0,
             failed_events=0,
@@ -211,10 +220,11 @@ async def reconcile_statuses(request: ReconciliationRequest = ReconciliationRequ
 
 @router.get("/containers", response_model=List[ContainerStatusInfo])
 async def list_monitored_containers():
-    """List all monitored SaaS Odoo containers"""
+    """List all monitored SaaS Odoo deployments"""
     try:
-        docker_client = get_docker_client()
-        containers = docker_client.list_saasodoo_containers()
+        k8s_client = KubernetesClient()
+        # TODO: List all Odoo deployments
+        containers = []
         
         container_status_list = []
         for container in containers:
@@ -249,37 +259,30 @@ async def list_monitored_containers():
 
 @router.get("/containers/{container_name}/status", response_model=ContainerStatusInfo)
 async def get_container_status(container_name: str):
-    """Get detailed status for a specific container"""
+    """Get detailed status for a specific pod"""
     try:
-        docker_client = get_docker_client()
-        
-        # Check if it's a SaaS Odoo container
-        if not docker_client.is_saasodoo_container(container_name):
-            raise HTTPException(status_code=400, detail="Not a SaaS Odoo container")
-        
-        # Get container info
-        container_info = docker_client.get_container_info(container_name)
-        if not container_info:
-            raise HTTPException(status_code=404, detail="Container not found")
-        
-        # Get health check info
-        health_info = docker_client.container_health_check(container_name)
-        
+        k8s_client = KubernetesClient()
+
+        # Get pod status
+        pod_status = k8s_client.get_pod_status(container_name)
+        if not pod_status:
+            raise HTTPException(status_code=404, detail="Pod not found")
+
         # Parse started_at
         started_at = None
-        if container_info.get('started_at'):
+        if pod_status.get('started_at'):
             try:
-                started_at = datetime.fromisoformat(container_info['started_at'].replace('Z', '+00:00'))
+                started_at = datetime.fromisoformat(pod_status['started_at'].replace('Z', '+00:00'))
             except:
                 pass
         
         return ContainerStatusInfo(
             container_name=container_name,
-            container_id=container_info.get('container_id'),
-            docker_status=container_info['status'],
-            is_healthy=health_info.get('healthy', False),
-            uptime_seconds=health_info.get('uptime'),
-            restart_count=health_info.get('restart_count', 0),
+            container_id=pod_status.get('pod_name'),
+            docker_status=pod_status.get('phase', 'Unknown'),
+            is_healthy=pod_status.get('ready', False),
+            uptime_seconds=None,
+            restart_count=0,
             started_at=started_at
         )
         
@@ -362,35 +365,26 @@ async def get_task_status(task_id: str):
 
 @router.post("/containers/{container_name}/sync")
 async def sync_container_status(container_name: str):
-    """Manually sync a specific container's status"""
+    """Manually sync a specific deployment's status"""
     try:
-        if not get_docker_client().is_saasodoo_container(container_name):
-            raise HTTPException(status_code=400, detail="Not a SaaS Odoo container")
-        
-        logger.info("Manual container status sync requested", container=container_name)
-        
-        # Get container metadata
-        docker_client = get_docker_client()
-        container_metadata = docker_client.extract_container_metadata(container_name)
-        if not container_metadata:
-            raise HTTPException(status_code=400, detail="Invalid container name format")
-        
-        # Get container status
-        container_status = docker_client.get_container_status(container_name)
-        if container_status is None:
-            raise HTTPException(status_code=404, detail="Container not found")
-        
+        logger.info("Manual deployment status sync requested", deployment=container_name)
+
+        k8s_client = KubernetesClient()
+
+        # Get pod status
+        pod_status = k8s_client.get_pod_status(container_name)
+        if not pod_status:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+
         # Map to instance status
-        from app.models.events import map_docker_status_to_instance_status
-        instance_status = map_docker_status_to_instance_status(container_status)
+        from app.models.events import map_pod_phase_to_instance_status
+        instance_status = map_pod_phase_to_instance_status(pod_status.get('phase', 'Unknown'))
         
-        # Trigger status update (this would need the instance ID)
-        # For now, just return the information
+        # Return the information
         return {
-            "container_name": container_name,
-            "docker_status": container_status,
+            "deployment_name": container_name,
+            "pod_status": pod_status.get('phase'),
             "mapped_status": instance_status.value,
-            "metadata": container_metadata,
             "sync_time": datetime.utcnow().isoformat(),
             "message": "Status sync information retrieved successfully"
         }
@@ -406,17 +400,17 @@ async def sync_container_status(container_name: str):
 async def health_check():
     """Health check endpoint for monitoring service"""
     try:
-        # Check Docker connectivity
-        docker_client = get_docker_client()
-        docker_client._ensure_connection()
-        
+        # Check Kubernetes connectivity
+        k8s_client = KubernetesClient()
+        k8s_client.core_v1.list_namespace(limit=1)  # Test connection
+
         # Check monitoring status
         global _monitoring_active
         
         health_status = {
             "service": "monitoring",
             "status": "healthy",
-            "docker_connection": "ok",
+            "kubernetes_connection": "ok",
             "monitoring_active": _monitoring_active,
             "timestamp": datetime.utcnow().isoformat()
         }

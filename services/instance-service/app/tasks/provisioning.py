@@ -323,7 +323,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
     """Deploy Bitnami Odoo container"""
 
     # Use orchestrator client (Docker Swarm or Kubernetes)
-    from app.utils.orchestrator_client import get_orchestrator_client
+    from app.utils.k8s_client import KubernetesClient
     client = get_orchestrator_client()
 
     # Service naming for Swarm (changed from container_name)
@@ -499,8 +499,8 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
     
     try:
         # Remove Kubernetes resources if created
-        from app.utils.orchestrator_client import get_orchestrator_client
-        client = get_orchestrator_client()
+        from app.utils.k8s_client import KubernetesClient
+        client = KubernetesClient()
         service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
         try:

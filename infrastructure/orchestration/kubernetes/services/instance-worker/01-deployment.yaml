@@ -9,6 +9,8 @@ metadata:
     app.kubernetes.io/component: worker
 spec:
   replicas: 2
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: instance-worker

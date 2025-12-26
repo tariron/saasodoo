@@ -12,7 +12,7 @@ from uuid import UUID
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
 from app.utils.notification_client import get_notification_client
-from app.utils.orchestrator_client import get_orchestrator_client
+from app.utils.k8s_client import KubernetesClient
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -263,7 +263,7 @@ async def _unpause_instance_workflow(instance_id: str) -> Dict[str, Any]:
 
 async def _restart_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
     """Restart Kubernetes deployment (delete pods, let deployment recreate them)"""
-    client = get_orchestrator_client()
+    client = KubernetesClient()
 
     deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
     service_name = f"{deployment_name}-service"
@@ -340,7 +340,7 @@ async def _restart_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
     """Start existing Kubernetes deployment (scale to 1)"""
-    client = get_orchestrator_client()
+    client = KubernetesClient()
 
     deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
     service_name = f"{deployment_name}-service"
@@ -411,7 +411,7 @@ async def _start_docker_container(instance: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _stop_docker_container(instance: Dict[str, Any]):
     """Stop Kubernetes deployment gracefully (scale to 0) and wait for verification"""
-    client = get_orchestrator_client()
+    client = KubernetesClient()
 
     deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
