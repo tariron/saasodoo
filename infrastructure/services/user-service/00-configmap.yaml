@@ -1,0 +1,33 @@
+---
+# User Service Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-service-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+data:
+  # Database Configuration
+  DB_SERVICE_USER: "auth_service"
+  DB_NAME: "auth"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+
+  # JWT Configuration
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRE_MINUTES: "1440"
+
+  # Session Configuration
+  SESSION_TIMEOUT: "3600"
+  MAX_SESSIONS_PER_USER: "5"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+  DEBUG: "false"
+
+  # Application
+  APP_SERVICE_NAME: "user-service"
+  APP_SERVICE_VERSION: "1.0.0"
+  API_VERSION: "v1"

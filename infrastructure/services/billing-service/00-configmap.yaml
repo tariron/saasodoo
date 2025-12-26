@@ -1,0 +1,35 @@
+---
+# Billing Service Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-service-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: billing-service
+    app.kubernetes.io/component: backend
+data:
+  # Database Configuration
+  DB_SERVICE_USER: "billing_service"
+  DB_NAME: "billing"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+
+  # KillBill Configuration
+  KILLBILL_URL: "http://killbill.saasodoo.svc.cluster.local:8080"
+  KILLBILL_API_KEY: "fresh-tenant"
+  KILLBILL_USERNAME: "admin"
+
+  # PayNow Payment Gateway Configuration
+  PAYNOW_BASE_URL: "https://www.paynow.co.zw"
+  PAYNOW_RESULT_URL: "http://api.62.171.153.219.nip.io/billing/webhooks/paynow/result"
+  PAYNOW_MERCHANT_EMAIL: "tariron@gmail.com"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+  DEBUG: "false"
+
+  # Application
+  APP_SERVICE_NAME: "billing-service"
+  APP_SERVICE_VERSION: "1.0.0"
+  API_VERSION: "v1"

@@ -79,6 +79,8 @@ k8s/overlays/*/secrets/
 security/certificates/*/
 **/00-secrets.yaml
 **/01-secrets.yaml
+**/00-secret.yaml
+**/01-secret.yaml
 
 # Temporary files
 tmp/

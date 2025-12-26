@@ -1,0 +1,50 @@
+---
+# Shared Configuration - Values used by multiple services
+# This ConfigMap contains infrastructure endpoints and platform-wide settings
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/component: platform
+    app.kubernetes.io/managed-by: platform-team
+data:
+  # Platform Domain
+  BASE_DOMAIN: "62.171.153.219.nip.io"
+  FRONTEND_URL: "http://app.62.171.153.219.nip.io"
+
+  # PostgreSQL Infrastructure
+  POSTGRES_HOST: "postgres.saasodoo.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DEFAULT_DB: "postgres"
+
+  # Redis Infrastructure
+  REDIS_HOST: "redis.saasodoo.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # RabbitMQ Infrastructure
+  RABBITMQ_HOST: "rabbitmq.saasodoo.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_VHOST: "saasodoo"
+  RABBITMQ_USER: "saasodoo"
+
+  # Kubernetes Platform
+  ORCHESTRATOR: "Kubernetes"
+  KUBERNETES_NAMESPACE: "saasodoo"
+  KUBERNETES_IN_CLUSTER: "true"
+
+  # Environment Settings
+  ENVIRONMENT: "production"
+  TIMEZONE: "Africa/Harare"
+
+  # CephFS Storage
+  CEPHFS_MOUNT_PATH: "/mnt/cephfs"
+
+  # Inter-Service URLs
+  NOTIFICATION_SERVICE_URL: "http://notification-service.saasodoo.svc.cluster.local:5000"
+
+  # Celery Common Settings
+  C_FORCE_ROOT: "true"
+  CELERY_POOL: "threads"

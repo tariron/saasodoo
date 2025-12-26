@@ -27,148 +27,17 @@ spec:
             - containerPort: 8005
               name: http
               protocol: TCP
-          env:
-            # Database Configuration - Platform DB
-            - name: POSTGRES_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: POSTGRES_HOST
-            - name: POSTGRES_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: POSTGRES_PORT
-            - name: POSTGRES_DB
-              value: "instance"
-            - name: DB_SERVICE_USER
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: POSTGRES_DATABASE_SERVICE_USER
-            - name: DB_SERVICE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: POSTGRES_DATABASE_SERVICE_PASSWORD
-            # PostgreSQL Admin Credentials
-            - name: POSTGRES_ADMIN_USER
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: POSTGRES_ADMIN_USER
-            - name: POSTGRES_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: POSTGRES_ADMIN_PASSWORD
-            # Redis Configuration
-            - name: REDIS_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: REDIS_HOST
-            - name: REDIS_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: REDIS_PORT
-            - name: REDIS_DB
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: REDIS_DB
-            # RabbitMQ Configuration
-            - name: RABBITMQ_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: RABBITMQ_HOST
-            - name: RABBITMQ_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: RABBITMQ_PORT
-            - name: RABBITMQ_VHOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: RABBITMQ_VHOST
-            - name: RABBITMQ_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: RABBITMQ_USER
-            - name: RABBITMQ_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: RABBITMQ_PASSWORD
-            # Docker Configuration (for pool provisioning)
-            - name: DOCKER_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DOCKER_HOST
-            # CephFS Configuration
-            - name: CEPHFS_MOUNT_PATH
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: CEPHFS_MOUNT_PATH
-            # Pool Configuration
-            - name: DB_POOL_MAX_INSTANCES
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DB_POOL_MAX_INSTANCES
-            - name: DB_POOL_CPU_LIMIT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DB_POOL_CPU_LIMIT
-            - name: DB_POOL_MEMORY_LIMIT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DB_POOL_MEMORY_LIMIT
-            # Kubernetes Configuration
-            - name: ORCHESTRATOR
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: ORCHESTRATOR
-            - name: KUBERNETES_NAMESPACE
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: KUBERNETES_NAMESPACE
-            - name: KUBERNETES_IN_CLUSTER
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: KUBERNETES_IN_CLUSTER
-            # Application Configuration
-            - name: DEBUG
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DEBUG
-            - name: LOG_LEVEL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: LOG_LEVEL
-            - name: API_VERSION
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: API_VERSION
-            - name: ENVIRONMENT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: ENVIRONMENT
+          # Load configurations in priority order (later overrides earlier)
+          envFrom:
+            # 1. Shared platform config (lowest priority)
+            - configMapRef:
+                name: shared-config
+            # 2. Service-specific config (higher priority)
+            - configMapRef:
+                name: database-service-config
+            # 3. Service secrets (highest priority)
+            - secretRef:
+                name: database-service-secret
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock

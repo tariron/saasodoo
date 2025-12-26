@@ -27,107 +27,17 @@ spec:
             - containerPort: 5000
               name: http
               protocol: TCP
-          env:
-            # SMTP Configuration (MailHog for dev)
-            - name: SMTP_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: SMTP_HOST
-            - name: SMTP_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: SMTP_PORT
-            - name: SMTP_USE_TLS
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: SMTP_USE_TLS
-            - name: SMTP_USE_SSL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: SMTP_USE_SSL
-            - name: SMTP_TIMEOUT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: SMTP_TIMEOUT
-            - name: SMTP_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: SMTP_USERNAME
-            - name: SMTP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: SMTP_PASSWORD
-            # Email Defaults
-            - name: DEFAULT_FROM_EMAIL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DEFAULT_FROM_EMAIL
-            - name: DEFAULT_FROM_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DEFAULT_FROM_NAME
-            # Rate Limiting
-            - name: MAX_EMAILS_PER_MINUTE
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: MAX_EMAILS_PER_MINUTE
-            - name: MAX_EMAILS_PER_HOUR
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: MAX_EMAILS_PER_HOUR
-            # Database Configuration
-            - name: DB_DATABASE_URL
-              value: "postgresql://notification_service:notification_service_secure_pass_change_me@postgres-service:5432/communication"
-            - name: DB_POOL_SIZE
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DB_POOL_SIZE
-            - name: DB_MAX_OVERFLOW
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DB_POOL_MAX_OVERFLOW
-            # Application Configuration
-            - name: APP_DEBUG
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DEBUG
-            - name: APP_SERVICE_NAME
-              value: "notification-service"
-            - name: APP_SERVICE_VERSION
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: APP_SERVICE_VERSION
-            - name: APP_API_PREFIX
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: APP_API_PREFIX
-            - name: APP_TEMPLATES_DIR
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: APP_TEMPLATES_DIR
-            # Logging
-            - name: LOG_LEVEL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: LOG_LEVEL
+          # Load configurations in priority order (later overrides earlier)
+          envFrom:
+            # 1. Shared platform config (lowest priority)
+            - configMapRef:
+                name: shared-config
+            # 2. Service-specific config (higher priority)
+            - configMapRef:
+                name: notification-service-config
+            # 3. Service secrets (highest priority)
+            - secretRef:
+                name: notification-service-secret
           livenessProbe:
             httpGet:
               path: /health

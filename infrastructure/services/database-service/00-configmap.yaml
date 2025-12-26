@@ -1,0 +1,30 @@
+---
+# Database Service Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: database-service-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: database-service
+    app.kubernetes.io/component: backend
+data:
+  # Database Configuration
+  DB_SERVICE_USER: "database_service"
+  DB_NAME: "instance"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+
+  # Database Pool Configuration
+  DB_POOL_MAX_INSTANCES: "10"
+  DB_POOL_CPU_LIMIT: "2000m"
+  DB_POOL_MEMORY_LIMIT: "4Gi"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+  DEBUG: "false"
+
+  # Application
+  APP_SERVICE_NAME: "database-service"
+  APP_SERVICE_VERSION: "1.0.0"
+  API_VERSION: "v1"

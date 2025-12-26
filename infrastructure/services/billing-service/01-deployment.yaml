@@ -27,99 +27,17 @@ spec:
             - containerPort: 8004
               name: http
               protocol: TCP
-          env:
-            - name: POSTGRES_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: POSTGRES_HOST
-            - name: POSTGRES_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: POSTGRES_PORT
-            - name: POSTGRES_DB
-              value: "billing"
-            - name: DB_SERVICE_USER
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: POSTGRES_BILLING_SERVICE_USER
-            - name: DB_SERVICE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: POSTGRES_BILLING_SERVICE_PASSWORD
-            - name: KILLBILL_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: KILLBILL_URL
-            - name: KILLBILL_API_KEY
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: KILLBILL_API_KEY
-            - name: KILLBILL_API_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: KILLBILL_API_SECRET
-            - name: KILLBILL_USERNAME
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: KILLBILL_USERNAME
-            - name: KILLBILL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: KILLBILL_PASSWORD
-            - name: REDIS_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: REDIS_HOST
-            - name: REDIS_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: REDIS_PORT
-            - name: PAYNOW_INTEGRATION_ID
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: PAYNOW_INTEGRATION_ID
-            - name: PAYNOW_INTEGRATION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: PAYNOW_INTEGRATION_KEY
-            - name: PAYNOW_MERCHANT_EMAIL
-              valueFrom:
-                secretKeyRef:
-                  name: saasodoo-secrets
-                  key: PAYNOW_MERCHANT_EMAIL
-            - name: PAYNOW_RESULT_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: PAYNOW_RESULT_URL
-            - name: PAYNOW_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: PAYNOW_BASE_URL
-            - name: DEBUG
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: DEBUG
-            - name: LOG_LEVEL
-              valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
-                  key: LOG_LEVEL
+          # Load configurations in priority order (later overrides earlier)
+          envFrom:
+            # 1. Shared platform config (lowest priority)
+            - configMapRef:
+                name: shared-config
+            # 2. Service-specific config (higher priority)
+            - configMapRef:
+                name: billing-service-config
+            # 3. Service secrets (highest priority)
+            - secretRef:
+                name: billing-service-secret
           livenessProbe:
             httpGet:
               path: /health
