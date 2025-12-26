@@ -32,51 +32,85 @@ SaaSOdoo is a multi-tenant SaaS platform for provisioning and managing Odoo ERP 
 - Event-driven: KillBill webhooks trigger instance lifecycle changes
 - Background tasks: Celery workers handle async instance operations
 
-## Development Commands
+## Kubernetes Deployment Commands
 
-### Start Development Environment
+### Deploy Platform
 ```bash
-docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml up --build -d
+# Deploy all infrastructure and services
+./infrastructure/scripts/deploy.sh
+
+# Or deploy components individually
+kubectl apply -f infrastructure/00-namespace.yaml
+kubectl apply -f infrastructure/00-secrets.yaml
+kubectl apply -f infrastructure/00-configmap.yaml
+kubectl apply -f infrastructure/01-rbac.yaml
+kubectl apply -f infrastructure/storage/
+kubectl apply -f infrastructure/networking/
+kubectl apply -f infrastructure/postgres/
+kubectl apply -f infrastructure/redis/
+kubectl apply -f infrastructure/rabbitmq/
+kubectl apply -f infrastructure/killbill/
+kubectl apply -f infrastructure/services/
 ```
 
-### Stop Environment
+### Teardown Platform
 ```bash
-docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml down
+./infrastructure/scripts/teardown.sh
 ```
 
 ### View Logs
 ```bash
-# All services
-docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml logs -f
+# All pods in namespace
+kubectl get pods -n saasodoo
 
-# Specific service
-docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml logs -f user-service
+# Specific service logs
+kubectl logs -n saasodoo -l app.kubernetes.io/name=user-service --tail=100 -f
+kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-service --tail=100 -f
+kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-worker --tail=100 -f
 
-# Instance worker (Celery)
-docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml logs -f instance-worker
+# Pod logs
+kubectl logs -n saasodoo <pod-name> --tail=100 -f
 ```
 
-### Rebuild Specific Service
+### Rebuild and Redeploy Service
 ```bash
-# Always rebuild instance-worker when rebuilding instance-service
-docker compose -f infrastructure/orchestration/compose/docker-compose.dev.yml up --build -d instance-service instance-worker
+# Build service image
+docker build -t registry.62.171.153.219.nip.io/instance-service:latest \
+  -f services/instance-service/Dockerfile .
+
+# Push to registry
+docker push registry.62.171.153.219.nip.io/instance-service:latest
+
+# Restart deployment (pulls new image)
+kubectl rollout restart deployment/instance-service -n saasodoo
+kubectl rollout restart deployment/instance-worker -n saasodoo
+
+# Watch rollout
+kubectl rollout status deployment/instance-service -n saasodoo
 ```
 
 ### Run Tests
 ```bash
-# Service-specific tests
-docker exec saasodoo-user-service pytest tests/
-docker exec saasodoo-billing-service pytest tests/
+# Get pod name
+POD=$(kubectl get pods -n saasodoo -l app.kubernetes.io/name=user-service -o jsonpath='{.items[0].metadata.name}')
 
-# Database connectivity test
-docker exec saasodoo-postgres python3 /docker-entrypoint-initdb.d/test_connectivity.py
+# Run tests in pod
+kubectl exec -n saasodoo $POD -- pytest tests/
+
+# Or directly
+kubectl exec -n saasodoo <pod-name> -- pytest tests/
 ```
 
 ### Access Service Health Endpoints
 ```bash
-curl http://localhost:8001/health          # user-service
-curl http://localhost:8003/health          # instance-service
-curl http://localhost:8004/health          # billing-service
+# Via Traefik ingress (if configured)
+curl http://api.62.171.153.219.nip.io/user/health
+curl http://api.62.171.153.219.nip.io/instance/health
+curl http://api.62.171.153.219.nip.io/billing/health
+
+# Via port-forward
+kubectl port-forward -n saasodoo svc/user-service 8001:8001
+curl http://localhost:8001/health
 ```
 
 ## Database Architecture
@@ -91,11 +125,11 @@ This is enforced by `shared/utils/database.py:DatabaseManager._build_database_ur
 ### Database Query Commands
 ```bash
 # Check instance record
-docker exec saasodoo-postgres psql -U instance_service -d instance -c \
+kubectl exec -n saasodoo postgres-0 -- psql -U instance_service -d instance -c \
   "SELECT id, name, status, subscription_id, billing_status FROM instances WHERE id = 'INSTANCE_ID';"
 
 # Check user sessions
-docker exec saasodoo-postgres psql -U auth_service -d auth -c \
+kubectl exec -n saasodoo postgres-0 -- psql -U auth_service -d auth -c \
   "SELECT customer_id, created_at, last_used FROM user_sessions WHERE customer_id = 'USER_ID';"
 ```
 
@@ -105,12 +139,12 @@ docker exec saasodoo-postgres psql -U auth_service -d auth -c \
 
 #### Check KillBill Health
 ```bash
-docker exec saasodoo-killbill curl -s http://localhost:8080/1.0/healthcheck
+kubectl exec -n saasodoo <killbill-pod-name> -- curl -s http://localhost:8080/1.0/healthcheck
 ```
 
 #### View Subscription Details
 ```bash
-docker exec saasodoo-killbill curl -s -u admin:password \
+kubectl exec -n saasodoo <killbill-pod-name> -- curl -s -u admin:password \
   -H "X-Killbill-ApiKey: fresh-tenant" \
   -H "X-Killbill-ApiSecret: fresh-secret" \
   "http://localhost:8080/1.0/kb/subscriptions/SUBSCRIPTION_ID" | python3 -m json.tool
@@ -118,7 +152,7 @@ docker exec saasodoo-killbill curl -s -u admin:password \
 
 #### Check Account by External Key (customer_id)
 ```bash
-docker exec saasodoo-killbill curl -s -u admin:password \
+kubectl exec -n saasodoo <killbill-pod-name> -- curl -s -u admin:password \
   -H "X-Killbill-ApiKey: fresh-tenant" \
   -H "X-Killbill-ApiSecret: fresh-secret" \
   "http://localhost:8080/1.0/kb/accounts?externalKey=CUSTOMER_ID" | python3 -m json.tool
@@ -127,13 +161,13 @@ docker exec saasodoo-killbill curl -s -u admin:password \
 #### Test Clock Manipulation (Dev/Test Mode Only)
 ```bash
 # Check current KillBill time
-docker exec saasodoo-killbill curl -s -u admin:password \
+kubectl exec -n saasodoo <killbill-pod-name> -- curl -s -u admin:password \
   -H "X-Killbill-ApiKey: fresh-tenant" \
   -H "X-Killbill-ApiSecret: fresh-secret" \
   http://localhost:8080/1.0/kb/test/clock
 
 # Advance time to trigger subscription events
-docker exec saasodoo-killbill curl -s -u admin:password \
+kubectl exec -n saasodoo <killbill-pod-name> -- curl -s -u admin:password \
   -H "X-Killbill-ApiKey: fresh-tenant" \
   -H "X-Killbill-ApiSecret: fresh-secret" \
   -X POST "http://localhost:8080/1.0/kb/test/clock?requestedDate=2026-04-01T00:00:00.000Z"
@@ -255,18 +289,25 @@ TRIAL_MONITORING_ENABLED=true
 - Frontend API: `frontend/src/utils/api.ts` (getTrialEligibility)
 - Frontend page: `frontend/src/pages/CreateInstance.tsx` (transformPlanForDisplay)
 
-### Docker Access Method
-Instance-service and instance-worker use the **Docker SDK for Python** (`docker==7.1.0`) to manage Odoo containers via `DockerClientWrapper` (in `app/utils/docker_client.py`).
+### Kubernetes Access Method
+Instance-service and instance-worker use the **Kubernetes Python Client** (`kubernetes==31.0.0`) to manage Odoo instances via programmatic Kubernetes API calls.
 
-**Current Setup (Dev)**: Unix socket
-- Connection: `DOCKER_HOST=unix:///var/run/docker.sock`
-- Requires: Socket mounted as volume in docker-compose
-- Security concern: Requires docker group GID or root privileges
+**Current Setup (Production)**: In-cluster configuration
+- Connection: Via service account with RBAC permissions
+- Authentication: Automatic via mounted service account token
+- Operations: Create/delete Deployments, Services, Jobs programmatically
+- Monitoring: Watch API for real-time pod event tracking
 
-**Production Alternative**: TCP with TLS
-- Connection: `DOCKER_HOST=tcp://docker-host:2376` (TLS) or `tcp://docker-host:2375` (unencrypted)
-- Benefits: No socket mount, no GID issues, network-accessible, certificate-based auth
-- Recommended for Docker Swarm/Kubernetes deployments
+**RBAC Requirements:**
+- Service account: `instance-service-sa`
+- Permissions: Create/manage pods, deployments, services, jobs, statefulsets
+- Namespace: `saasodoo`
+
+**Key Features:**
+- Programmatic cluster creation via Kubernetes API
+- Event-driven monitoring via Watch API
+- Job-based backup/restore operations
+- Direct resource management (no orchestrator abstraction)
 
 ### Rebuild Requirement
 When modifying instance-service, ALWAYS rebuild instance-worker as well since they share the same codebase.
@@ -288,5 +329,6 @@ Cannot run sudo commands. If sudo is needed, inform the user and suggest the com
 See `docs/` directory for:
 - `SAASODOO_PROJECT_SUMMARY.md` - Complete technical architecture
 - `ISSUES_LOG.md` - Known issues and resolutions
-- `DOCKER_SWARM_MIGRATION_PLAN.md` - Production deployment guide
-- `KUBERNETES_MIGRATION_PLAN.md` - Future Kubernetes migration
+- `KUBERNETES_MIGRATION_PLAN.md` - Kubernetes deployment guide
+- `infrastructure/README.md` - Infrastructure organization and commands
+- `infrastructure/KUBERNETES-README.md` - Kubernetes-specific documentation

@@ -67,15 +67,9 @@ A comprehensive SaaS platform for provisioning and managing Odoo instances with 
 
 ### Production Deployment
 
-#### Docker Compose Production
+#### Kubernetes Production
 ```bash
-make prod-deploy
-```
-
-#### Docker Swarm Production
-```bash
-make swarm-init
-make swarm-deploy
+./infrastructure/scripts/deploy.sh
 ```
 
 ## Development Commands
@@ -95,16 +89,12 @@ make test-service    # Run specific service tests
 make build           # Build all images
 make build-service   # Build specific service
 
-# Production
-make prod-deploy     # Deploy to production
-make prod-backup     # Create backup
-make prod-restore    # Restore from backup
-
-# Swarm
-make swarm-init      # Initialize swarm cluster
-make swarm-deploy    # Deploy to swarm
-make swarm-scale     # Scale services
-make swarm-update    # Rolling updates
+# Production (Kubernetes)
+kubectl get pods -n saasodoo                    # Check pod status
+kubectl logs -n saasodoo -l app=instance-service  # View logs
+kubectl rollout restart deployment/<name> -n saasodoo  # Restart service
+./infrastructure/scripts/deploy.sh              # Deploy platform
+./infrastructure/scripts/teardown.sh            # Teardown platform
 ```
 
 ## Configuration
