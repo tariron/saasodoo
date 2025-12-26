@@ -1,0 +1,44 @@
+---
+# CephFS Filesystem for SaaSOdoo
+# This creates a filesystem for storing Odoo instance data
+apiVersion: ceph.rook.io/v1
+kind: CephFilesystem
+metadata:
+  name: saasodoo-fs
+  namespace: rook-ceph
+spec:
+  # Metadata pool configuration (stores filesystem metadata)
+  metadataPool:
+    replicated:
+      size: 3  # 3 replicas for high availability
+      requireSafeReplicaSize: true
+    parameters:
+      compression_mode: none
+
+  # Data pools configuration (stores actual file data)
+  dataPools:
+    - name: replicated
+      replicated:
+        size: 3  # 3 replicas for high availability
+        requireSafeReplicaSize: true
+      parameters:
+        compression_mode: none
+
+  # Preserve filesystem when CephFilesystem CR is deleted
+  preserveFilesystemOnDelete: true
+
+  # Metadata server (MDS) configuration
+  metadataServer:
+    # Number of active MDS daemons (1 for small clusters)
+    activeCount: 1
+    # Number of standby MDS daemons (1 for failover)
+    activeStandby: true
+    # Resource limits for MDS pods
+    resources:
+      limits:
+        memory: "4Gi"
+      requests:
+        cpu: "1000m"
+        memory: "2Gi"
+    # Priority class for MDS pods
+    priorityClassName: system-cluster-critical

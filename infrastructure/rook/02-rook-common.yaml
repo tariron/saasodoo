@@ -1,0 +1,26 @@
+# Rook Common Resources Installation Reference
+#
+# Apply Rook common resources (RBAC, ServiceAccounts) from official repository:
+# Version: v1.18.8
+#
+# Installation command:
+# kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/common.yaml
+#
+# This creates:
+# - ServiceAccount: rook-ceph-system (rook-ceph namespace)
+# - ServiceAccount: rook-ceph-osd, rook-ceph-mgr (rook-ceph namespace)
+# - ClusterRole: rook-ceph-cluster-mgmt
+# - ClusterRole: rook-ceph-global
+# - ClusterRole: rook-ceph-mgr-cluster
+# - ClusterRole: rook-ceph-object-bucket
+# - ClusterRoleBinding: rook-ceph-global, rook-ceph-mgr-cluster, rook-ceph-object-bucket
+# - Role: rook-ceph-system (rook-ceph namespace)
+# - Role: rook-ceph-osd, rook-ceph-mgr (rook-ceph namespace)
+# - RoleBinding: rook-ceph-system, rook-ceph-cluster-mgmt
+# - PodSecurityPolicy: rook-ceph-operator (if PSP enabled)
+#
+# Note: These resources are required before deploying the operator
+#
+# Verify installation:
+# kubectl get sa -n rook-ceph
+# kubectl get clusterrole | grep rook-ceph

@@ -1,0 +1,87 @@
+---
+# Rook Ceph Operator RBAC
+# Based on Rook v1.18.8 common.yaml with endpointslice fix
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rook-ceph-system
+  namespace: rook-ceph
+  labels:
+    app.kubernetes.io/part-of: rook-ceph-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rook-ceph-global
+  labels:
+    app.kubernetes.io/part-of: rook-ceph-operator
+    operator: rook
+    storage-backend: ceph
+rules:
+  # Core resources
+  - apiGroups: [""]
+    resources: [pods, nodes, nodes/proxy, secrets, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events, persistentvolumes, persistentvolumeclaims, endpoints, services]
+    verbs: [get, list, watch, patch, create, update, delete]
+  # CRITICAL: EndpointSlice support (missing in upstream v1.18.8)
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch, create, update, delete]
+  # Storage
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses, csidrivers]
+    verbs: [get, list, watch, create, update, delete]
+  # Batch
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch, create, update, delete, deletecollection]
+  # Apps
+  - apiGroups: [policy, apps, extensions]
+    resources: [poddisruptionbudgets, deployments, replicasets]
+    verbs: [get, list, watch, create, update, delete, deletecollection]
+  - apiGroups: [apps]
+    resources: [deployments/finalizers]
+    verbs: [update]
+  # Rook CRDs
+  - apiGroups: [ceph.rook.io]
+    resources:
+      - cephclients
+      - cephclusters
+      - cephblockpools
+      - cephfilesystems
+      - cephnfses
+      - cephobjectstores
+      - cephobjectstoreusers
+      - cephobjectrealms
+      - cephobjectzonegroups
+      - cephobjectzones
+      - cephbuckettopics
+      - cephbucketnotifications
+      - cephrbdmirrors
+      - cephfilesystemmirrors
+      - cephfilesystemsubvolumegroups
+      - cephblockpoolradosnamespaces
+      - cephcosidrivers
+    verbs: [get, list, watch, update]
+  - apiGroups: [ceph.rook.io]
+    resources:
+      - "*/status"
+      - "*/finalizers"
+    verbs: [update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rook-ceph-global
+  labels:
+    app.kubernetes.io/part-of: rook-ceph-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rook-ceph-global
+subjects:
+  - kind: ServiceAccount
+    name: rook-ceph-system
+    namespace: rook-ceph

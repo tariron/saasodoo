@@ -10,13 +10,46 @@ from kombu import Queue
 
 logger = logging.getLogger(__name__)
 
+
+def _get_redis_backend_url():
+    """Build Redis backend URL with Sentinel support"""
+    use_sentinel = os.getenv("REDIS_SENTINEL_ENABLED", "true").lower() == "true"
+
+    if use_sentinel:
+        # Sentinel backend URL format: sentinel://host:port;sentinel://host2:port2
+        # Master name and db go in transport_options, NOT in the URL
+        sentinel_host = os.getenv("REDIS_SENTINEL_HOST", "rfs-redis-cluster.saasodoo.svc.cluster.local")
+        sentinel_port = os.getenv("REDIS_SENTINEL_PORT", "26379")
+
+        # Parse comma-separated hosts if provided
+        if "," in sentinel_host:
+            sentinels = ";".join([f"sentinel://{h.strip()}:{sentinel_port}" for h in sentinel_host.split(",")])
+        else:
+            sentinels = f"sentinel://{sentinel_host}:{sentinel_port}"
+
+        return sentinels
+    else:
+        # Direct Redis connection
+        redis_host = os.getenv("REDIS_HOST", "redis")
+        redis_port = os.getenv("REDIS_PORT", "6379")
+        db = os.getenv("REDIS_DB", "0")
+        return f"redis://{redis_host}:{redis_port}/{db}"
+
+
 # Create Celery app
 celery_app = Celery(
     "instance_service",
     broker=f"amqp://{os.getenv('RABBITMQ_USER', 'saasodoo')}:{os.getenv('RABBITMQ_PASSWORD', 'saasodoo123')}@{os.getenv('RABBITMQ_HOST', 'rabbitmq')}:{os.getenv('RABBITMQ_PORT', '5672')}/{os.getenv('RABBITMQ_VHOST', 'saasodoo')}",
-    backend=f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}",
+    backend=_get_redis_backend_url(),
     include=['app.tasks.provisioning', 'app.tasks.lifecycle', 'app.tasks.maintenance', 'app.tasks.monitoring', 'app.tasks.migration']
 )
+
+# Configure Sentinel transport options if using Sentinel
+if os.getenv("REDIS_SENTINEL_ENABLED", "true").lower() == "true":
+    celery_app.conf.result_backend_transport_options = {
+        'master_name': os.getenv("REDIS_SENTINEL_MASTER", "mymaster"),
+        'db': int(os.getenv("REDIS_DB", "0"))
+    }
 
 # Explicitly define queues as quorum queues
 celery_app.conf.task_queues = (

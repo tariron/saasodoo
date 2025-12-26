@@ -4,9 +4,9 @@ metadata:
   name: postgres-pvc
   namespace: saasodoo
 spec:
-  storageClassName: ceph-filesystem
+  storageClassName: rook-cephfs
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      storage: 20Gi

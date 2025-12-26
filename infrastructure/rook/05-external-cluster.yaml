@@ -1,0 +1,74 @@
+---
+# CephCluster Custom Resource (External Mode)
+# This tells Rook to connect to an external Ceph cluster instead of managing its own
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph-external
+  namespace: rook-ceph
+spec:
+  # External mode: Rook connects to existing Ceph cluster
+  external:
+    enable: true
+
+  # Data directory on host for Rook metadata
+  dataDirHostPath: /var/lib/rook
+
+  # Ceph version must match your external cluster
+  # Your cluster: Ceph 19.2.1 (squid)
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.1
+    allowUnsupported: false
+
+  # Skip upgrade checks (we're not managing the cluster)
+  skipUpgradeChecks: true
+
+  # Continue if health is not OK (external cluster may have transient issues)
+  continueUpgradeAfterChecksEvenIfNotHealthy: false
+
+  # Disable crash collector (external cluster manages its own)
+  crashCollector:
+    disable: true
+
+  # Disable monitoring (external cluster handles this)
+  monitoring:
+    enabled: false
+
+  # Network settings (not applicable for external mode)
+  network: {}
+
+  # Resources for CSI pods (provisioner, attacher, etc.)
+  resources:
+    mgr:
+      limits:
+        memory: "1Gi"
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+    mon:
+      limits:
+        memory: "1Gi"
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+    osd:
+      limits:
+        memory: "4Gi"
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+
+  # Remove OSDs if they are down (not applicable for external mode)
+  removeOSDsIfOutAndSafeToRemove: false
+
+  # Priority class for Ceph components
+  priorityClassNames: {}
+
+  # Storage configuration (not applicable for external mode)
+  storage:
+    useAllNodes: false
+    useAllDevices: false
+
+  # Disable unnecessary features for external mode
+  disruptionManagement:
+    managePodBudgets: false

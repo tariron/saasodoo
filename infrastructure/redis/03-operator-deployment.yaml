@@ -1,0 +1,63 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-operator
+  namespace: redis-operator
+  labels:
+    app.kubernetes.io/name: redis-operator
+    app.kubernetes.io/component: operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-operator
+        app.kubernetes.io/component: operator
+    spec:
+      serviceAccountName: redis-operator
+      containers:
+        - name: redis-operator
+          image: quay.io/spotahome/redis-operator:v1.2.4
+          imagePullPolicy: IfNotPresent
+          args:
+            - --log-level=info
+          ports:
+            - name: metrics
+              containerPort: 9710
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 50Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-operator
+  namespace: redis-operator
+  labels:
+    app.kubernetes.io/name: redis-operator
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9710
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: redis-operator

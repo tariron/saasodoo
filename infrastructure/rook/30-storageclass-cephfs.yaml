@@ -1,0 +1,39 @@
+---
+# CephFS StorageClass for dynamic PVC provisioning
+# This allows pods to request CephFS volumes via PVCs
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-cephfs
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rook-ceph.cephfs.csi.ceph.com
+parameters:
+  # CephFS filesystem name (from CephFilesystem CR)
+  fsName: saasodoo-fs
+
+  # Ceph pool for data (from CephFilesystem dataPools)
+  pool: saasodoo-fs-replicated
+
+  # Ceph cluster namespace
+  clusterID: rook-ceph
+
+  # CSI driver settings
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+
+  # Mount options
+  mounter: kernel  # Use kernel CephFS driver (faster than FUSE)
+
+# Allow volume expansion
+allowVolumeExpansion: true
+
+# Reclaim policy: Retain volumes after PVC deletion for data safety
+reclaimPolicy: Retain
+
+# Volume binding mode: Immediate provisioning
+volumeBindingMode: Immediate

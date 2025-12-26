@@ -113,6 +113,5 @@ spec:
           failureThreshold: 3
       volumes:
       - name: postgres-storage
-        hostPath:
-          path: /mnt/cephfs/postgres_data
-          type: DirectoryOrCreate
+        persistentVolumeClaim:
+          claimName: postgres-pvc

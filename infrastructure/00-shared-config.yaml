@@ -19,10 +19,18 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DEFAULT_DB: "postgres"
 
-  # Redis Infrastructure
-  REDIS_HOST: "redis.saasodoo.svc.cluster.local"
-  REDIS_PORT: "6379"
+  # Redis Infrastructure (Redis Operator Cluster with Sentinel - No Auth)
+  # Applications connect via Sentinel for automatic failover discovery
+  REDIS_SENTINEL_ENABLED: "true"
+  REDIS_SENTINEL_HOST: "rfs-redis-cluster.saasodoo.svc.cluster.local"
+  REDIS_SENTINEL_PORT: "26379"
+  REDIS_SENTINEL_MASTER: "mymaster"
   REDIS_DB: "0"
+  # REDIS_PASSWORD not set - Redis cluster has no authentication
+
+  # Fallback direct connection (not used when Sentinel enabled)
+  REDIS_HOST: "redis-master.saasodoo.svc.cluster.local"
+  REDIS_PORT: "6379"
 
   # RabbitMQ Infrastructure
   RABBITMQ_HOST: "rabbitmq.saasodoo.svc.cluster.local"

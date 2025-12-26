@@ -1,0 +1,30 @@
+# Rook CRDs Installation Reference
+#
+# Apply Rook CRDs from official repository:
+# Version: v1.18.8 (latest stable, compatible with Ceph Squid 19.2.x)
+#
+# Installation command:
+# kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/crds.yaml
+#
+# This installs the following CRDs:
+# - cephblockpools.ceph.rook.io
+# - cephbucketnotifications.ceph.rook.io
+# - cephbuckettopics.ceph.rook.io
+# - cephclients.ceph.rook.io
+# - cephclusters.ceph.rook.io
+# - cephfilesystemmirrors.ceph.rook.io
+# - cephfilesystems.ceph.rook.io
+# - cephfilesystemsubvolumegroups.ceph.rook.io
+# - cephnfses.ceph.rook.io
+# - cephobjectrealms.ceph.rook.io
+# - cephobjectstores.ceph.rook.io
+# - cephobjectstoreusers.ceph.rook.io
+# - cephobjectzonegroups.ceph.rook.io
+# - cephobjectzones.ceph.rook.io
+# - cephrbdmirrors.ceph.rook.io
+# - cephblockpoolradosnamespaces.ceph.rook.io
+#
+# Note: CRDs are cluster-scoped and only need to be installed once per cluster
+#
+# Verify installation:
+# kubectl get crds | grep ceph.rook.io

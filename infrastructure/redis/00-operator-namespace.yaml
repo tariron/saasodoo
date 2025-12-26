@@ -1,0 +1,9 @@
+---
+# Redis Operator runs in its own namespace for better isolation
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redis-operator
+  labels:
+    app.kubernetes.io/name: redis-operator
+    app.kubernetes.io/component: operator

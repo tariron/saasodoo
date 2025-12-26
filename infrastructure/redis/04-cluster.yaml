@@ -1,0 +1,77 @@
+---
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: redis-cluster
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+spec:
+  # Sentinel configuration (monitors Redis and handles failover)
+  sentinel:
+    replicas: 3  # 3 Sentinels for quorum-based failover decisions
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    customConfig:
+      - "down-after-milliseconds 5000"  # Declare master down after 5s
+      - "failover-timeout 10000"         # Failover timeout 10s
+      - "parallel-syncs 1"               # Sync 1 replica at a time during failover
+
+  # Redis configuration (1 master + 2 replicas)
+  redis:
+    replicas: 3  # Total: 1 master + 2 replicas
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+    # Persistent storage configuration (using emptyDir for simplicity)
+    # For production, configure persistent storage via storageClassName
+    # storage:
+    #   keepAfterDeletion: true
+    #   emptyDir: {}
+
+    # Custom Redis configuration
+    customConfig:
+      # Network
+      - "tcp-keepalive 300"
+      - "timeout 0"
+
+      # Memory Management
+      - "maxmemory 512mb"
+      - "maxmemory-policy allkeys-lru"
+
+      # Persistence (RDB + AOF)
+      - "save 900 1"
+      - "save 300 10"
+      - "save 60 10000"
+      - "appendonly yes"
+      - "appendfsync everysec"
+      - "auto-aof-rewrite-percentage 100"
+      - "auto-aof-rewrite-min-size 64mb"
+
+      # Replication
+      - "repl-diskless-sync yes"
+      - "repl-diskless-sync-delay 5"
+
+      # Slow Log
+      - "slowlog-log-slower-than 10000"
+      - "slowlog-max-len 128"
+
+      # Client settings
+      - "client-output-buffer-limit normal 0 0 0"
+      - "client-output-buffer-limit replica 256mb 64mb 60"
+      - "client-output-buffer-limit pubsub 32mb 8mb 60"
+
+  # Authentication disabled - no password required
+  # auth:
+  #   secretPath: redis-auth

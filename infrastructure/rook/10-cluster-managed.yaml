@@ -1,0 +1,196 @@
+---
+# Rook-Managed CephCluster (Internal Mode)
+# This deploys a full Ceph cluster managed by Rook inside Kubernetes
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  # Ceph version to deploy (must match external Ceph for data migration)
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.1
+    allowUnsupported: false
+
+  # Data directory on host for Rook/Ceph metadata
+  dataDirHostPath: /var/lib/rook
+
+  # Skip upgrade checks during initial deployment
+  skipUpgradeChecks: false
+  continueUpgradeAfterChecksEvenIfNotHealthy: false
+
+  # Wait for healthy status before creating resources
+  waitTimeoutForHealthyOSDInMinutes: 10
+
+  # Monitor configuration
+  mon:
+    # Number of monitor daemons (must be odd, recommended: 3 or 5)
+    count: 3
+    # Allow monitors on the same node (for testing/small clusters)
+    allowMultiplePerNode: false
+    # Volume claim template for monitor data
+    volumeClaimTemplate:
+      spec:
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi
+
+  # Manager configuration
+  mgr:
+    # Number of manager daemons (recommended: 2 for HA)
+    count: 2
+    # Allow managers on the same node
+    allowMultiplePerNode: false
+    modules:
+      # Enable the Rook orchestrator module
+      - name: rook
+        enabled: true
+      # Enable the dashboard
+      - name: dashboard
+        enabled: true
+
+  # Dashboard configuration
+  dashboard:
+    enabled: true
+    ssl: false
+    port: 7000
+
+  # Monitoring (Prometheus integration)
+  monitoring:
+    enabled: false
+    metricsDisabled: false
+
+  # Network configuration
+  network:
+    # Use host networking for better performance (optional)
+    # provider: host
+
+  # Crash collector configuration
+  crashCollector:
+    disable: false
+
+  # Log collector configuration
+  logCollector:
+    enabled: true
+    periodicity: daily
+    maxLogSize: 500M
+
+  # Cleanup policy (what to do when CephCluster is deleted)
+  cleanupPolicy:
+    # Confirmation required to delete cluster (safety)
+    confirmation: ""
+    # Sanitize disks (wipe data) on deletion
+    sanitizeDisks:
+      method: quick
+      dataSource: zero
+      iteration: 1
+    # Allow deleting the cluster if data is found
+    allowUninstallWithVolumes: false
+
+  # Remove OSDs if they are down and safe to remove
+  removeOSDsIfOutAndSafeToRemove: false
+
+  # Priority class names for Ceph components
+  priorityClassNames:
+    mon: system-node-critical
+    osd: system-node-critical
+    mgr: system-cluster-critical
+
+  # Storage configuration - USE sda2 ON ALL NODES
+  storage:
+    # Automatically discover and use all nodes in the cluster
+    useAllNodes: true
+    # Don't use all devices automatically
+    useAllDevices: false
+
+    # Device filter: Only use sda2 partition (safe - won't touch root/boot)
+    # This regex matches exactly "sda2" on any node
+    # Future nodes with sda2 will be automatically provisioned
+    deviceFilter: "^sda2$"
+
+    # Global OSD configuration for all devices
+    config:
+      # Use sda2 partition for OSDs
+      osdsPerDevice: "1"
+      # Encryption (optional, disabled for now)
+      encryptedDevice: "false"
+      # Database size for BlueStore
+      databaseSizeMB: "1024"
+      # WAL size for BlueStore
+      walSizeMB: "600"
+
+  # Disruption management
+  disruptionManagement:
+    managePodBudgets: true
+    osdMaintenanceTimeout: 30
+    pgHealthCheckTimeout: 0
+
+  # Resource limits and requests (reduced to match actual usage)
+  resources:
+    mgr:
+      limits:
+        memory: "1Gi"
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+    mon:
+      limits:
+        memory: "1Gi"
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+    osd:
+      limits:
+        memory: "2Gi"
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+    prepareosd:
+      requests:
+        cpu: "500m"
+        memory: "50Mi"
+    mgr-sidecar:
+      limits:
+        memory: "100Mi"
+      requests:
+        cpu: "100m"
+        memory: "40Mi"
+    crashcollector:
+      limits:
+        memory: "60Mi"
+      requests:
+        cpu: "100m"
+        memory: "60Mi"
+    logcollector:
+      limits:
+        memory: "1Gi"
+      requests:
+        cpu: "100m"
+        memory: "100Mi"
+    cleanup:
+      limits:
+        memory: "1Gi"
+      requests:
+        cpu: "500m"
+        memory: "100Mi"
+
+  # Health checks
+  healthCheck:
+    daemonHealth:
+      mon:
+        disabled: false
+        interval: 45s
+      osd:
+        disabled: false
+        interval: 60s
+      status:
+        disabled: false
+        interval: 60s
+    livenessProbe:
+      mon:
+        disabled: false
+      mgr:
+        disabled: false
+      osd:
+        disabled: false

@@ -1,0 +1,73 @@
+---
+# Test PVC for validating CephFS CSI driver
+# Use this to test that Rook can provision volumes from external Ceph
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-cephfs-pvc
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: test-cephfs
+    app.kubernetes.io/component: storage-test
+spec:
+  # ReadWriteMany: Multiple pods can mount this volume
+  accessModes:
+    - ReadWriteMany
+  # Use the Rook CephFS StorageClass
+  storageClassName: rook-cephfs
+  # Request 1Gi for testing
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Test Pod for validating CephFS mount
+# This pod mounts the PVC and writes a test file
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-cephfs-pod
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: test-cephfs
+    app.kubernetes.io/component: storage-test
+spec:
+  containers:
+  - name: test
+    image: busybox:latest
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "======================================"
+        echo "Testing Rook CephFS CSI Driver"
+        echo "======================================"
+        echo ""
+        echo "Mounted at: /data"
+        df -h /data
+        echo ""
+        echo "Writing test file..."
+        echo "Hello from Rook CephFS!" > /data/test.txt
+        echo "Current timestamp: $(date)" >> /data/test.txt
+        echo ""
+        echo "Reading test file:"
+        cat /data/test.txt
+        echo ""
+        echo "File created successfully!"
+        echo ""
+        echo "Listing /data contents:"
+        ls -lah /data/
+        echo ""
+        echo "======================================"
+        echo "Test completed successfully!"
+        echo "======================================"
+        echo ""
+        echo "Sleeping for 1 hour to allow inspection..."
+        sleep 3600
+    volumeMounts:
+    - name: data
+      mountPath: /data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: test-cephfs-pvc
+  restartPolicy: Never

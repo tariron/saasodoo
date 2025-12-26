@@ -1,0 +1,33 @@
+# Rook Operator Installation Reference
+#
+# Apply Rook Operator from official repository:
+# Version: v1.18.8 (latest stable)
+#
+# Installation command:
+# kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/operator.yaml
+#
+# This creates:
+# - ConfigMap: rook-ceph-operator-config (operator configuration)
+# - Deployment: rook-ceph-operator (1 replica)
+#   - Image: rook/ceph:v1.18.8
+#   - Environment variables for Ceph image, CSI images, etc.
+#   - RBAC: Uses rook-ceph-system ServiceAccount
+#
+# Key Features:
+# - Manages CephCluster, CephFilesystem, CephBlockPool resources
+# - Deploys CSI drivers for RBD, CephFS
+# - Monitors and reconciles Ceph cluster state
+# - Handles external cluster mode (what we're using)
+#
+# Environment Variables (can be customized):
+# - ROOK_CSI_ENABLE_CEPHFS: "true" (enable CephFS CSI driver)
+# - ROOK_CSI_ENABLE_RBD: "true" (enable RBD CSI driver)
+# - ROOK_ENABLE_DISCOVERY_DAEMON: "false" (not needed for external mode)
+# - CSI_PROVISIONER_IMAGE: registry.k8s.io/sig-storage/csi-provisioner:v5.1.0
+# - CSI_ATTACHER_IMAGE: registry.k8s.io/sig-storage/csi-attacher:v4.7.0
+# - CSI_RESIZER_IMAGE: registry.k8s.io/sig-storage/csi-resizer:v1.12.0
+# - CSI_SNAPSHOTTER_IMAGE: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0
+#
+# Verify installation:
+# kubectl get pods -n rook-ceph -l app=rook-ceph-operator
+# kubectl logs -n rook-ceph -l app=rook-ceph-operator --tail=50

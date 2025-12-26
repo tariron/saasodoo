@@ -13,10 +13,16 @@ data:
   POSTGRES_PORT: "5432"
   POSTGRES_DEFAULT_DB: "postgres"
 
-  # Redis Configuration
-  REDIS_HOST: "redis.saasodoo.svc.cluster.local"
-  REDIS_PORT: "6379"
+  # Redis Configuration (Redis Operator Cluster with Sentinel - No Auth)
+  REDIS_SENTINEL_ENABLED: "true"
+  REDIS_SENTINEL_HOST: "rfs-redis-cluster.saasodoo.svc.cluster.local"
+  REDIS_SENTINEL_PORT: "26379"
+  REDIS_SENTINEL_MASTER: "mymaster"
   REDIS_DB: "0"
+
+  # Fallback direct connection
+  REDIS_HOST: "redis-master.saasodoo.svc.cluster.local"
+  REDIS_PORT: "6379"
 
   # RabbitMQ Configuration
   RABBITMQ_HOST: "rabbitmq.saasodoo.svc.cluster.local"

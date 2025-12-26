@@ -1,0 +1,57 @@
+---
+# CephFS StorageClass for Dynamic Volume Provisioning
+# This enables PVCs to dynamically create CephFS subvolumes
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-cephfs
+  labels:
+    app.kubernetes.io/name: rook-ceph
+    app.kubernetes.io/component: storageclass
+# Rook CephFS CSI driver
+provisioner: rook-ceph.cephfs.csi.ceph.com
+# Retain volumes when PVC is deleted (change to Delete if needed)
+reclaimPolicy: Retain
+# Allow volume expansion
+allowVolumeExpansion: true
+# Bind volumes immediately when PVC is created
+volumeBindingMode: Immediate
+# Mount options for CephFS
+mountOptions:
+  - noatime
+  - nodiratime
+parameters:
+  # Ceph cluster ID (from ceph fsid)
+  clusterID: 3d6c6993-c608-11f0-9f68-0050565df5d5
+
+  # CephFS filesystem name (from ceph fs ls)
+  fsName: saasodoo_fs
+
+  # CephFS data pool (where subvolumes are created)
+  pool: cephfs.saasodoo_fs.data
+
+  # Ceph monitor addresses (comma-separated)
+  # Note: CSI uses the configmap from 04-external-cluster-secrets.yaml
+  # This parameter is optional if using the configmap
+  # monitors: 10.0.0.2:6789,10.0.0.1:6789,10.0.0.3:6789
+
+  # CSI provisioner secret (for creating subvolumes)
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+
+  # CSI controller expand secret (for resizing volumes)
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+
+  # CSI node stage secret (for mounting volumes on nodes)
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+
+  # Subvolume group (optional, leave empty to use default)
+  # subvolumeGroup: ""
+
+  # Kernel mount options (optional)
+  # kernelMountOptions: "ms_mode=prefer-crc"
+
+  # FUSE mount options (optional, if using ceph-fuse instead of kernel client)
+  # fuseMountOptions: "debug"

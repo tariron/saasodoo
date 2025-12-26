@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 import redis
+from redis.sentinel import Sentinel
 
 logger = logging.getLogger(__name__)
 
@@ -17,37 +18,80 @@ _redis_client = None
 
 
 def get_redis_client():
-    """Get Redis client instance"""
+    """Get Redis client instance with Sentinel support"""
     global _redis_client
     if _redis_client is None:
-        host = os.getenv("REDIS_HOST", "localhost")
-        port = int(os.getenv("REDIS_PORT", "6379"))
-        password = os.getenv("REDIS_PASSWORD", "")
-        db = int(os.getenv("REDIS_DB", "0"))
+        use_sentinel = os.getenv("REDIS_SENTINEL_ENABLED", "true").lower() == "true"
 
-        if password:
-            _redis_client = redis.Redis(
-                host=host,
-                port=port,
+        if use_sentinel:
+            # Sentinel connection
+            sentinel_host = os.getenv("REDIS_SENTINEL_HOST", "rfs-redis-cluster.saasodoo.svc.cluster.local")
+            sentinel_port = int(os.getenv("REDIS_SENTINEL_PORT", "26379"))
+            master_name = os.getenv("REDIS_SENTINEL_MASTER", "mymaster")
+            password = os.getenv("REDIS_PASSWORD") or None
+            db = int(os.getenv("REDIS_DB", "0"))
+
+            # Parse comma-separated hosts if provided
+            if "," in sentinel_host:
+                sentinel_hosts = [(h.strip(), sentinel_port) for h in sentinel_host.split(",")]
+            else:
+                sentinel_hosts = [(sentinel_host, sentinel_port)]
+
+            logger.info(f"Initializing Redis with Sentinel: hosts={sentinel_hosts}, master={master_name}")
+
+            # Create Sentinel instance
+            sentinel = Sentinel(
+                sentinel_hosts,
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+                socket_keepalive=True,
+                retry_on_timeout=True
+            )
+
+            # Get master client
+            _redis_client = sentinel.master_for(
+                master_name,
+                socket_timeout=5.0,
                 password=password,
                 db=db,
                 decode_responses=True,
-                socket_keepalive=True,
-                health_check_interval=30
-            )
-        else:
-            _redis_client = redis.Redis(
-                host=host,
-                port=port,
-                db=db,
-                decode_responses=True,
-                socket_keepalive=True,
-                health_check_interval=30
+                retry_on_timeout=True
             )
 
-        # Test connection
-        _redis_client.ping()
-        logger.info("Redis client initialized successfully")
+            # Test connection
+            _redis_client.ping()
+            logger.info("Redis client initialized successfully with Sentinel")
+
+        else:
+            # Direct connection (fallback)
+            host = os.getenv("REDIS_HOST", "localhost")
+            port = int(os.getenv("REDIS_PORT", "6379"))
+            password = os.getenv("REDIS_PASSWORD", "")
+            db = int(os.getenv("REDIS_DB", "0"))
+
+            if password:
+                _redis_client = redis.Redis(
+                    host=host,
+                    port=port,
+                    password=password,
+                    db=db,
+                    decode_responses=True,
+                    socket_keepalive=True,
+                    health_check_interval=30
+                )
+            else:
+                _redis_client = redis.Redis(
+                    host=host,
+                    port=port,
+                    db=db,
+                    decode_responses=True,
+                    socket_keepalive=True,
+                    health_check_interval=30
+                )
+
+            # Test connection
+            _redis_client.ping()
+            logger.info("Redis client initialized successfully with direct connection")
 
     return _redis_client
 

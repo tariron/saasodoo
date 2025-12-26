@@ -7,8 +7,9 @@ Provides Redis connection management and common caching operations.
 import os
 import json
 import logging
-from typing import Optional, Any, Dict, Union
+from typing import Optional, Any, Dict, Union, List, Tuple
 import redis
+from redis.sentinel import Sentinel
 from redis.connection import ConnectionPool
 
 logger = logging.getLogger(__name__)
@@ -17,53 +18,114 @@ logger = logging.getLogger(__name__)
 class RedisClient:
     """Redis client wrapper with connection management and utility methods"""
     
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(self, redis_url: Optional[str] = None, use_sentinel: Optional[bool] = None):
         """
         Initialize Redis client
-        
+
         Args:
             redis_url: Redis connection URL. If None, will use environment variables.
+            use_sentinel: Whether to use Sentinel. If None, will auto-detect from REDIS_SENTINEL_ENABLED env var.
         """
-        self.redis_url = redis_url or self._build_redis_url()
+        self.use_sentinel = use_sentinel if use_sentinel is not None else os.getenv("REDIS_SENTINEL_ENABLED", "true").lower() == "true"
+        self.redis_url = redis_url
         self.client = None
         self.pool = None
+        self.sentinel = None
         self._initialize_client()
-    
+
+    def _get_sentinel_config(self) -> Tuple[List[Tuple[str, int]], str, Optional[str], int]:
+        """
+        Get Sentinel configuration from environment variables
+
+        Returns:
+            Tuple of (sentinel_hosts, master_name, password, db)
+        """
+        # Sentinel service (typically multiple sentinels, but can use single service DNS)
+        sentinel_host = os.getenv("REDIS_SENTINEL_HOST", "rfs-redis-cluster.saasodoo.svc.cluster.local")
+        sentinel_port = int(os.getenv("REDIS_SENTINEL_PORT", "26379"))
+        master_name = os.getenv("REDIS_SENTINEL_MASTER", "mymaster")
+        password = os.getenv("REDIS_PASSWORD") or None
+        db = int(os.getenv("REDIS_DB", "0"))
+
+        # Parse comma-separated sentinel hosts if provided
+        if "," in sentinel_host:
+            sentinel_hosts = [(h.strip(), sentinel_port) for h in sentinel_host.split(",")]
+        else:
+            sentinel_hosts = [(sentinel_host, sentinel_port)]
+
+        return sentinel_hosts, master_name, password, db
+
     def _build_redis_url(self) -> str:
-        """Build Redis URL from environment variables"""
+        """Build Redis URL from environment variables (for direct connection)"""
         host = os.getenv("REDIS_HOST", "localhost")
         port = os.getenv("REDIS_PORT", "6379")
         password = os.getenv("REDIS_PASSWORD", "")
         db = os.getenv("REDIS_DB", "0")
-        
+
         if password:
             return f"redis://:{password}@{host}:{port}/{db}"
         else:
             return f"redis://{host}:{port}/{db}"
-    
+
     def _initialize_client(self):
-        """Initialize Redis client with connection pool"""
+        """Initialize Redis client with Sentinel or direct connection"""
         try:
-            # Create connection pool
-            self.pool = ConnectionPool.from_url(
-                self.redis_url,
-                max_connections=20,
-                retry_on_timeout=True,
-                socket_keepalive=True,
-                socket_keepalive_options={},
-                health_check_interval=30
-            )
-            
-            # Create Redis client
-            self.client = redis.Redis(
-                connection_pool=self.pool,
-                decode_responses=True
-            )
-            
-            # Test connection
-            self.client.ping()
-            logger.info("Redis client initialized successfully")
-            
+            if self.use_sentinel:
+                # Sentinel-based connection
+                sentinel_hosts, master_name, password, db = self._get_sentinel_config()
+
+                logger.info(f"Initializing Redis client with Sentinel: hosts={sentinel_hosts}, master={master_name}")
+
+                # Create Sentinel instance
+                self.sentinel = Sentinel(
+                    sentinel_hosts,
+                    socket_timeout=5.0,
+                    socket_connect_timeout=5.0,
+                    socket_keepalive=True,
+                    retry_on_timeout=True
+                )
+
+                # Get master client
+                self.client = self.sentinel.master_for(
+                    master_name,
+                    socket_timeout=5.0,
+                    password=password,
+                    db=db,
+                    decode_responses=True,
+                    retry_on_timeout=True
+                )
+
+                # Test connection
+                self.client.ping()
+                logger.info("Redis client initialized successfully with Sentinel")
+
+            else:
+                # Direct connection (fallback)
+                if not self.redis_url:
+                    self.redis_url = self._build_redis_url()
+
+                logger.info(f"Initializing Redis client with direct connection: {self.redis_url}")
+
+                # Create connection pool
+                self.pool = ConnectionPool.from_url(
+                    self.redis_url,
+                    max_connections=20,
+                    retry_on_timeout=True,
+                    socket_keepalive=True,
+                    socket_keepalive_options={},
+                    health_check_interval=30
+                )
+
+                # Create Redis client
+                self.client = redis.Redis(
+                    connection_pool=self.pool,
+                    decode_responses=True
+                )
+
+                # Test connection
+                self.client.ping()
+                logger.info("Redis client initialized successfully with direct connection")
+
         except Exception as e:
             logger.error(f"Failed to initialize Redis client: {e}")
             raise
