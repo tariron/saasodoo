@@ -62,13 +62,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 3
-          resources:
-            limits:
-              cpu: "2000m"
-              memory: "2Gi"
-            requests:
-              cpu: "500m"
-              memory: "512Mi"
       volumes:
         - name: odoo-instances
           hostPath:

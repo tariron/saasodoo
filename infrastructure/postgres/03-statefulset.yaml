@@ -85,12 +85,6 @@ spec:
         - name: postgres-storage
           mountPath: /var/lib/postgresql
         resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "2000m"
         livenessProbe:
           exec:
             command:

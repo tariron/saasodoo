@@ -38,12 +38,6 @@ spec:
             - name: killbill-db-data
               mountPath: /var/lib/mysql
           resources:
-            limits:
-              cpu: "2000m"
-              memory: "2Gi"
-            requests:
-              cpu: "250m"
-              memory: "512Mi"
       volumes:
         - name: killbill-db-data
           hostPath:

@@ -12,12 +12,6 @@ spec:
   sentinel:
     replicas: 3  # 3 Sentinels for quorum-based failover decisions
     resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
     customConfig:
       - "down-after-milliseconds 5000"  # Declare master down after 5s
       - "failover-timeout 10000"         # Failover timeout 10s
@@ -27,12 +21,6 @@ spec:
   redis:
     replicas: 3  # Total: 1 master + 2 replicas
     resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
 
     # Persistent storage configuration (using emptyDir for simplicity)
     # For production, configure persistent storage via storageClassName

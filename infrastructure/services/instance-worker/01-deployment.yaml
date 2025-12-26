@@ -71,13 +71,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 20
             failureThreshold: 3
-          resources:
-            limits:
-              cpu: "4000m"
-              memory: "4Gi"
-            requests:
-              cpu: "1000m"
-              memory: "1Gi"
       volumes:
         - name: odoo-backups
           hostPath:

@@ -58,6 +58,5 @@ spec:
               memory: "256Mi"
       volumes:
         - name: registry-data
-          hostPath:
-            path: /mnt/cephfs/docker-registry
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: registry-pvc

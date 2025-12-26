@@ -1,0 +1,68 @@
+# Rook Operator ConfigMap Override
+# This overrides the default operator config to disable CSI operator mode
+# Apply after installing the operator from upstream
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rook-ceph-operator-config
+  namespace: rook-ceph
+data:
+  # CSI Driver Configuration
+  ROOK_CSI_ENABLE_CEPHFS: "true"
+  ROOK_CSI_ENABLE_RBD: "true"
+  ROOK_CSI_DISABLE_DRIVER: "false"
+
+  # CRITICAL: Set to "false" to deploy CSI drivers directly (not via CSI operator)
+  ROOK_USE_CSI_OPERATOR: "false"
+
+  # CSI Images
+  CSI_PROVISIONER_REPLICAS: "2"
+  CSI_PLUGIN_PRIORITY_CLASSNAME: "system-node-critical"
+  CSI_PROVISIONER_PRIORITY_CLASSNAME: "system-cluster-critical"
+
+  # CephFS CSI Settings
+  CSI_CEPHFS_ATTACH_REQUIRED: "true"
+  CSI_CEPHFS_FSGROUPPOLICY: "File"
+  CSI_ENABLE_CEPHFS_SNAPSHOTTER: "true"
+  CSI_FORCE_CEPHFS_KERNEL_CLIENT: "true"
+
+  # RBD CSI Settings
+  CSI_RBD_ATTACH_REQUIRED: "true"
+  CSI_RBD_FSGROUPPOLICY: "File"
+  CSI_ENABLE_RBD_SNAPSHOTTER: "true"
+
+  # NFS CSI Settings
+  ROOK_CSI_ENABLE_NFS: "false"
+  CSI_NFS_ATTACH_REQUIRED: "true"
+  CSI_NFS_FSGROUPPOLICY: "File"
+  CSI_ENABLE_NFS_SNAPSHOTTER: "true"
+
+  # Feature Flags
+  CSI_ENABLE_ENCRYPTION: "false"
+  CSI_ENABLE_TOPOLOGY: "false"
+  CSI_ENABLE_VOLUME_GROUP_SNAPSHOT: "true"
+  CSI_ENABLE_CROSS_NAMESPACE_VOLUME_DATA_SOURCE: "false"
+  CSI_ENABLE_CSIADDONS: "false"
+  CSI_ENABLE_LIVENESS: "false"
+  CSI_PLUGIN_ENABLE_SELINUX_HOST_MOUNT: "false"
+
+  # Operator Settings
+  ROOK_LOG_LEVEL: "INFO"
+  ROOK_CEPH_COMMANDS_TIMEOUT_SECONDS: "15"
+  CSI_GRPC_TIMEOUT_SECONDS: "150"
+
+  # Discovery & Device Settings
+  ROOK_ENABLE_DISCOVERY_DAEMON: "false"
+  ROOK_DISCOVER_DEVICES_INTERVAL: "60m"
+  ROOK_DISABLE_DEVICE_HOTPLUG: "false"
+  ROOK_CEPH_ALLOW_LOOP_DEVICES: "false"
+
+  # Monitoring & Metrics
+  ROOK_WATCH_FOR_NODE_FAILURE: "true"
+  ROOK_OBC_WATCH_OPERATOR_NAMESPACE: "true"
+  ROOK_OPERATOR_METRICS_BIND_ADDRESS: "0"
+
+  # Network & Hostname
+  ROOK_ENFORCE_HOST_NETWORK: "false"
+  ROOK_CUSTOM_HOSTNAME_LABEL: ""

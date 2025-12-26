@@ -69,13 +69,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 20
             failureThreshold: 3
-          resources:
-            limits:
-              cpu: "2000m"
-              memory: "2Gi"
-            requests:
-              cpu: "500m"
-              memory: "512Mi"
       volumes:
         - name: docker-socket
           hostPath:

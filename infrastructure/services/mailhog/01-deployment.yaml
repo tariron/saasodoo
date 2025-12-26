@@ -28,10 +28,3 @@ spec:
             - containerPort: 8025
               name: http
               protocol: TCP
-          resources:
-            limits:
-              cpu: "200m"
-              memory: "128Mi"
-            requests:
-              cpu: "50m"
-              memory: "64Mi"
