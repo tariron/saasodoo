@@ -246,6 +246,17 @@ class KubernetesPodMonitor:
                         hex=pod_info['instance_id_hex'],
                         instance_id=instance_id)
 
+            # Check if pod is being deleted - ignore events from terminating pods
+            # This prevents status changes during backup/maintenance operations when old pod is shutting down
+            deletion_timestamp = pod.metadata.deletion_timestamp
+            if deletion_timestamp and event_type != 'DELETED':
+                logger.info("Ignoring event for pod being terminated",
+                           pod=pod_name,
+                           instance_id=instance_id,
+                           event_type=event_type,
+                           deletion_timestamp=deletion_timestamp)
+                return
+
             # ===== STATE MACHINE LOGIC =====
             # Maps pod state to instance status like Docker Swarm event mapping
 
@@ -600,6 +611,14 @@ async def _update_instance_status_async(
         if not current_status:
             logger.error("Instance not found", instance_id=instance_id)
             return {"updated": False, "reason": "instance_not_found"}
+
+        # Maintenance protection: Block DELETE events from changing maintenance → stopped
+        # During backup/restore, the workflow manages status and will set final status when done
+        if current_status == 'maintenance' and status == 'stopped' and event_type == 'DELETED':
+            logger.info("Blocking DELETE event during MAINTENANCE - workflow will manage status",
+                       instance_id=instance_id,
+                       container=container_name)
+            return {"updated": False, "reason": "maintenance_delete_blocked"}
 
         # Safety check: Prevent downgrade from RUNNING to STARTING on monitoring restart
         # This happens when monitoring restarts and receives ADDED events for existing running pods
