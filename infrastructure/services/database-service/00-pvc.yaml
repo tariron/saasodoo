@@ -1,0 +1,17 @@
+---
+# Postgres Pools PVC (dynamic provisioning with Rook CephFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pools-pvc
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: database-service
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 50Gi

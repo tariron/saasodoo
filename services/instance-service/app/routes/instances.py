@@ -632,7 +632,7 @@ async def list_instance_backups(
         import json
         from pathlib import Path
         
-        backup_dir = "/var/lib/odoo/backups/active"
+        backup_dir = "/mnt/cephfs/odoo_backups/active"
         backups = []
         
         if os.path.exists(backup_dir):
@@ -975,6 +975,17 @@ async def _terminate_instance(instance_id: UUID, db: InstanceDatabase) -> dict:
             print(f"DEBUG: VERIFICATION FAILED - {error_msg}")
             logger.error(error_msg, instance_id=str(instance_id), actual_status=actual_status)
             raise Exception(error_msg)
+
+        # Delete PVC (optional - could keep for data retention)
+        # Uncomment below to delete PVC immediately on termination
+        # try:
+        #     from app.utils.k8s_client import KubernetesClient
+        #     k8s_client = KubernetesClient()
+        #     pvc_name = f"odoo-instance-{str(instance_id).replace('-', '')}"
+        #     k8s_client.delete_pvc(pvc_name)
+        #     logger.info("Instance PVC deleted", instance_id=str(instance_id), pvc_name=pvc_name)
+        # except Exception as e:
+        #     logger.warning("Failed to delete PVC during termination", error=str(e))
 
         print(f"DEBUG: Termination successful!")
         logger.info("Instance terminated successfully with container stopped and database verified",

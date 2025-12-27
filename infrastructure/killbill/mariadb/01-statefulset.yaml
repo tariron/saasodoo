@@ -40,6 +40,5 @@ spec:
           resources:
       volumes:
         - name: killbill-db-data
-          hostPath:
-            path: /mnt/cephfs/killbill_db_data
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: killbill-db-pvc

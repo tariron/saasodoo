@@ -278,32 +278,25 @@ class KubernetesPodMonitor:
                 self.pod_ready_state.pop(pod_uid, None)
 
             elif pod_phase == 'Running' and ready:
-                # Pod running and ready - check for ready state transition
+                # Pod running and ready - always queue health check
                 new_status = InstanceStatus.STARTING
 
-                # Check if we should queue health check (first time pod becomes ready)
-                if self._should_queue_health_check(pod_uid, True):
-                    # Construct service URL for health check
-                    deployment_name = pod_name.rsplit('-', 2)[0]
-                    service_name = f"{deployment_name}-service"
-                    internal_url = f"http://{service_name}.{self.namespace}.svc.cluster.local:8069"
+                # Construct service URL for health check
+                deployment_name = pod_name.rsplit('-', 2)[0]
+                service_name = f"{deployment_name}-service"
+                internal_url = f"http://{service_name}.{self.namespace}.svc.cluster.local:8069"
 
-                    health_check_info = {
-                        'instance_id': instance_id,
-                        'internal_url': internal_url,
-                        'expected_status': 'starting'
-                    }
+                health_check_info = {
+                    'instance_id': instance_id,
+                    'internal_url': internal_url,
+                    'expected_status': 'starting'
+                }
 
-                    logger.info("Pod became ready - queueing health check",
-                               pod=pod_name,
-                               instance_id=instance_id,
-                               internal_url=internal_url,
-                               event_type=event_type)
-                else:
-                    logger.debug("Pod running and ready - setting STARTING",
-                               pod=pod_name,
-                               instance_id=instance_id,
-                               event_type=event_type)
+                logger.info("Pod ready - queueing health check",
+                           pod=pod_name,
+                           instance_id=instance_id,
+                           internal_url=internal_url,
+                           event_type=event_type)
 
             elif pod_phase == 'Pending':
                 # Pod is pending - set to STARTING (if not already)

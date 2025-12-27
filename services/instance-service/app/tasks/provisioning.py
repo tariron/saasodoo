@@ -21,66 +21,8 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-def _parse_size_to_bytes(size_str: str) -> int:
-    """
-    Convert size string like '10G' or '512M' to bytes
-
-    Args:
-        size_str: Size string with unit (e.g., '10G', '512M')
-
-    Returns:
-        Size in bytes
-    """
-    size_str = size_str.upper().strip()
-
-    # Extract numeric value and unit
-    value = int(size_str[:-1])
-    unit = size_str[-1]
-
-    # Define multipliers
-    multipliers = {
-        'M': 1024 ** 2,  # Megabytes
-        'G': 1024 ** 3,  # Gigabytes
-        'T': 1024 ** 4   # Terabytes
-    }
-
-    return value * multipliers.get(unit, 1)
-
-
-def _create_cephfs_directory_with_quota(path: str, size_limit: str):
-    """
-    Create CephFS directory and set quota
-
-    Args:
-        path: Full path to directory on CephFS mount
-        size_limit: Size limit string (e.g., '10G', '512M')
-    """
-    try:
-        # Create directory if it doesn't exist
-        os.makedirs(path, exist_ok=True)
-        logger.info("Created CephFS directory", path=path)
-
-        # Parse size to bytes
-        quota_bytes = _parse_size_to_bytes(size_limit)
-
-        # Set CephFS quota using setfattr
-        cmd = [
-            'setfattr',
-            '-n', 'ceph.quota.max_bytes',
-            '-v', str(quota_bytes),
-            path
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-        logger.info("Set CephFS quota", path=path, size_limit=size_limit, quota_bytes=quota_bytes)
-
-    except subprocess.CalledProcessError as e:
-        logger.error("Failed to set CephFS quota", path=path, error=str(e), stderr=e.stderr)
-        raise RuntimeError(f"Failed to set CephFS quota: {e.stderr}")
-    except Exception as e:
-        logger.error("Failed to create CephFS directory with quota", path=path, error=str(e))
-        raise
+# Removed _parse_size_to_bytes and _create_cephfs_directory_with_quota
+# These functions are deprecated - quota enforcement now handled by Kubernetes PVC limits
 
 
 @celery_app.task(bind=True)
@@ -322,9 +264,9 @@ async def _update_instance_database_info(instance_id: str, db_server_id: str, db
 async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, str]) -> Dict[str, Any]:
     """Deploy Bitnami Odoo container"""
 
-    # Use orchestrator client (Docker Swarm or Kubernetes)
+    # Use Kubernetes client
     from app.utils.k8s_client import KubernetesClient
-    client = get_orchestrator_client()
+    client = KubernetesClient()
 
     # Service naming for Swarm (changed from container_name)
     service_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
@@ -358,17 +300,22 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         odoo_version = instance.get('odoo_version', '17')
         logger.info("Kubernetes will pull image automatically", version=odoo_version)
 
-        # Get storage limit from instance
+        # Get storage limit from instance and convert to Kubernetes format
         storage_limit = instance.get('storage_limit', '10G')
-        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
+        k8s_storage_size = storage_limit + 'i' if storage_limit.endswith('G') else storage_limit + 'i'
+        pvc_name = f"odoo-instance-{instance['id'].hex}"
 
-        # Create CephFS directory with quota for persistent storage
-        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
-        _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
-        logger.info("Created CephFS directory with quota",
-                   volume_name=volume_name,
-                   storage_limit=storage_limit,
-                   path=cephfs_path)
+        # Create PVC for instance storage
+        logger.info("Creating instance PVC", pvc_name=pvc_name, size=k8s_storage_size)
+        client.create_instance_pvc(pvc_name, k8s_storage_size)
+        logger.info("Created instance PVC",
+                   pvc_name=pvc_name,
+                   storage_limit=k8s_storage_size)
+
+        # Wait for PVC to be Bound before creating deployment
+        logger.info("Waiting for PVC to bind", pvc_name=pvc_name)
+        client.wait_for_pvc_bound(pvc_name, timeout=60)
+        logger.info("PVC is bound and ready", pvc_name=pvc_name)
 
         # Prepare labels
         labels = {
@@ -392,7 +339,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
             env_vars=environment,
             cpu_limit=str(cpu_limit),
             memory_limit=mem_limit,
-            storage_path=cephfs_path,
+            pvc_name=pvc_name,
             ingress_host=ingress_host,
             labels=labels
         )
@@ -511,15 +458,13 @@ async def _cleanup_failed_provisioning(instance_id: str, instance: Dict[str, Any
             logger.warning("Failed to delete Kubernetes resources",
                          instance_name=service_name, error=str(e))
 
-        # Clean up CephFS directory if created
-        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
+        # Clean up PVC if created
+        pvc_name = f"odoo-instance-{instance['id'].hex}"
         try:
-            if os.path.exists(cephfs_path):
-                shutil.rmtree(cephfs_path)
-                logger.info("CephFS directory cleaned up", path=cephfs_path)
+            client.delete_pvc(pvc_name)
+            logger.info("Instance PVC cleaned up", pvc_name=pvc_name)
         except Exception as e:
-            logger.warning("Failed to clean up CephFS directory", path=cephfs_path, error=str(e))
+            logger.warning("Failed to clean up PVC", pvc_name=pvc_name, error=str(e))
 
         # In the future, this should call a deallocation endpoint on the database-service.
         # For now, we will log that a deallocation is required.

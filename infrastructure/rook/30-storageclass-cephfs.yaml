@@ -32,8 +32,8 @@ parameters:
 # Allow volume expansion
 allowVolumeExpansion: true
 
-# Reclaim policy: Retain volumes after PVC deletion for data safety
-reclaimPolicy: Retain
+# Reclaim policy: Delete volumes after PVC deletion (automatic cleanup)
+reclaimPolicy: Delete
 
 # Volume binding mode: Immediate provisioning
 volumeBindingMode: Immediate

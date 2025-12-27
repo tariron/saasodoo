@@ -47,10 +47,7 @@ spec:
                 name: instance-service-secret
           volumeMounts:
             - name: odoo-backups
-              mountPath: /var/lib/odoo/backups
-            - name: cephfs
-              mountPath: /mnt/cephfs
-              readOnly: false
+              mountPath: /mnt/cephfs/odoo_backups
           livenessProbe:
             exec:
               command:
@@ -73,11 +70,6 @@ spec:
             failureThreshold: 3
       volumes:
         - name: odoo-backups
-          hostPath:
-            path: /mnt/cephfs/odoo_backups
-            type: DirectoryOrCreate
-        - name: cephfs
-          hostPath:
-            path: /mnt/cephfs
-            type: Directory
+          persistentVolumeClaim:
+            claimName: odoo-backups-pvc
       terminationGracePeriodSeconds: 120

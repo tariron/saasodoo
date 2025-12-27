@@ -40,13 +40,4 @@ spec:
             # 3. Service secrets (highest priority)
             - secretRef:
                 name: database-service-secret
-          volumeMounts:
-            - name: cephfs
-              mountPath: /mnt/cephfs
-              readOnly: true
-      volumes:
-        - name: cephfs
-          hostPath:
-            path: /mnt/cephfs
-            type: Directory
       terminationGracePeriodSeconds: 30

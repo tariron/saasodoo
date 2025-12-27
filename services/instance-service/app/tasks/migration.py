@@ -202,12 +202,23 @@ async def _create_db_user_on_dedicated_server(instance: Dict[str, Any], db_serve
     When we provision a dedicated server, database-service should also create
     the database user using credentials provided in the request.
     """
-    # Read existing credentials from odoo.conf
-    cephfs_path = f"/mnt/cephfs/odoo_instances/odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-    odoo_conf_path = f"{cephfs_path}/conf/odoo.conf"
+    # Read existing credentials from odoo.conf in PVC using Kubernetes Job
+    from app.utils.k8s_client import KubernetesClient
+
+    pvc_name = f"odoo-instance-{instance['id'].hex}"
+    k8s_client = KubernetesClient()
+
+    logger.info("Reading odoo.conf from PVC", pvc_name=pvc_name)
+    odoo_conf_content = k8s_client.read_file_from_pvc(
+        pvc_name=pvc_name,
+        file_path="/conf/odoo.conf"
+    )
+
+    if not odoo_conf_content:
+        raise Exception(f"Failed to read odoo.conf from PVC {pvc_name}")
 
     config = configparser.ConfigParser()
-    config.read(odoo_conf_path)
+    config.read_string(odoo_conf_content)
 
     db_user = config['options']['db_user']
     db_password = config['options']['db_password']
@@ -317,17 +328,29 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
     """
     deployment_name = f"odoo-{instance['database_name']}-{instance['id'].hex[:8]}"
 
-    # Step 1: Update odoo.conf file (REQUIRED - this is what Odoo actually uses)
-    cephfs_path = f"/mnt/cephfs/odoo_instances/odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-    odoo_conf_path = f"{cephfs_path}/conf/odoo.conf"
+    # Step 1: Update odoo.conf file in PVC using Kubernetes Job
+    # (REQUIRED - this is what Odoo actually uses)
+    from app.utils.k8s_client import KubernetesClient
+    from io import StringIO
 
-    logger.info("Updating odoo.conf with new database connection",
-                odoo_conf_path=odoo_conf_path,
+    pvc_name = f"odoo-instance-{instance['id'].hex}"
+    k8s_client = KubernetesClient()
+
+    logger.info("Reading odoo.conf from PVC to update database connection",
+                pvc_name=pvc_name,
                 new_db_host=dedicated['db_host'])
 
     # Read existing config to preserve all settings
+    odoo_conf_content = k8s_client.read_file_from_pvc(
+        pvc_name=pvc_name,
+        file_path="/conf/odoo.conf"
+    )
+
+    if not odoo_conf_content:
+        raise Exception(f"Failed to read odoo.conf from PVC {pvc_name}")
+
     config = configparser.ConfigParser()
-    config.read(odoo_conf_path)
+    config.read_string(odoo_conf_content)
 
     # Ensure [options] section exists
     if 'options' not in config:
@@ -337,11 +360,21 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
     config['options']['db_host'] = dedicated['db_host']
     # Note: db_user, db_password, and db_name all stay the same (we're just moving the database)
 
-    # Write back complete config
-    with open(odoo_conf_path, 'w') as f:
-        config.write(f)
+    # Write back complete config to PVC
+    output = StringIO()
+    config.write(output)
+    new_conf_content = output.getvalue()
 
-    logger.info("odoo.conf updated successfully")
+    success = k8s_client.write_file_to_pvc(
+        pvc_name=pvc_name,
+        file_path="/conf/odoo.conf",
+        content=new_conf_content
+    )
+
+    if not success:
+        raise Exception(f"Failed to write updated odoo.conf to PVC {pvc_name}")
+
+    logger.info("odoo.conf updated successfully in PVC", pvc_name=pvc_name)
 
     # Step 2: Update Kubernetes deployment environment variables (for consistency & documentation)
     # These won't override odoo.conf, but keeps env vars in sync

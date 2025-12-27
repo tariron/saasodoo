@@ -1,0 +1,17 @@
+---
+# RabbitMQ PVC (Rook CephFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: messaging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 5Gi

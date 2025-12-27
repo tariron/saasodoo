@@ -126,7 +126,7 @@ class PostgreSQLKubernetesClient:
         self,
         pool_name: str,
         postgres_password: str,
-        storage_path: str,
+        pvc_name: str,
         cpu_limit: str = "2",
         memory_limit: str = "4G",
         max_instances: int = 50,
@@ -140,7 +140,7 @@ class PostgreSQLKubernetesClient:
         Args:
             pool_name: Name of the pool
             postgres_password: Admin password for PostgreSQL
-            storage_path: CephFS path for data persistence
+            pvc_name: Name of PVC for data persistence
             cpu_limit: CPU limit (e.g., "2" for 2 cores)
             memory_limit: Memory limit (e.g., "4G")
             max_instances: Maximum number of databases this pool will host
@@ -164,7 +164,7 @@ class PostgreSQLKubernetesClient:
 
             logger.info("Creating PostgreSQL pool StatefulSet",
                        pool_name=pool_name,
-                       storage_path=storage_path,
+                       pvc_name=pvc_name,
                        cpu_limit=cpu_limit,
                        memory_limit=memory_limit,
                        max_connections=max_connections)
@@ -208,13 +208,12 @@ class PostgreSQLKubernetesClient:
                 )
             ]
 
-            # Volumes (hostPath for CephFS)
+            # Volumes (PVC for persistent storage)
             volumes = [
                 client.V1Volume(
                     name="postgres-data",
-                    host_path=client.V1HostPathVolumeSource(
-                        path=storage_path,
-                        type="DirectoryOrCreate"
+                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                        claim_name=pvc_name
                     )
                 )
             ]
@@ -478,4 +477,91 @@ class PostgreSQLKubernetesClient:
         except Exception as e:
             logger.error("Failed to update StatefulSet resources",
                        name=service_id, error=str(e))
+            return False
+
+    def create_postgres_pvc(self, pvc_name: str, storage_size: str) -> bool:
+        """
+        Create PVC for PostgreSQL server
+
+        Args:
+            pvc_name: Name of the PVC (e.g., 'postgres-pool-1', 'postgres-dedicated-{uuid}')
+            storage_size: Storage size in Kubernetes format (e.g., '50Gi', '100Gi')
+
+        Returns:
+            True if successful
+
+        Raises:
+            Exception if PVC creation fails
+        """
+        try:
+            self._ensure_connection()
+            from datetime import datetime
+
+            pvc = client.V1PersistentVolumeClaim(
+                metadata=client.V1ObjectMeta(
+                    name=pvc_name,
+                    namespace=self.namespace,
+                    labels={
+                        "app": "postgres-server",
+                        "managed-by": "saasodoo-database-service"
+                    },
+                    annotations={
+                        "saasodoo.io/created-at": datetime.utcnow().isoformat()
+                    }
+                ),
+                spec=client.V1PersistentVolumeClaimSpec(
+                    access_modes=["ReadWriteOnce"],  # RWO for single PostgreSQL server
+                    storage_class_name="rook-cephfs",
+                    resources=client.V1ResourceRequirements(
+                        requests={"storage": storage_size}
+                    )
+                )
+            )
+
+            self.core_v1.create_namespaced_persistent_volume_claim(
+                namespace=self.namespace,
+                body=pvc
+            )
+
+            logger.info("Created PostgreSQL PVC", pvc_name=pvc_name, size=storage_size)
+            return True
+
+        except Exception as e:
+            logger.error("Failed to create PVC",
+                       pvc_name=pvc_name,
+                       size=storage_size,
+                       error=str(e))
+            raise
+
+    def delete_pvc(self, pvc_name: str) -> bool:
+        """
+        Delete PostgreSQL PVC
+
+        Args:
+            pvc_name: Name of the PVC to delete
+
+        Returns:
+            True if successful
+        """
+        try:
+            self._ensure_connection()
+
+            self.core_v1.delete_namespaced_persistent_volume_claim(
+                name=pvc_name,
+                namespace=self.namespace,
+                body=client.V1DeleteOptions(propagation_policy='Foreground')
+            )
+
+            logger.info("Deleted PVC", pvc_name=pvc_name)
+            return True
+
+        except ApiException as e:
+            if e.status == 404:
+                logger.warning("PVC not found (already deleted)", pvc_name=pvc_name)
+                return True
+            logger.error("Failed to delete PVC", pvc_name=pvc_name, error=str(e))
+            return False
+
+        except Exception as e:
+            logger.error("Failed to delete PVC", pvc_name=pvc_name, error=str(e))
             return False

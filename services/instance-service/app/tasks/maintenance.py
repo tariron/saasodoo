@@ -443,19 +443,12 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
     backup_full_path = f"{BACKUP_ACTIVE_PATH}/{backup_file}"
 
     try:
-        # Get CephFS path for instance data
-        volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-        cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
-
-        # Check if CephFS path exists
-        if not os.path.exists(cephfs_path):
-            logger.warning("CephFS path not found, skipping data volume backup", path=cephfs_path)
-            Path(backup_full_path).touch()
-            return backup_full_path, 0
+        # Get PVC name for instance
+        instance_id = instance['id'].hex
+        pvc_name = f"odoo-instance-{instance_id}"
 
         logger.info("Starting data volume backup with Kubernetes Job",
-                   volume_name=volume_name,
-                   cephfs_path=cephfs_path,
+                   pvc_name=pvc_name,
                    backup_file=backup_file)
 
         # Create Kubernetes client
@@ -465,12 +458,12 @@ async def _create_data_volume_backup(instance: Dict[str, Any], backup_name: str)
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         job_name = f"backup-{instance['id'].hex[:8]}-{timestamp}".lower()
 
-        # Create backup job
+        # Create backup job with instance PVC
         success = k8s_client.create_backup_job(
             job_name=job_name,
-            source_path=cephfs_path,
+            instance_pvc_name=pvc_name,
             backup_file=backup_file,
-            backup_base_path=BACKUP_BASE_PATH
+            backup_base_path="/mnt/cephfs/odoo_backups"
         )
 
         if not success:
@@ -587,21 +580,12 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
         logger.warning("Data backup file not found, skipping data restore", file=backup_file)
         return
 
-    volume_name = f"odoo_data_{instance['database_name']}_{instance['id'].hex[:8]}"
-    cephfs_path = f"/mnt/cephfs/odoo_instances/{volume_name}"
+    instance_id = instance['id'].hex
+    pvc_name = f"odoo-instance-{instance_id}"
 
     try:
-        # Get storage limit from instance for CephFS quota
-        storage_limit = instance.get('storage_limit', '10G')
-
-        # Import helper function from provisioning
-        from app.tasks.provisioning import _create_cephfs_directory_with_quota
-
-        # Create CephFS directory with quota for restore (or clear existing)
-        _create_cephfs_directory_with_quota(cephfs_path, storage_limit)
-        logger.info("Created CephFS directory with quota for restore",
-                   path=cephfs_path,
-                   storage_limit=storage_limit)
+        # PVC should already exist from provisioning
+        logger.info("Restoring to instance PVC", pvc_name=pvc_name)
 
         # Create Kubernetes client
         k8s_client = KubernetesClient()
@@ -610,12 +594,12 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         job_name = f"restore-{instance['id'].hex[:8]}-{timestamp}".lower()
 
-        # Create restore job
+        # Create restore job with instance PVC
         success = k8s_client.create_restore_job(
             job_name=job_name,
+            instance_pvc_name=pvc_name,
             backup_file=backup_filename,
-            dest_path=cephfs_path,
-            backup_base_path=BACKUP_BASE_PATH
+            backup_base_path="/mnt/cephfs/odoo_backups"
         )
 
         if not success:
@@ -628,7 +612,7 @@ async def _restore_data_volume_backup(instance: Dict[str, Any], backup_info: Dic
             raise RuntimeError("Restore job failed or timed out")
 
         logger.info("Data volume restored from backup",
-                   volume=volume_name,
+                   pvc_name=pvc_name,
                    backup_file=backup_filename)
 
     except Exception as e:
@@ -1153,8 +1137,8 @@ async def _start_kubernetes_deployment(instance: Dict[str, Any]) -> Dict[str, An
         if not success:
             raise RuntimeError(f"Failed to scale deployment {deployment_name} to 1")
 
-        # Wait for deployment to be ready
-        ready = k8s_client.wait_for_deployment_ready(deployment_name, timeout=120)
+        # Wait for deployment to be ready (300s timeout for Odoo startup after backup)
+        ready = k8s_client.wait_for_deployment_ready(deployment_name, timeout=300)
 
         if not ready:
             raise RuntimeError("Deployment failed to become ready within timeout")

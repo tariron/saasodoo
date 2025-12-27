@@ -41,9 +41,6 @@ spec:
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
-            - name: cephfs
-              mountPath: /mnt/cephfs
-              readOnly: false
           livenessProbe:
             httpGet:
               path: /health
@@ -65,7 +62,3 @@ spec:
           hostPath:
             path: /var/run/docker.sock
             type: Socket
-        - name: cephfs
-          hostPath:
-            path: /mnt/cephfs
-            type: Directory

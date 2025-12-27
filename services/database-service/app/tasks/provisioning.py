@@ -113,28 +113,18 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
 
             logger.info("Determined pool name", pool_name=pool_name, pool_number=pool_number)
 
-            # Step 2: Setup CephFS storage
-            cephfs_base = os.getenv('CEPHFS_MOUNT_PATH', '/mnt/cephfs')
-            storage_path = f"{cephfs_base}/postgres_pools/pool-{pool_number}"
+            # Step 2: Create PVC for PostgreSQL pool storage
+            pvc_name = f"postgres-pool-{pool_number}"
+            storage_size = "50Gi"  # Default pool storage size
 
             try:
-                # Create directory structure
-                data_dir = Path(storage_path) / "data"
-                data_dir.mkdir(parents=True, exist_ok=True)
-
-                # Set ownership to postgres user (UID 999, GID 999)
-                os.chown(storage_path, 999, 999)
-                os.chown(data_dir, 999, 999)
-
-                logger.info("CephFS storage created", storage_path=storage_path)
-
-            except PermissionError as e:
-                logger.error("CephFS permission error", storage_path=storage_path, error=str(e))
-                raise Reject(f"Permission denied creating CephFS directory: {e}", requeue=False)
+                logger.info("Creating PVC for PostgreSQL pool", pvc_name=pvc_name, size=storage_size)
+                self.k8s_client.create_postgres_pvc(pvc_name, storage_size)
+                logger.info("PVC created successfully", pvc_name=pvc_name)
 
             except Exception as e:
-                logger.error("CephFS directory creation failed", storage_path=storage_path, error=str(e))
-                raise  # Will retry
+                logger.error("PVC creation failed", pvc_name=pvc_name, error=str(e))
+                raise Reject(f"Failed to create PVC: {e}", requeue=False)
 
             # Step 3: Generate credentials
             admin_password = secrets.token_urlsafe(32)
@@ -158,9 +148,9 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
             row = await conn.fetchrow(
                 insert_query,
                 pool_name,  # name
-                pool_name,  # host (Docker service DNS)
+                pool_name,  # host (K8s service DNS)
                 max_instances,  # max_instances
-                storage_path,  # storage_path
+                pvc_name,  # storage_path (now stores PVC name)
                 admin_password  # admin_password
             )
             db_server_id = str(row['id'])
@@ -171,12 +161,12 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
                 pool_name=pool_name
             )
 
-            # Step 5: Create Docker Swarm service
+            # Step 5: Create Kubernetes StatefulSet
             try:
                 service_info = self.k8s_client.create_postgres_pool_service(
                     pool_name=pool_name,
                     postgres_password=admin_password,
-                    storage_path=storage_path,
+                    pvc_name=pvc_name,
                     cpu_limit="2",
                     memory_limit="4G",
                     max_instances=max_instances
@@ -381,24 +371,18 @@ async def _provision_dedicated_server_workflow(
 
             logger.info("Determined server name", server_name=server_name, instance_id=instance_id)
 
-            # Step 2: Setup CephFS storage
-            cephfs_base = os.getenv('CEPHFS_MOUNT_PATH', '/mnt/cephfs')
-            storage_path = f"{cephfs_base}/postgres_dedicated/{server_name}"
+            # Step 2: Create PVC for dedicated PostgreSQL server
+            pvc_name = f"postgres-dedicated-{instance_short}"
+            storage_size = "100Gi"  # Dedicated server storage size
 
             try:
-                # Create directory structure
-                data_dir = Path(storage_path) / "data"
-                data_dir.mkdir(parents=True, exist_ok=True)
+                logger.info("Creating PVC for dedicated PostgreSQL server", pvc_name=pvc_name, size=storage_size)
+                self.k8s_client.create_postgres_pvc(pvc_name, storage_size)
+                logger.info("PVC created successfully", pvc_name=pvc_name)
 
-                # Set ownership to postgres user
-                os.chown(storage_path, 999, 999)
-                os.chown(data_dir, 999, 999)
-
-                logger.info("Dedicated storage created", storage_path=storage_path)
-
-            except PermissionError as e:
-                logger.error("Storage permission error", error=str(e))
-                raise Reject(f"Permission denied: {e}", requeue=False)
+            except Exception as e:
+                logger.error("PVC creation failed", pvc_name=pvc_name, error=str(e))
+                raise Reject(f"Failed to create PVC: {e}", requeue=False)
 
             # Step 3: Generate credentials
             admin_password = secrets.token_urlsafe(32)
@@ -423,19 +407,19 @@ async def _provision_dedicated_server_workflow(
             """
             row = await conn.fetchrow(
                 insert_query,
-                server_name, server_name, storage_path,
+                server_name, server_name, pvc_name,  # storage_path now stores PVC name
                 customer_id, instance_id, admin_password
             )
             db_server_id = str(row['id'])
 
             logger.info("Dedicated server record created", db_server_id=db_server_id)
 
-            # Step 5: Create Docker service with same resources as shared pools
+            # Step 5: Create Kubernetes StatefulSet for dedicated server
             try:
                 service_info = self.k8s_client.create_postgres_pool_service(
                     pool_name=server_name,
                     postgres_password=admin_password,
-                    storage_path=storage_path,
+                    pvc_name=pvc_name,
                     cpu_limit="2",  # Same as shared pools
                     memory_limit="4G",  # Same as shared pools
                     max_instances=1  # Only one database

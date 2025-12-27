@@ -33,12 +33,6 @@ spec:
     activeCount: 1
     # Number of standby MDS daemons (1 for failover)
     activeStandby: true
-    # Resource limits for MDS pods (optimized for 3-node cluster)
-    resources:
-      limits:
-        memory: "2Gi"
-      requests:
-        cpu: "500m"
-        memory: "1Gi"
+    # Resource limits removed for maximum flexibility
     # Priority class for MDS pods
     priorityClassName: system-cluster-critical

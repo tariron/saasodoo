@@ -1,0 +1,18 @@
+---
+# KillBill MariaDB PVC (Rook CephFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: killbill-db-pvc
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill-db
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: killbill
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 10Gi
