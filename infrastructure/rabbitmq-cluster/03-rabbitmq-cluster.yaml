@@ -1,0 +1,134 @@
+---
+# RabbitMQ Cluster - 3 Node HA Setup
+#
+# This creates a highly available RabbitMQ cluster with:
+# - 3 nodes for quorum queue replication
+# - Automatic failover
+# - CephFS persistent storage (10Gi per node)
+# - Prometheus monitoring enabled
+# - Management UI accessible
+#
+# Service created: rabbitmq.saasodoo.svc.cluster.local
+# Management UI: rabbitmq.saasodoo.svc.cluster.local:15672
+#
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: rabbitmq
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  # High Availability - 3 nodes for quorum queues
+  replicas: 3
+
+  # RabbitMQ Image
+  image: rabbitmq:4.1.3-management-alpine
+
+  # Persistent Storage (CephFS)
+  persistence:
+    storageClassName: rook-cephfs
+    storage: 10Gi  # Per node (30Gi total)
+
+  # Resource Limits
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+  # RabbitMQ Configuration
+  rabbitmq:
+    # Additional configuration
+    additionalConfig: |
+      # Default virtual host for SaaSOdoo
+      default_vhost = saasodoo
+
+      # Disk free limit (stop accepting messages when disk < 2GB)
+      disk_free_limit.absolute = 2GB
+
+      # VM memory high watermark (stop accepting when memory > 80%)
+      vm_memory_high_watermark.relative = 0.8
+
+      # Heartbeat timeout
+      heartbeat = 60
+
+      # Channel max (per connection)
+      channel_max = 2047
+
+      # Consumer timeout (30 minutes for long Celery tasks)
+      consumer_timeout = 1800000
+
+      # Management agent stats collection interval
+      collect_statistics_interval = 5000
+
+    # Additional plugins (beyond defaults)
+    # Default enabled: rabbitmq_management, rabbitmq_prometheus, rabbitmq_peer_discovery_k8s
+    additionalPlugins:
+      - rabbitmq_shovel
+      - rabbitmq_shovel_management
+
+    # Advanced configuration
+    advancedConfig: |
+      [
+        {rabbit, [
+          {log_levels, [{connection, info}, {channel, info}]},
+          {cluster_partition_handling, autoheal}
+        ]}
+      ].
+
+  # Service Configuration
+  service:
+    type: ClusterIP
+    annotations:
+      # Annotations for service discovery/monitoring if needed
+
+  # Override default user with secret
+  override:
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+            - name: rabbitmq
+              env:
+              # Override default user credentials
+              - name: RABBITMQ_DEFAULT_USER
+                valueFrom:
+                  secretKeyRef:
+                    name: rabbitmq-admin
+                    key: username
+              - name: RABBITMQ_DEFAULT_PASS
+                valueFrom:
+                  secretKeyRef:
+                    name: rabbitmq-admin
+                    key: password
+              - name: RABBITMQ_DEFAULT_VHOST
+                valueFrom:
+                  secretKeyRef:
+                    name: rabbitmq-admin
+                    key: default_vhost
+
+  # Affinity - Spread pods across nodes
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - rabbitmq
+        topologyKey: kubernetes.io/hostname
+
+  # Pod Disruption Budget (for rolling updates)
+  # Ensures at least 2 nodes available during updates
+  # Note: PDB is created automatically by operator
+
+  # Termination Grace Period
+  # Time to allow for graceful shutdown
+  terminationGracePeriodSeconds: 604800  # 7 days (default, can be lowered)

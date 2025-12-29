@@ -1,0 +1,76 @@
+---
+# PgBouncer Connection Pooler for postgres-cluster
+#
+# This creates a PgBouncer pooler that sits between applications and PostgreSQL
+# - Reduces connection overhead with transaction pooling
+# - Handles 1000 app connections with just ~25 PostgreSQL connections
+# - 2 replicas for HA
+#
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: postgres-cluster-pooler-rw
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/component: connection-pooler
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  # Reference to the PostgreSQL cluster
+  cluster:
+    name: postgres-cluster
+
+  # Pooler type: rw (read-write, connects to primary)
+  type: rw
+
+  # High availability - 2 pooler replicas
+  instances: 2
+
+  # PgBouncer configuration
+  pgbouncer:
+    # Transaction pooling - most efficient for FastAPI/asyncpg apps with short transactions
+    poolMode: transaction
+
+    # Connection limits
+    parameters:
+      # Client connections
+      max_client_conn: "1000"          # Max connections from applications
+
+      # Server connections (to PostgreSQL)
+      default_pool_size: "25"          # Connections per database to PostgreSQL
+      reserve_pool_size: "5"           # Emergency pool connections
+      reserve_pool_timeout: "5"        # Seconds to wait for emergency pool
+      max_db_connections: "100"        # Hard limit per database
+
+      # Timeouts
+      server_idle_timeout: "600"       # Close idle server connections after 10min
+      server_lifetime: "3600"          # Recycle server connections after 1hr
+      server_connect_timeout: "15"     # Connection timeout to PostgreSQL
+      query_timeout: "0"               # No query timeout (handled by application)
+      idle_transaction_timeout: "0"    # No idle transaction timeout
+
+      # Logging (minimize overhead)
+      log_connections: "0"             # Don't log every connection
+      log_disconnections: "0"          # Don't log every disconnection
+      log_pooler_errors: "1"           # Log pooler errors only
+
+      # Performance
+      server_reset_query: "DISCARD ALL"  # Reset connection state between transactions
+      application_name_add_host: "1"   # Add client hostname to app name for visibility
+
+  # Template for PgBouncer deployment pods
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pgbouncer
+        app.kubernetes.io/instance: postgres-cluster
+    spec:
+      containers:
+      - name: pgbouncer
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"

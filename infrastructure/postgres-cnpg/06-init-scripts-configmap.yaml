@@ -1,0 +1,455 @@
+apiVersion: v1
+data:
+  04-analytics-schema.sql: |2
+
+    CREATE TABLE IF NOT EXISTS user_activities (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL,
+        customer_id UUID,
+        activity_type VARCHAR(100) NOT NULL,
+        activity_data JSONB,
+        ip_address INET,
+        user_agent TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS system_metrics (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        metric_name VARCHAR(100) NOT NULL,
+        metric_value DECIMAL(15,4) NOT NULL,
+        metric_unit VARCHAR(20),
+        tags JSONB,
+        recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Create indexes for analytics database
+    CREATE INDEX IF NOT EXISTS idx_user_activities_user_id ON user_activities(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_activities_customer_id ON user_activities(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_user_activities_type ON user_activities(activity_type);
+    CREATE INDEX IF NOT EXISTS idx_user_activities_created ON user_activities(created_at);
+    CREATE INDEX IF NOT EXISTS idx_system_metrics_name ON system_metrics(metric_name);
+    CREATE INDEX IF NOT EXISTS idx_system_metrics_recorded ON system_metrics(recorded_at);
+
+    -- Return to main database for any final setup
+  04-auth-schema.sql: |2
+
+    -- Create basic tables for authentication service
+    CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        is_active BOOLEAN DEFAULT true,
+        is_verified BOOLEAN DEFAULT false,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        session_token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS password_resets (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        reset_token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        used BOOLEAN DEFAULT false,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        verification_token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        used BOOLEAN DEFAULT false,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Create indexes for auth database
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(reset_token);
+    CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_token ON email_verification_tokens(verification_token);
+    CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
+
+    -- Initialize billing database schema
+  04-billing-schema.sql: |2
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL,
+        instance_id UUID, -- Link to specific instance
+        killbill_subscription_id VARCHAR(255), -- KillBill subscription ID
+        plan_name VARCHAR(100) NOT NULL,
+        status VARCHAR(50) DEFAULT 'active',
+        subscription_status VARCHAR(50) DEFAULT 'pending', -- pending, trial_active, active, payment_required, cancelled
+        current_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
+        current_period_end TIMESTAMP WITH TIME ZONE NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'USD',
+        trial_eligible BOOLEAN DEFAULT TRUE, -- Track if customer can use trial
+        trial_used BOOLEAN DEFAULT FALSE, -- Track if customer has used trial
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        subscription_id UUID REFERENCES subscriptions(id),
+        amount DECIMAL(10,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'USD',
+        payment_method VARCHAR(50) NOT NULL,
+        payment_status VARCHAR(50) DEFAULT 'pending',
+        gateway_transaction_id VARCHAR(255),
+        processed_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+        -- Paynow-specific fields
+        paynow_reference VARCHAR(255),
+        paynow_poll_url TEXT,
+        paynow_browser_url TEXT,
+        return_url TEXT,
+        phone VARCHAR(20),
+        paynow_status VARCHAR(50),
+        webhook_received_at TIMESTAMP WITH TIME ZONE
+    );
+
+    -- Create indexes for billing database
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_instance_id ON subscriptions(instance_id);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_killbill_id ON subscriptions(killbill_subscription_id);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_subscription_status ON subscriptions(subscription_status);
+    CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status);
+    CREATE INDEX IF NOT EXISTS idx_payments_paynow_ref ON payments(paynow_reference);
+    CREATE INDEX IF NOT EXISTS idx_payments_gateway_tx_id ON payments(gateway_transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone);
+
+
+    -- Initialize instance database schema
+  04-communication-schema.sql: |2
+
+    CREATE TABLE IF NOT EXISTS email_templates (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        template_name VARCHAR(100) UNIQUE NOT NULL,
+        subject VARCHAR(255) NOT NULL,
+        html_content TEXT NOT NULL,
+        text_content TEXT,
+        variables JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS email_queue (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        recipient_email VARCHAR(255) NOT NULL,
+        subject VARCHAR(255) NOT NULL,
+        html_content TEXT NOT NULL,
+        text_content TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        max_attempts INTEGER DEFAULT 3,
+        scheduled_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        sent_at TIMESTAMP WITH TIME ZONE,
+        error_message TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Create indexes for communication database
+    CREATE INDEX IF NOT EXISTS idx_email_templates_name ON email_templates(template_name);
+    CREATE INDEX IF NOT EXISTS idx_email_queue_status ON email_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_email_queue_scheduled ON email_queue(scheduled_at);
+
+    -- Initialize analytics database schema
+  04-instance-schema.sql: "\n-- Create instances table (moved from tenant-service
+    to instance-service)\nCREATE TABLE IF NOT EXISTS instances (\n    id UUID PRIMARY
+    KEY DEFAULT uuid_generate_v4(),\n    customer_id UUID NOT NULL, -- Reference to
+    customer (no foreign key across databases)\n    subscription_id UUID, -- Link
+    to billing subscription\n    name VARCHAR(100) NOT NULL,\n    description TEXT,\n
+    \   odoo_version VARCHAR(10) DEFAULT '17.0',\n    instance_type VARCHAR(20) DEFAULT
+    'development',\n    status VARCHAR(20) DEFAULT 'creating',\n    \n    -- Billing
+    and provisioning status\n    billing_status VARCHAR(30) DEFAULT 'pending_payment',
+    -- pending_payment, trial, paid, suspended, payment_required\n    provisioning_status
+    VARCHAR(30) DEFAULT 'pending', -- pending, provisioning, completed, failed\n    \n
+    \   -- Resource allocation\n    cpu_limit DECIMAL(3,1) DEFAULT 1.0,\n    memory_limit
+    VARCHAR(10) DEFAULT '1G',\n    storage_limit VARCHAR(10) DEFAULT '10G',\n    \n
+    \   -- Odoo configuration\n    admin_email VARCHAR(255) NOT NULL,\n    admin_password
+    VARCHAR(255), -- Auto-generated password (not stored, sent via email)\n    database_name
+    VARCHAR(50) NOT NULL,\n    subdomain VARCHAR(50), -- Custom subdomain or defaults
+    to database_name\n    demo_data BOOLEAN DEFAULT false,\n    \n    -- Service information
+    (Docker Swarm)\n    service_id VARCHAR(255),\n    service_name VARCHAR(255),\n
+    \   \n    -- Network information\n    internal_port INTEGER DEFAULT 8069,\n    external_port
+    INTEGER,\n    internal_url VARCHAR(255),\n    external_url VARCHAR(255),\n    \n
+    \   -- Database information\n    db_host VARCHAR(255),\n    db_port INTEGER DEFAULT
+    5432,\n    db_name VARCHAR(255), -- Actual database name allocated by database-service\n
+    \   db_user VARCHAR(255),\n    db_type VARCHAR(20) DEFAULT 'shared' CHECK (db_type
+    IN ('shared', 'dedicated')),\n\n    -- Addons and modules (stored as JSON arrays)\n
+    \   custom_addons JSONB DEFAULT '[]',\n    disabled_modules JSONB DEFAULT '[]',\n
+    \   environment_vars JSONB DEFAULT '{}',\n    \n    -- Status information\n    last_health_check
+    TIMESTAMP WITH TIME ZONE,\n    error_message TEXT,\n    \n    -- Timestamps\n
+    \   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n    updated_at
+    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n    started_at TIMESTAMP
+    WITH TIME ZONE,\n    \n    -- Metadata\n    metadata JSONB DEFAULT '{}'\n);\n\n--
+    Create indexes for instance database\nCREATE INDEX IF NOT EXISTS idx_instances_customer_id
+    ON instances(customer_id);\nCREATE INDEX IF NOT EXISTS idx_instances_subscription_id
+    ON instances(subscription_id);\nCREATE INDEX IF NOT EXISTS idx_instances_status
+    ON instances(status);\nCREATE INDEX IF NOT EXISTS idx_instances_billing_status
+    ON instances(billing_status);\nCREATE INDEX IF NOT EXISTS idx_instances_provisioning_status
+    ON instances(provisioning_status);\nCREATE INDEX IF NOT EXISTS idx_instances_name
+    ON instances(name);\nCREATE INDEX IF NOT EXISTS idx_instances_created_at ON instances(created_at);\nCREATE
+    INDEX IF NOT EXISTS idx_instances_database_name ON instances(database_name);\nCREATE
+    INDEX IF NOT EXISTS idx_instances_service_id ON instances(service_id);\n\n-- Initialize
+    communication database schema\n"
+  05-plan-entitlements.sql: |
+    -- Plan entitlements table with versioning
+    -- This table stores resource allocations (CPU, memory, storage) for each billing plan
+    -- Multiple rows per plan_name enable versioning via effective_date
+
+    CREATE TABLE IF NOT EXISTS plan_entitlements (
+        id SERIAL PRIMARY KEY,
+        plan_name VARCHAR(100) NOT NULL,
+        effective_date TIMESTAMP NOT NULL,
+        cpu_limit DECIMAL(4,2) NOT NULL,
+        memory_limit VARCHAR(10) NOT NULL,
+        storage_limit VARCHAR(10) NOT NULL,
+        description TEXT,
+        created_by VARCHAR(100) DEFAULT 'system',
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(plan_name, effective_date)
+    );
+
+    -- Index for efficient lookups of current/historical entitlements
+    CREATE INDEX IF NOT EXISTS idx_plan_entitlements_lookup ON plan_entitlements(plan_name, effective_date DESC);
+
+    -- Seed initial entitlements (effective from project start)
+    INSERT INTO plan_entitlements (plan_name, effective_date, cpu_limit, memory_limit, storage_limit, description) VALUES
+    ('basic-monthly', '2024-01-01 00:00:00', 1.0, '2G', '10G', 'Basic tier - Small workloads'),
+    ('basic-immediate', '2024-01-01 00:00:00', 1.0, '2G', '10G', 'Basic tier - Immediate billing'),
+    ('basic-test-trial', '2024-01-01 00:00:00', 1.0, '2G', '10G', 'Basic tier - Testing'),
+    ('standard-monthly', '2024-01-01 00:00:00', 2.0, '4G', '20G', 'Standard tier - Medium workloads'),
+    ('premium-monthly', '2024-01-01 00:00:00', 4.0, '8G', '50G', 'Premium tier - Large workloads')
+    ON CONFLICT (plan_name, effective_date) DO NOTHING;
+
+    -- Grant permissions to billing service
+    GRANT SELECT ON plan_entitlements TO billing_service;
+    GRANT INSERT, UPDATE ON plan_entitlements TO billing_service;
+    GRANT USAGE, SELECT ON SEQUENCE plan_entitlements_id_seq TO billing_service;
+  06-database-service-schema.sql: |
+    -- Dynamic Database Allocation Schema Migration
+    -- Creates db_servers table and extends instances table for dynamic database allocation
+    -- Author: System
+    -- Date: 2025
+    -- Version: 1.0
+
+    -- ============================================================================
+    -- FORWARD MIGRATION
+    -- ============================================================================
+
+    -- Create db_servers table for managing PostgreSQL database pools
+    CREATE TABLE IF NOT EXISTS db_servers (
+        -- Identity
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name VARCHAR(100) UNIQUE NOT NULL,
+        host VARCHAR(255) NOT NULL,
+        port INTEGER DEFAULT 5432,
+
+        -- Type & Capacity
+        server_type VARCHAR(20) NOT NULL CHECK (server_type IN ('platform', 'shared', 'dedicated')),
+        max_instances INTEGER NOT NULL DEFAULT 50,
+        current_instances INTEGER NOT NULL DEFAULT 0 CHECK (current_instances >= 0),
+
+        -- Docker Swarm Metadata
+        swarm_service_id VARCHAR(255),
+        swarm_service_name VARCHAR(255),
+        node_placement VARCHAR(255) DEFAULT 'node.labels.role==database',
+
+        -- Status
+        status VARCHAR(30) NOT NULL DEFAULT 'provisioning'
+            CHECK (status IN ('provisioning', 'initializing', 'active', 'full', 'maintenance', 'error', 'deprovisioning')),
+        health_status VARCHAR(20) DEFAULT 'unknown'
+            CHECK (health_status IN ('healthy', 'degraded', 'unhealthy', 'unknown')),
+        last_health_check TIMESTAMP WITH TIME ZONE,
+        health_check_failures INTEGER DEFAULT 0 CHECK (health_check_failures >= 0),
+
+        -- Resources
+        cpu_limit VARCHAR(10) DEFAULT '2',
+        memory_limit VARCHAR(10) DEFAULT '4G',
+        storage_path VARCHAR(500),
+        allocated_storage_gb INTEGER DEFAULT 0 CHECK (allocated_storage_gb >= 0),
+
+        -- PostgreSQL Configuration
+        postgres_version VARCHAR(10) DEFAULT '18',
+        postgres_image VARCHAR(100) DEFAULT 'postgres:18-alpine',
+        admin_user VARCHAR(50) DEFAULT 'postgres',
+        admin_password VARCHAR(255),
+
+        -- Allocation Strategy
+        allocation_strategy VARCHAR(20) DEFAULT 'auto' CHECK (allocation_strategy IN ('auto', 'manual')),
+        priority INTEGER DEFAULT 100 CHECK (priority >= 0),
+
+        -- Dedicated Server Tracking (nullable - only for dedicated servers)
+        dedicated_to_customer_id UUID,
+        dedicated_to_instance_id UUID,
+
+        -- Audit Fields
+        provisioned_by VARCHAR(100),
+        provisioned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        last_allocated_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+        -- Constraints
+        CONSTRAINT check_capacity CHECK (current_instances <= max_instances),
+        CONSTRAINT check_dedicated_fields CHECK (
+            (server_type = 'dedicated' AND dedicated_to_customer_id IS NOT NULL)
+            OR (server_type != 'dedicated' AND dedicated_to_customer_id IS NULL AND dedicated_to_instance_id IS NULL)
+        )
+    );
+
+    -- Create indexes for fast allocation queries
+    -- This composite index optimizes the pool selection query
+    CREATE INDEX IF NOT EXISTS idx_db_servers_allocation
+        ON db_servers(server_type, status, current_instances, priority)
+        WHERE allocation_strategy = 'auto';
+
+    -- Index for Docker Swarm operations
+    CREATE INDEX IF NOT EXISTS idx_db_servers_swarm
+        ON db_servers(swarm_service_id)
+        WHERE swarm_service_id IS NOT NULL;
+
+    -- Index for health monitoring queries
+    CREATE INDEX IF NOT EXISTS idx_db_servers_health
+        ON db_servers(health_status, last_health_check);
+
+    -- Index for dedicated server lookups
+    CREATE INDEX IF NOT EXISTS idx_db_servers_dedicated_customer
+        ON db_servers(dedicated_to_customer_id)
+        WHERE dedicated_to_customer_id IS NOT NULL;
+
+    -- Create trigger function for auto-updating updated_at timestamp
+    CREATE OR REPLACE FUNCTION update_db_servers_updated_at()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Create trigger to automatically update updated_at on row modifications
+    DROP TRIGGER IF EXISTS db_servers_updated_at ON db_servers;
+    CREATE TRIGGER db_servers_updated_at
+        BEFORE UPDATE ON db_servers
+        FOR EACH ROW
+        EXECUTE FUNCTION update_db_servers_updated_at();
+
+    -- Extend instances table with database allocation fields
+    ALTER TABLE instances
+        ADD COLUMN IF NOT EXISTS db_server_id UUID REFERENCES db_servers(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS plan_tier VARCHAR(30),
+        ADD COLUMN IF NOT EXISTS requires_dedicated_db BOOLEAN DEFAULT false;
+
+    -- Add index for joining instances with db_servers
+    CREATE INDEX IF NOT EXISTS idx_instances_db_server
+        ON instances(db_server_id)
+        WHERE db_server_id IS NOT NULL;
+
+    -- Add index for plan tier queries
+    CREATE INDEX IF NOT EXISTS idx_instances_plan_tier
+        ON instances(plan_tier)
+        WHERE plan_tier IS NOT NULL;
+
+    -- Add comment documentation for the tables
+    COMMENT ON TABLE db_servers IS 'Manages PostgreSQL database server pools for dynamic allocation';
+    COMMENT ON COLUMN db_servers.server_type IS 'Type of server: platform (internal), shared (multi-tenant), or dedicated (single customer)';
+    COMMENT ON COLUMN db_servers.allocation_strategy IS 'auto: available for automatic allocation, manual: admin-controlled only';
+    COMMENT ON COLUMN db_servers.priority IS 'Lower number = higher priority for allocation (used when multiple pools available)';
+    COMMENT ON COLUMN db_servers.status IS 'Current lifecycle state of the database server';
+    COMMENT ON COLUMN db_servers.health_status IS 'Health check result from monitoring tasks';
+    COMMENT ON COLUMN instances.db_server_id IS 'Foreign key to db_servers - which PostgreSQL server hosts this instance database';
+    COMMENT ON COLUMN instances.plan_tier IS 'Subscription plan tier (free, starter, standard, professional, premium, enterprise)';
+    COMMENT ON COLUMN instances.requires_dedicated_db IS 'Whether this instance requires a dedicated database server';
+
+    -- Grant permissions to database_service user (must be created separately in 03-create-users.sql.template)
+    -- This is here for reference - actual user creation happens in 03-create-users.sql.template
+    -- GRANT ALL PRIVILEGES ON TABLE db_servers TO database_service;
+    -- GRANT ALL PRIVILEGES ON TABLE instances TO database_service;
+    -- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO database_service;
+
+    -- ============================================================================
+    -- ROLLBACK MIGRATION (commented out - use separate rollback script if needed)
+    -- ============================================================================
+
+    /*
+    -- Rollback script (run this to undo the migration)
+
+    -- Drop triggers
+    DROP TRIGGER IF EXISTS db_servers_updated_at ON db_servers;
+
+    -- Drop trigger functions
+    DROP FUNCTION IF EXISTS update_db_servers_updated_at();
+
+    -- Drop indexes on instances table
+    DROP INDEX IF EXISTS idx_instances_plan_tier;
+    DROP INDEX IF EXISTS idx_instances_db_server;
+
+    -- Remove columns from instances table
+    ALTER TABLE instances DROP COLUMN IF EXISTS requires_dedicated_db;
+    ALTER TABLE instances DROP COLUMN IF EXISTS plan_tier;
+    ALTER TABLE instances DROP COLUMN IF EXISTS db_server_id;
+
+    -- Drop indexes on db_servers table
+    DROP INDEX IF EXISTS idx_db_servers_dedicated_customer;
+    DROP INDEX IF EXISTS idx_db_servers_health;
+    DROP INDEX IF EXISTS idx_db_servers_swarm;
+    DROP INDEX IF EXISTS idx_db_servers_allocation;
+
+    -- Drop db_servers table
+    DROP TABLE IF EXISTS db_servers;
+
+    \echo 'Rollback completed - dynamic database allocation schema removed'
+    */
+  07-add-db-type-to-plan-entitlements.sql: |
+    -- Add db_type column to plan_entitlements table
+    -- This enables database-driven allocation (shared vs dedicated) based on plan
+    -- Stage 4: Instance-Service Integration with Database-Service
+
+    -- Add db_type column with constraint
+    ALTER TABLE plan_entitlements
+    ADD COLUMN IF NOT EXISTS db_type VARCHAR(20) NOT NULL DEFAULT 'shared'
+    CHECK (db_type IN ('shared', 'dedicated'));
+
+    -- Create index for faster queries on db_type
+    CREATE INDEX IF NOT EXISTS idx_plan_entitlements_db_type ON plan_entitlements(db_type);
+
+    -- Update existing plans with db_type values
+    -- Basic and standard plans use shared databases (cost-effective)
+    UPDATE plan_entitlements
+    SET db_type = 'shared'
+    WHERE plan_name IN ('basic-monthly', 'basic-immediate', 'basic-test-trial', 'standard-monthly');
+
+    -- Premium plans get dedicated databases (performance and isolation)
+    UPDATE plan_entitlements
+    SET db_type = 'dedicated'
+    WHERE plan_name IN ('premium-monthly');
+
+    -- Verify changes
+    SELECT plan_name, db_type, cpu_limit, memory_limit, storage_limit, effective_date
+    FROM plan_entitlements
+    ORDER BY plan_name, effective_date DESC;
+
+    -- Grant permissions (billing_service already has SELECT, INSERT, UPDATE)
+    -- No additional grants needed
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: cnpg-init-scripts
+  namespace: saasodoo

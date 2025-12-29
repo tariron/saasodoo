@@ -1,0 +1,223 @@
+---
+# CloudNativePG Cluster for SaaSOdoo Platform
+#
+# This manifest creates a highly available PostgreSQL cluster with:
+# - 3 instances (1 primary + 2 synchronous standby replicas)
+# - Automatic failover with quorum-based synchronous replication
+# - CephFS persistent storage (rook-cephfs StorageClass)
+# - PostgreSQL 18 official image from CNPG
+# - Resource guarantees for predictable performance
+# - Anti-affinity to distribute pods across nodes
+#
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cluster
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  # High Availability Configuration
+  instances: 3  # 1 primary + 2 standby replicas
+
+  # PostgreSQL Image
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.1
+
+  # PostgreSQL Configuration
+  postgresql:
+    parameters:
+      # Connection Settings
+      max_connections: "200"  # Matches current setup
+
+      # Memory Configuration (for 2Gi pod memory)
+      shared_buffers: "512MB"              # 25% of total memory
+      effective_cache_size: "1536MB"        # 75% of total memory
+      maintenance_work_mem: "128MB"
+      work_mem: "2621kB"                    # (2GB / 200 connections) / 4
+
+      # WAL Configuration
+      wal_buffers: "16MB"
+      min_wal_size: "1GB"
+      max_wal_size: "4GB"
+      checkpoint_completion_target: "0.9"
+
+      # Query Planner
+      random_page_cost: "1.1"               # Optimized for SSD/CephFS
+      effective_io_concurrency: "200"        # Network storage parallelism
+      default_statistics_target: "100"
+
+      # Parallel Query
+      max_worker_processes: "4"
+      max_parallel_workers_per_gather: "2"
+      max_parallel_workers: "4"
+      max_parallel_maintenance_workers: "2"
+
+      # Logging (adjust for debugging if needed)
+      log_checkpoints: "on"
+      log_connections: "off"                # Set to 'on' for debugging
+      log_disconnections: "off"             # Set to 'on' for debugging
+      log_lock_waits: "on"
+      log_temp_files: "0"                   # Log all temp files
+      log_autovacuum_min_duration: "0"      # Log all autovacuum activity
+
+      # Locale
+      lc_messages: "en_US.UTF-8"
+      lc_monetary: "en_US.UTF-8"
+      lc_numeric: "en_US.UTF-8"
+      lc_time: "en_US.UTF-8"
+
+  # Bootstrap Configuration
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: postgres
+      encoding: UTF8
+      localeCollate: 'en_US.UTF-8'
+      localeCType: 'en_US.UTF-8'
+      # Databases created via Database CRDs (see 07-databases.yaml)
+
+  # Storage Configuration (CephFS)
+  storage:
+    storageClass: rook-cephfs              # Distributed storage via Rook Ceph
+    size: 20Gi                             # Same as current PostgreSQL PVC
+
+  # Resource Allocation (Guaranteed QoS)
+  # Requests = Limits ensures Guaranteed QoS class for predictable scheduling
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1000m"                         # 1 CPU core
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  # Pod Anti-Affinity (High Availability)
+  # Ensures pods are distributed across different nodes for fault tolerance
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname     # Spread across nodes
+    podAntiAffinityType: required           # Hard requirement (needs 3+ nodes)
+
+    # Optional: Prefer different availability zones in cloud environments
+    # additionalPodAffinity:
+    #   preferredDuringSchedulingIgnoredDuringExecution:
+    #     - weight: 100
+    #       podAffinityTerm:
+    #         topologyKey: topology.kubernetes.io/zone
+
+  # Monitoring Configuration (PodMonitor creation is now manual)
+  monitoring:
+    enablePodMonitor: false                # Disabled - create PodMonitor manually if needed
+
+  # Enable Superuser Network Access
+  # CRITICAL: Without this, postgres user has NO network access (password = NULL)
+  # CNPG will auto-generate postgres-cluster-superuser secret with random password
+  enableSuperuserAccess: true
+
+  # Declarative Role Management
+  # CNPG manages these roles with passwords from basic-auth secrets
+  managed:
+    roles:
+      - name: auth_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-auth-service
+
+      - name: billing_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-billing-service
+
+      - name: instance_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-instance-service
+
+      - name: database_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-database-service
+
+      - name: readonly_user
+        ensure: present
+        login: true
+        passwordSecret:
+          name: readonly-user-secret
+
+      - name: backup_user
+        ensure: present
+        login: true
+        replication: true
+        passwordSecret:
+          name: backup-user-secret
+
+  # Backup Configuration (Not configured initially - add later)
+  # backup:
+  #   barmanObjectStore:
+  #     destinationPath: s3://bucket-name/postgres-backups
+  #     s3Credentials:
+  #       accessKeyId:
+  #         name: backup-credentials
+  #         key: ACCESS_KEY_ID
+  #       secretAccessKey:
+  #         name: backup-credentials
+  #         key: ACCESS_SECRET_KEY
+  #     wal:
+  #       compression: gzip
+  #       encryption: AES256
+  #   retentionPolicy: "30d"
+
+  # Node Selector (Optional - schedule on specific nodes)
+  # nodeSelector:
+  #   node.kubernetes.io/instance-type: "m5.large"
+
+  # Tolerations (Optional - allow scheduling on tainted nodes)
+  # tolerations:
+  #   - key: "database"
+  #     operator: "Equal"
+  #     value: "true"
+  #     effect: "NoSchedule"
+
+  # Primary Update Strategy (Rolling update)
+  primaryUpdateStrategy: unsupervised      # Automatic primary updates
+
+  # Max Sync Replicas
+  maxSyncReplicas: 2                       # Maximum number of sync replicas
+
+  # Min Sync Replicas
+  minSyncReplicas: 1                       # Minimum number of sync replicas
+
+  # Failover Configuration
+  failoverDelay: 0                         # Immediate failover (no delay)
+
+  # Switchover Delay
+  switchoverDelay: 60                      # 60 seconds delay for manual switchover
+
+---
+# Service annotations for external access (optional)
+# If you need to expose the cluster externally via LoadBalancer or NodePort,
+# you can modify the automatically created services or create custom ones.
+#
+# CloudNativePG automatically creates these services:
+# - postgres-cluster-rw (read-write, points to primary)
+# - postgres-cluster-ro (read-only, load-balanced to all replicas)
+# - postgres-cluster-r (read, load-balanced to standbys only)
+#
+# To customize, add annotations to the Cluster spec:
+# spec:
+#   managed:
+#     services:
+#       additional:
+#         - selectorType: rw
+#           serviceTemplate:
+#             metadata:
+#               annotations:
+#                 service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+#             spec:
+#               type: LoadBalancer

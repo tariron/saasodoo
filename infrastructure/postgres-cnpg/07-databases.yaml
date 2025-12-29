@@ -1,0 +1,87 @@
+---
+# Auth Database
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: auth
+  namespace: saasodoo
+spec:
+  cluster:
+    name: postgres-cluster
+  name: auth
+  owner: auth_service
+  ensure: present
+  extensions:
+    - name: uuid-ossp
+    - name: pgcrypto
+    - name: pg_trgm
+---
+# Billing Database
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: billing
+  namespace: saasodoo
+spec:
+  cluster:
+    name: postgres-cluster
+  name: billing
+  owner: billing_service
+  ensure: present
+  extensions:
+    - name: uuid-ossp
+    - name: pgcrypto
+    - name: pg_trgm
+    - name: tablefunc
+---
+# Instance Database
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: instance
+  namespace: saasodoo
+spec:
+  cluster:
+    name: postgres-cluster
+  name: instance
+  owner: instance_service
+  ensure: present
+  extensions:
+    - name: uuid-ossp
+    - name: pgcrypto
+    - name: pg_trgm
+    - name: tablefunc
+---
+# Communication Database
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: communication
+  namespace: saasodoo
+spec:
+  cluster:
+    name: postgres-cluster
+  name: communication
+  owner: auth_service  # Communication service uses auth_service credentials
+  ensure: present
+  extensions:
+    - name: uuid-ossp
+    - name: pgcrypto
+---
+# Analytics Database
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: analytics
+  namespace: saasodoo
+spec:
+  cluster:
+    name: postgres-cluster
+  name: analytics
+  owner: readonly_user  # Analytics is read-only
+  ensure: present
+  extensions:
+    - name: uuid-ossp
+    - name: pgcrypto
+    - name: pg_trgm
+    - name: tablefunc

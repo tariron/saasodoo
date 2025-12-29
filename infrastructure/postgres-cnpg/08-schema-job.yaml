@@ -1,0 +1,214 @@
+---
+# Schema and Seed Data Job
+#
+# Executes actual init scripts from infrastructure/images/postgres/init-scripts/
+# - Databases, extensions, and users are managed declaratively
+# - This Job only handles table schemas and seed data
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cnpg-schema-init
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: schema-init
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: schema-init
+    spec:
+      restartPolicy: OnFailure
+
+      containers:
+      - name: schema-init
+        image: postgres:18-alpine
+        imagePullPolicy: IfNotPresent
+
+        env:
+        - name: PGHOST
+          value: postgres-cluster-rw.saasodoo.svc.cluster.local
+        - name: PGPORT
+          value: "5432"
+
+        # Service user passwords (from basic-auth secrets)
+        - name: AUTH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: auth-service-secret
+              key: password
+
+        - name: BILLING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: billing-service-secret
+              key: password
+
+        - name: INSTANCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: instance-service-secret
+              key: password
+
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: database-service-secret
+              key: password
+
+        - name: READONLY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: readonly-user-secret
+              key: password
+
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+
+          echo "========================================="
+          echo "Schema & Seed Data Initialization"
+          echo "Using actual init scripts"
+          echo "========================================="
+          echo "Target: $PGHOST:$PGPORT"
+          echo ""
+
+          # Wait for cluster
+          echo "⏳ Waiting for cluster..."
+          until pg_isready -h $PGHOST; do
+            sleep 2
+          done
+          echo "✅ Cluster ready"
+          echo ""
+
+          # Wait for databases (created by Database CRDs)
+          echo "⏳ Waiting for databases..."
+          until PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d auth -c "SELECT 1" >/dev/null 2>&1; do
+            echo "Waiting for databases..."
+            sleep 2
+          done
+          echo "✅ Databases ready"
+          echo ""
+
+          # ============================================================================
+          # STEP 04: INITIALIZE SCHEMAS (per database)
+          # ============================================================================
+          echo "📦 Step 04: Creating table schemas..."
+
+          echo "  → Auth database schema..."
+          PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d auth -v ON_ERROR_STOP=1 -f /init-scripts/04-auth-schema.sql
+
+          echo "  → Billing database schema..."
+          PGPASSWORD=$BILLING_PASSWORD psql -h $PGHOST -U billing_service -d billing -v ON_ERROR_STOP=1 -f /init-scripts/04-billing-schema.sql
+
+          echo "  → Instance database schema..."
+          PGPASSWORD=$INSTANCE_PASSWORD psql -h $PGHOST -U instance_service -d instance -v ON_ERROR_STOP=1 -f /init-scripts/04-instance-schema.sql
+
+          echo "  → Communication database schema..."
+          PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d communication -v ON_ERROR_STOP=1 -f /init-scripts/04-communication-schema.sql
+
+          echo "  → Analytics database schema..."
+          PGPASSWORD=$READONLY_PASSWORD psql -h $PGHOST -U readonly_user -d analytics -v ON_ERROR_STOP=1 -f /init-scripts/04-analytics-schema.sql
+
+          echo "✅ Table schemas created"
+          echo ""
+
+          # ============================================================================
+          # STEP 05: PLAN ENTITLEMENTS SEED DATA
+          # ============================================================================
+          echo "📦 Step 05: Loading plan entitlements..."
+          PGPASSWORD=$BILLING_PASSWORD psql -h $PGHOST -U billing_service -d billing -v ON_ERROR_STOP=1 -f /init-scripts/05-plan-entitlements.sql
+          echo "✅ Plan entitlements loaded"
+          echo ""
+
+          # ============================================================================
+          # STEP 06: DATABASE SERVICE SCHEMA
+          # ============================================================================
+          echo "📦 Step 06: Creating database service schema..."
+          PGPASSWORD=$INSTANCE_PASSWORD psql -h $PGHOST -U instance_service -d instance -v ON_ERROR_STOP=1 -f /init-scripts/06-database-service-schema.sql
+          echo "✅ Database service schema created"
+          echo ""
+
+          # ============================================================================
+          # STEP 07: ADD DB_TYPE TO PLAN ENTITLEMENTS
+          # ============================================================================
+          echo "📦 Step 07: Adding db_type column..."
+          PGPASSWORD=$BILLING_PASSWORD psql -h $PGHOST -U billing_service -d billing -v ON_ERROR_STOP=1 -f /init-scripts/07-add-db-type-to-plan-entitlements.sql
+          echo "✅ db_type column added"
+          echo ""
+
+          # ============================================================================
+          # GRANT PERMISSIONS
+          # ============================================================================
+          echo "📦 Granting readonly permissions..."
+
+          echo "  → auth"
+          printf "%s\n" \
+            "GRANT USAGE ON SCHEMA public TO readonly_user;" \
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;" \
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
+            | PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d auth -v ON_ERROR_STOP=1
+
+          echo "  → billing"
+          printf "%s\n" \
+            "GRANT USAGE ON SCHEMA public TO readonly_user;" \
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;" \
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
+            | PGPASSWORD=$BILLING_PASSWORD psql -h $PGHOST -U billing_service -d billing -v ON_ERROR_STOP=1
+
+          echo "  → instance"
+          printf "%s\n" \
+            "GRANT USAGE ON SCHEMA public TO readonly_user;" \
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;" \
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
+            | PGPASSWORD=$INSTANCE_PASSWORD psql -h $PGHOST -U instance_service -d instance -v ON_ERROR_STOP=1
+
+          echo "  → communication"
+          printf "%s\n" \
+            "GRANT USAGE ON SCHEMA public TO readonly_user;" \
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;" \
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
+            | PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d communication -v ON_ERROR_STOP=1
+
+          echo "  → analytics"
+          printf "%s\n" \
+            "GRANT USAGE ON SCHEMA public TO readonly_user;" \
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;" \
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
+            | PGPASSWORD=$READONLY_PASSWORD psql -h $PGHOST -U readonly_user -d analytics -v ON_ERROR_STOP=1
+
+          echo "✅ Permissions granted"
+          echo ""
+
+          echo "========================================="
+          echo "✅ Schema Initialization Complete!"
+          echo "========================================="
+          echo "Executed init scripts:"
+          echo "  - 04-*-schema.sql (table schemas per database)"
+          echo "  - 05-plan-entitlements.sql (seed data)"
+          echo "  - 06-database-service-schema.sql"
+          echo "  - 07-add-db-type-to-plan-entitlements.sql"
+          echo ""
+
+        volumeMounts:
+        - name: init-scripts
+          mountPath: /init-scripts
+          readOnly: true
+
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "200m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: cnpg-init-scripts

@@ -14,8 +14,9 @@ data:
   BASE_DOMAIN: "62.171.153.219.nip.io"
   FRONTEND_URL: "http://app.62.171.153.219.nip.io"
 
-  # PostgreSQL Infrastructure
-  POSTGRES_HOST: "postgres.saasodoo.svc.cluster.local"
+  # PostgreSQL Infrastructure (CloudNativePG with PgBouncer)
+  # Using PgBouncer pooler for efficient connection management
+  POSTGRES_HOST: "postgres-cluster-pooler-rw.saasodoo.svc.cluster.local"
   POSTGRES_PORT: "5432"
   POSTGRES_DEFAULT_DB: "postgres"
 

@@ -1,0 +1,35 @@
+---
+# RabbitMQ Cluster Operator Installation
+#
+# Official operator from RabbitMQ team for production Kubernetes deployments
+# Documentation: https://www.rabbitmq.com/kubernetes/operator/operator-overview
+# GitHub: https://github.com/rabbitmq/cluster-operator
+#
+# INSTALLATION:
+#   kubectl apply -f "https://github.com/rabbitmq/cluster-operator/releases/latest/download/cluster-operator.yml"
+#
+# This installs:
+# - Namespace: rabbitmq-system
+# - CRD: RabbitmqCluster
+# - ServiceAccount, Role, RoleBinding
+# - Deployment: rabbitmq-cluster-operator
+# - Webhook configurations
+#
+# VERIFY INSTALLATION:
+#   kubectl get deployment -n rabbitmq-system rabbitmq-cluster-operator
+#   kubectl get crd rabbitmqclusters.rabbitmq.com
+#
+# OPERATOR FEATURES:
+# - Manages RabbitMQ cluster lifecycle (creation, scaling, upgrades)
+# - Automatic failover and high availability
+# - Quorum queue support across multiple nodes
+# - Built-in Prometheus monitoring
+# - Rolling updates with zero downtime
+#
+# VERSION:
+# - Operator: v2.x (latest)
+# - RabbitMQ: 4.1.3 (default, configurable)
+#
+# NOTE: The operator manifest is maintained by RabbitMQ and includes all
+# necessary resources. Download and apply it separately using the command above.
+#
