@@ -28,8 +28,18 @@ data:
     entryPoints:
       web:
         address: ":80"
+      websecure:
+        address: ":443"
       traefik:
         address: ":8080"
+
+    # TLS Configuration (default cert for all HTTPS)
+    tls:
+      stores:
+        default:
+          defaultCertificate:
+            certFile: /certs/tls.crt
+            keyFile: /certs/tls.key
 
     # Provider Configuration
     providers:

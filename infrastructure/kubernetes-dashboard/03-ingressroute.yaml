@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/component: networking
 spec:
   entryPoints:
-    - web
+    - websecure
   routes:
     - match: Host(`dashboard.62.171.153.219.nip.io`)
       kind: Rule
@@ -18,3 +18,4 @@ spec:
           port: 443
           scheme: https
           serversTransport: kubernetes-dashboard-transport
+  tls: {}
