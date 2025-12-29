@@ -30,4 +30,4 @@ COPY services/billing-service/killbill_catalog.xml ./killbill_catalog.xml
 EXPOSE 8004
 
 # Run the application with Hypercorn (HTTP/2 support)
-CMD ["hypercorn", "app.main:app", "--bind", "0.0.0.0:8004", "--reload"]
+CMD ["hypercorn", "app.main:app", "--bind", "0.0.0.0:8004", "--workers", "4"]

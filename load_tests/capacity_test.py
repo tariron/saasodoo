@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""
+Quick Capacity Test - Uses requests + ThreadPoolExecutor
+Measures user registration throughput including KillBill account creation.
+"""
+
+import requests
+import time
+import random
+import string
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import List
+import sys
+import argparse
+
+
+@dataclass
+class TestResult:
+    success: bool
+    status_code: int
+    response_time_ms: float
+    error: str = None
+
+
+class CapacityTester:
+    def __init__(self, host: str):
+        self.host = host.rstrip("/")
+        self.register_url = f"{self.host}/user/auth/register"
+        self.health_url = f"{self.host}/user/health"
+        self.password = "LoadTest123@"
+        self.email_domain = "loadtest.saasodoo.com"
+
+    def generate_email(self) -> str:
+        ts = int(time.time() * 1000000)
+        suffix = ''.join(random.choices(string.ascii_lowercase, k=4))
+        return f"cap_{ts}_{suffix}@{self.email_domain}"
+
+    def generate_payload(self) -> dict:
+        first_names = ["John", "Jane", "Mike", "Sarah", "Alex", "Emma"]
+        last_names = ["Smith", "Johnson", "Brown", "Garcia", "Miller"]
+        return {
+            "email": self.generate_email(),
+            "password": self.password,
+            "first_name": random.choice(first_names),
+            "last_name": random.choice(last_names),
+            "accept_terms": True
+        }
+
+    def check_health(self) -> bool:
+        try:
+            resp = requests.get(self.health_url, timeout=5)
+            return resp.status_code == 200
+        except Exception as e:
+            print(f"Health check failed: {e}")
+            return False
+
+    def register_user(self) -> TestResult:
+        payload = self.generate_payload()
+        start = time.perf_counter()
+        try:
+            resp = requests.post(self.register_url, json=payload, timeout=60)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+
+            if resp.status_code == 201:
+                data = resp.json()
+                if data.get("success"):
+                    return TestResult(True, resp.status_code, elapsed_ms)
+                return TestResult(False, resp.status_code, elapsed_ms, str(data))
+            return TestResult(False, resp.status_code, elapsed_ms, resp.text[:100])
+        except requests.Timeout:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            return TestResult(False, 0, elapsed_ms, "Timeout")
+        except Exception as e:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            return TestResult(False, 0, elapsed_ms, str(e)[:100])
+
+    def run_test(self, total_users: int, concurrency: int) -> dict:
+        print("Checking service health...")
+        if not self.check_health():
+            return {"error": "Service health check failed"}
+
+        print(f"Starting: {total_users} users, {concurrency} concurrent")
+        print("-" * 50)
+
+        results: List[TestResult] = []
+        start_time = time.perf_counter()
+        completed = 0
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(self.register_user) for _ in range(total_users)]
+
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                completed += 1
+
+                if completed % 10 == 0 or completed == total_users:
+                    success = sum(1 for r in results if r.success)
+                    print(f"Progress: {completed}/{total_users} (Success: {success}, Failed: {completed - success})")
+
+        total_time = time.perf_counter() - start_time
+        successful = [r for r in results if r.success]
+        failed = [r for r in results if not r.success]
+        response_times = [r.response_time_ms for r in results]
+        success_times = [r.response_time_ms for r in successful] or [0]
+
+        metrics = {
+            "total_users": total_users,
+            "concurrency": concurrency,
+            "total_time_seconds": round(total_time, 2),
+            "successful": len(successful),
+            "failed": len(failed),
+            "success_rate": round(len(successful) / total_users * 100, 2),
+            "users_per_minute": round(len(successful) / total_time * 60, 2),
+            "users_per_second": round(len(successful) / total_time, 2),
+            "avg_response_ms": round(sum(response_times) / len(response_times), 2),
+            "min_response_ms": round(min(response_times), 2),
+            "max_response_ms": round(max(response_times), 2),
+            "p50_ms": round(sorted(response_times)[len(response_times)//2], 2),
+            "p95_ms": round(sorted(response_times)[int(len(response_times)*0.95)], 2),
+        }
+
+        if failed:
+            error_counts = {}
+            for r in failed:
+                key = (r.error or "Unknown")[:50]
+                error_counts[key] = error_counts.get(key, 0) + 1
+            metrics["errors"] = error_counts
+
+        return metrics
+
+
+def print_results(m: dict):
+    if "error" in m:
+        print(f"\nERROR: {m['error']}")
+        return
+
+    print("\n" + "=" * 60)
+    print("CAPACITY TEST RESULTS")
+    print("=" * 60)
+    print(f"\n  USERS PER MINUTE:          {m['users_per_minute']:>10.1f}")
+    print(f"  USERS PER SECOND:          {m['users_per_second']:>10.2f}")
+    print("-" * 60)
+    print(f"  Total Attempted:           {m['total_users']:>10}")
+    print(f"  Successful:                {m['successful']:>10}")
+    print(f"  Failed:                    {m['failed']:>10}")
+    print(f"  Success Rate:              {m['success_rate']:>9.1f}%")
+    print(f"  Total Time:                {m['total_time_seconds']:>9.1f}s")
+    print(f"  Concurrency:               {m['concurrency']:>10}")
+    print("-" * 60)
+    print(f"  Avg Response:              {m['avg_response_ms']:>9.0f}ms")
+    print(f"  Min Response:              {m['min_response_ms']:>9.0f}ms")
+    print(f"  Max Response:              {m['max_response_ms']:>9.0f}ms")
+    print(f"  P50 (Median):              {m['p50_ms']:>9.0f}ms")
+    print(f"  P95:                       {m['p95_ms']:>9.0f}ms")
+
+    if "errors" in m:
+        print("-" * 60)
+        print("  ERRORS:")
+        for err, count in m["errors"].items():
+            print(f"    {err[:45]:45} x{count}")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Capacity test for user registration")
+    parser.add_argument("--host", default="http://api.62.171.153.219.nip.io")
+    parser.add_argument("--users", type=int, default=50)
+    parser.add_argument("--concurrent", type=int, default=10)
+    parser.add_argument("-y", action="store_true", help="Skip confirmation")
+    args = parser.parse_args()
+
+    print(f"""
+╔════════════════════════════════════════════════════════════╗
+║         SaaSOdoo Capacity Test                             ║
+╠════════════════════════════════════════════════════════════╣
+║  Host:       {args.host:<44} ║
+║  Users:      {args.users:<44} ║
+║  Concurrent: {args.concurrent:<44} ║
+╠════════════════════════════════════════════════════════════╣
+║  WARNING: Creates REAL users + KillBill accounts!          ║
+╚════════════════════════════════════════════════════════════╝
+""")
+
+    if not args.y:
+        confirm = input("Continue? (y/N): ")
+        if confirm.lower() != 'y':
+            print("Aborted.")
+            sys.exit(0)
+
+    tester = CapacityTester(args.host)
+    metrics = tester.run_test(args.users, args.concurrent)
+    print_results(metrics)

@@ -1,8 +1,9 @@
 ---
+# HTTP IngressRoute for k3s nodes (internal)
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: docker-registry
+  name: docker-registry-http
   namespace: saasodoo
 spec:
   entryPoints:
@@ -13,3 +14,21 @@ spec:
       services:
         - name: docker-registry
           port: 5000
+
+---
+# HTTPS IngressRoute for external Docker clients
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: docker-registry-https
+  namespace: saasodoo
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`registry.62.171.153.219.nip.io`)
+      kind: Rule
+      services:
+        - name: docker-registry
+          port: 5000
+  tls: {}
