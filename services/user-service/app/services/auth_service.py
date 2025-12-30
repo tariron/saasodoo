@@ -3,6 +3,7 @@ Authentication Service
 Customer authentication business logic
 """
 
+import asyncio
 import bcrypt
 import secrets
 import uuid
@@ -27,16 +28,26 @@ class AuthService:
     """Customer authentication service"""
 
     @staticmethod
-    def hash_password(password: str) -> str:
-        """Hash password using bcrypt"""
+    def _sync_hash_password(password: str) -> str:
+        """Synchronous bcrypt hash (CPU-bound)"""
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
         return hashed.decode('utf-8')
 
     @staticmethod
-    def verify_password(password: str, hashed_password: str) -> bool:
-        """Verify password against hash"""
+    async def hash_password(password: str) -> str:
+        """Hash password using bcrypt in thread pool to avoid blocking"""
+        return await asyncio.to_thread(AuthService._sync_hash_password, password)
+
+    @staticmethod
+    def _sync_verify_password(password: str, hashed_password: str) -> bool:
+        """Synchronous bcrypt verify (CPU-bound)"""
         return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+    @staticmethod
+    async def verify_password(password: str, hashed_password: str) -> bool:
+        """Verify password against hash in thread pool to avoid blocking"""
+        return await asyncio.to_thread(AuthService._sync_verify_password, password, hashed_password)
 
     @staticmethod
     def generate_session_token() -> str:
@@ -56,7 +67,7 @@ class AuthService:
         """
         try:
             # Hash password
-            password_hash = AuthService.hash_password(customer_data.password)
+            password_hash = await AuthService.hash_password(customer_data.password)
 
             # Prepare customer data for database
             db_customer_data = {
@@ -166,7 +177,7 @@ class AuthService:
                 }
 
             # Verify password
-            if not AuthService.verify_password(password, customer['password_hash']):
+            if not await AuthService.verify_password(password, customer['password_hash']):
                 return {
                     'success': False,
                     'error': 'Invalid email or password'
@@ -359,14 +370,14 @@ class AuthService:
                 }
 
             # Verify current password
-            if not AuthService.verify_password(current_password, customer['password_hash']):
+            if not await AuthService.verify_password(current_password, customer['password_hash']):
                 return {
                     'success': False,
                     'error': 'Current password is incorrect'
                 }
 
             # Hash new password
-            new_password_hash = AuthService.hash_password(new_password)
+            new_password_hash = await AuthService.hash_password(new_password)
 
             # Update password in database
             success = await CustomerDatabase.update_customer(
@@ -590,7 +601,7 @@ class AuthService:
             customer_id = str(token_data['customer_id'])
 
             # 2. Hash the new password
-            new_password_hash = AuthService.hash_password(new_password)
+            new_password_hash = await AuthService.hash_password(new_password)
 
             # 3. Update the customer's password
             success = await CustomerDatabase.update_customer(

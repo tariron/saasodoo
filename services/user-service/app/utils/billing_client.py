@@ -6,11 +6,9 @@ Connection pooling implementation based on httpx best practices:
 - Single shared AsyncClient initialized at app startup
 - Proper limits to prevent connection exhaustion
 - Pool timeout for fast failure under load
-- Semaphore for backpressure control
 """
 
 import httpx
-import asyncio
 import logging
 from typing import Optional, Dict, Any
 import os
@@ -41,24 +39,20 @@ class BillingServiceClient:
         - If not initialized, falls back to per-request client
     """
 
-    # Connection pool settings (per uvicorn worker)
-    MAX_CONNECTIONS = 50          # Total concurrent connections to billing-service
-    MAX_KEEPALIVE = 10            # Connections kept alive for reuse
+    # Connection pool settings (per worker)
+    MAX_CONNECTIONS = 100         # Total concurrent connections to billing-service
+    MAX_KEEPALIVE = 20            # Connections kept alive for reuse
     KEEPALIVE_EXPIRY = 30.0       # Seconds before idle connection is closed
 
     # Timeout settings
-    CONNECT_TIMEOUT = 10.0        # Time to establish connection
+    CONNECT_TIMEOUT = 5.0         # Time to establish connection
     READ_TIMEOUT = 30.0           # Time to receive response
-    WRITE_TIMEOUT = 10.0          # Time to send request
-    POOL_TIMEOUT = 5.0            # Time to wait for connection from pool
-
-    # Concurrency control
-    MAX_CONCURRENT_REQUESTS = 30  # Semaphore limit for backpressure
+    WRITE_TIMEOUT = 5.0           # Time to send request
+    POOL_TIMEOUT = 30.0           # Time to wait for connection from pool
 
     def __init__(self, base_url: str = None):
         self.base_url = (base_url or os.getenv('BILLING_SERVICE_URL', 'http://billing-service:8004')).rstrip('/')
         self._client: Optional[httpx.AsyncClient] = None
-        self._semaphore: Optional[asyncio.Semaphore] = None
 
     async def start(self):
         """
@@ -76,7 +70,7 @@ class BillingServiceClient:
             keepalive_expiry=self.KEEPALIVE_EXPIRY
         )
 
-        # Configure timeouts with pool timeout for fast failure
+        # Configure timeouts with pool timeout for backpressure
         timeout = httpx.Timeout(
             connect=self.CONNECT_TIMEOUT,
             read=self.READ_TIMEOUT,
@@ -90,13 +84,9 @@ class BillingServiceClient:
             timeout=timeout
         )
 
-        # Semaphore for backpressure - prevents overwhelming the pool
-        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_REQUESTS)
-
         logger.info(
             f"BillingServiceClient started: base_url={self.base_url}, "
-            f"max_connections={self.MAX_CONNECTIONS}, "
-            f"max_concurrent={self.MAX_CONCURRENT_REQUESTS}"
+            f"max_connections={self.MAX_CONNECTIONS}, pool_timeout={self.POOL_TIMEOUT}s"
         )
 
     async def stop(self):
@@ -107,7 +97,6 @@ class BillingServiceClient:
         if self._client:
             await self._client.aclose()
             self._client = None
-            self._semaphore = None
             logger.info("BillingServiceClient stopped")
 
     async def _make_request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict[str, Any]]:
@@ -121,9 +110,8 @@ class BillingServiceClient:
 
         try:
             # Use shared client if initialized (preferred)
-            if self._client and self._semaphore:
-                async with self._semaphore:
-                    response = await self._client.request(method, endpoint, **kwargs)
+            if self._client:
+                response = await self._client.request(method, endpoint, **kwargs)
             else:
                 # Fallback: per-request client (not initialized or during startup)
                 logger.warning("BillingServiceClient not initialized, using per-request client")

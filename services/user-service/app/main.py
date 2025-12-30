@@ -7,7 +7,6 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-import uvicorn
 import logging
 from contextlib import asynccontextmanager
 
@@ -124,11 +123,4 @@ async def root():
         "docs": "/docs"
     }
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=True,
-        log_level="info"
-    ) 
+ 
