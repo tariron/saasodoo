@@ -1,6 +1,8 @@
 """
 KillBill API Client
 Handles all interactions with KillBill billing system
+
+Uses shared httpx.AsyncClient with connection pooling for performance.
 """
 
 import httpx
@@ -12,16 +14,19 @@ from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
+
 class KillBillClient:
-    """Client for interacting with KillBill API"""
-    
+    """Client for interacting with KillBill API with connection pooling"""
+
+    _client: Optional[httpx.AsyncClient] = None
+
     def __init__(self, base_url: str, api_key: str, api_secret: str, username: str, password: str):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.api_secret = api_secret
         self.username = username
         self.password = password
-        
+
         # Default headers for all requests
         self.headers = {
             "X-Killbill-ApiKey": api_key,
@@ -29,54 +34,78 @@ class KillBillClient:
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the shared httpx client with connection pooling"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=5.0,
+                    read=30.0,
+                    write=5.0,
+                    pool=30.0  # Wait up to 30s for connection from pool
+                ),
+                limits=httpx.Limits(
+                    max_connections=200,
+                    max_keepalive_connections=50,
+                    keepalive_expiry=5.0  # Reduced from 30s to avoid stale connections
+                )
+            )
+        return self._client
+
+    async def close(self):
+        """Close the shared httpx client (call during shutdown)"""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+            logger.info("KillBill client closed")
     
     async def _make_request(
-        self, 
-        method: str, 
-        endpoint: str, 
+        self,
+        method: str,
+        endpoint: str,
         data: Optional[Dict] = None,
         params: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """Make HTTP request to KillBill API"""
+        """Make HTTP request to KillBill API with connection pooling"""
         url = f"{self.base_url}{endpoint}"
-        
+        client = self._get_client()
+
         headers = self.headers.copy()
         headers["X-Killbill-CreatedBy"] = "billing-service"
         headers["X-Killbill-Reason"] = "API request"
         headers["X-Killbill-Comment"] = f"Request from billing service at {datetime.utcnow().isoformat()}"
-        
+
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=data,
-                    params=params,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
-                
-                logger.info(f"KillBill API {method} {endpoint}: {response.status_code}")
-                
-                if response.status_code >= 400:
-                    logger.error(f"KillBill API error: {response.status_code} - {response.text}")
-                    response.raise_for_status()
-                
-                if response.status_code in [201, 204]:
-                    # For creation requests, check if there's a Location header
-                    if response.status_code == 201 and 'Location' in response.headers:
-                        # Extract ID from Location header
-                        location_parts = response.headers['Location'].split('/')
-                        if location_parts:
-                            created_id = location_parts[-1]
-                            return {"id": created_id, "location": response.headers['Location']}
-                    
-                    if not response.text:
-                        return {}
-                
-                return response.json() if response.text else {}
-                
+            response = await client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=data,
+                params=params,
+                auth=(self.username, self.password)
+            )
+
+            logger.info(f"KillBill API {method} {endpoint}: {response.status_code}")
+
+            if response.status_code >= 400:
+                logger.error(f"KillBill API error: {response.status_code} - {response.text}")
+                response.raise_for_status()
+
+            if response.status_code in [201, 204]:
+                # For creation requests, check if there's a Location header
+                if response.status_code == 201 and 'Location' in response.headers:
+                    # Extract ID from Location header
+                    location_parts = response.headers['Location'].split('/')
+                    if location_parts:
+                        created_id = location_parts[-1]
+                        return {"id": created_id, "location": response.headers['Location']}
+
+                if not response.text:
+                    return {}
+
+            return response.json() if response.text else {}
+
         except httpx.HTTPError as e:
             logger.error(f"KillBill API request failed: {e}")
             raise Exception(f"KillBill API error: {str(e)}")
@@ -109,19 +138,25 @@ class KillBillClient:
 
         try:
             response = await self._make_request("POST", "/1.0/kb/accounts", data=account_data)
+
+            # Extract account ID from Location header (returned by _make_request)
+            account_id = response.get("id")
+            if not account_id:
+                raise Exception(f"Account creation did not return account ID for customer {customer_id}")
+
             logger.info(f"Created KillBill account for customer {customer_id}")
 
-            # KillBill returns 201 with empty body, so fetch the created account
-            created_account = await self.get_account_by_external_key(customer_id)
-            if not created_account:
-                raise Exception(f"Account was created but could not be retrieved for customer {customer_id}")
-
             # Set AUTO_PAY_OFF tag to prevent automatic payment attempts
-            account_id = created_account.get("accountId")
-            if account_id:
-                await self.set_auto_pay_off(account_id)
+            await self.set_auto_pay_off(account_id)
 
-            return created_account
+            # Return account info using the ID from creation response
+            return {
+                "accountId": account_id,
+                "externalKey": customer_id,
+                "email": email,
+                "name": name,
+                "currency": currency
+            }
         except Exception as e:
             logger.error(f"Failed to create KillBill account for customer {customer_id}: {e}")
             raise
@@ -321,30 +356,28 @@ class KillBillClient:
             # This endpoint requires only basic auth, not tenant headers
             url = f"{self.base_url}/1.0/kb/tenants"
             params = {"apiKey": self.api_key}
+            client = self._get_client()
+            response = await client.get(
+                url=url,
+                params=params,
+                auth=(self.username, self.password)
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    url=url,
-                    params=params,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"KillBill tenant exists with apiKey: {self.api_key}")
-                    return True
-                elif response.status_code == 500:
-                    # KillBill returns 500 with "TenantCacheLoader cannot find value" when tenant doesn't exist
-                    response_text = response.text
-                    if "TenantCacheLoader cannot find value" in response_text or "cannot find value for key" in response_text:
-                        logger.info(f"KillBill tenant does not exist for apiKey: {self.api_key}")
-                        return False
-                    else:
-                        logger.warning(f"Unexpected 500 error checking tenant: {response_text}")
-                        return False
-                else:
-                    logger.warning(f"Unexpected response checking tenant: {response.status_code} - {response.text}")
+            if response.status_code == 200:
+                logger.info(f"KillBill tenant exists with apiKey: {self.api_key}")
+                return True
+            elif response.status_code == 500:
+                # KillBill returns 500 with "TenantCacheLoader cannot find value" when tenant doesn't exist
+                response_text = response.text
+                if "TenantCacheLoader cannot find value" in response_text or "cannot find value for key" in response_text:
+                    logger.info(f"KillBill tenant does not exist for apiKey: {self.api_key}")
                     return False
+                else:
+                    logger.warning(f"Unexpected 500 error checking tenant: {response_text}")
+                    return False
+            else:
+                logger.warning(f"Unexpected response checking tenant: {response.status_code} - {response.text}")
+                return False
 
         except Exception as e:
             logger.error(f"Failed to check if tenant exists: {e}")
@@ -364,26 +397,24 @@ class KillBillClient:
             }
 
             url = f"{self.base_url}/1.0/kb/tenants"
+            client = self._get_client()
+            response = await client.post(
+                url=url,
+                headers=headers,
+                json=tenant_data,
+                auth=(self.username, self.password)
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url=url,
-                    headers=headers,
-                    json=tenant_data,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
+            logger.info(f"KillBill tenant creation POST {url}: {response.status_code}")
 
-                logger.info(f"KillBill tenant creation POST {url}: {response.status_code}")
+            # Handle 409 Conflict - tenant already exists
+            if response.status_code == 409:
+                logger.info(f"KillBill tenant already exists with apiKey: {self.api_key} (409 Conflict)")
+                return {"status": "already_exists", "apiKey": self.api_key}
 
-                # Handle 409 Conflict - tenant already exists
-                if response.status_code == 409:
-                    logger.info(f"KillBill tenant already exists with apiKey: {self.api_key} (409 Conflict)")
-                    return {"status": "already_exists", "apiKey": self.api_key}
-
-                if response.status_code >= 400:
-                    logger.error(f"KillBill tenant creation error: {response.status_code} - {response.text}")
-                    response.raise_for_status()
+            if response.status_code >= 400:
+                logger.error(f"KillBill tenant creation error: {response.status_code} - {response.text}")
+                response.raise_for_status()
 
             logger.info(f"Successfully created KillBill tenant with apiKey: {self.api_key}")
             return {"status": "created", "apiKey": self.api_key}
@@ -410,21 +441,19 @@ class KillBillClient:
             # Use the correct KillBill webhook registration endpoint
             url = f"{self.base_url}/1.0/kb/tenants/registerNotificationCallback"
             params = {"cb": webhook_url}
+            client = self._get_client()
+            response = await client.post(
+                url=url,
+                headers=headers,
+                params=params,
+                auth=(self.username, self.password)
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url=url,
-                    headers=headers,
-                    params=params,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
+            logger.info(f"KillBill webhook registration POST {url}: {response.status_code}")
 
-                logger.info(f"KillBill webhook registration POST {url}: {response.status_code}")
-
-                if response.status_code >= 400:
-                    logger.error(f"KillBill webhook registration error: {response.status_code} - {response.text}")
-                    response.raise_for_status()
+            if response.status_code >= 400:
+                logger.error(f"KillBill webhook registration error: {response.status_code} - {response.text}")
+                response.raise_for_status()
 
             logger.info(f"Successfully registered webhook URL: {webhook_url}")
             return {"status": "registered", "url": webhook_url}
@@ -439,24 +468,22 @@ class KillBillClient:
             url = f"{self.base_url}/1.0/kb/overdue/xml"
             headers = self.headers.copy()
             headers["Accept"] = "text/xml"
+            client = self._get_client()
+            response = await client.get(
+                url=url,
+                headers=headers,
+                auth=(self.username, self.password)
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    url=url,
-                    headers=headers,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
+            if response.status_code == 404:
+                logger.info("No overdue configuration found in KillBill")
+                return None
 
-                if response.status_code == 404:
-                    logger.info("No overdue configuration found in KillBill")
-                    return None
+            if response.status_code >= 400:
+                logger.error(f"Error fetching overdue config: {response.status_code} - {response.text}")
+                return None
 
-                if response.status_code >= 400:
-                    logger.error(f"Error fetching overdue config: {response.status_code} - {response.text}")
-                    return None
-
-                return response.text
+            return response.text
 
         except Exception as e:
             logger.error(f"Failed to get overdue config: {e}")
@@ -472,21 +499,19 @@ class KillBillClient:
                 "X-Killbill-CreatedBy": "billing-service",
                 "Content-Type": "text/xml"
             }
+            client = self._get_client()
+            response = await client.post(
+                url=url,
+                headers=headers,
+                content=overdue_xml,
+                auth=(self.username, self.password)
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url=url,
-                    headers=headers,
-                    content=overdue_xml,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
+            logger.info(f"KillBill overdue config upload: {response.status_code}")
 
-                logger.info(f"KillBill overdue config upload: {response.status_code}")
-
-                if response.status_code >= 400:
-                    logger.error(f"Error uploading overdue config: {response.status_code} - {response.text}")
-                    response.raise_for_status()
+            if response.status_code >= 400:
+                logger.error(f"Error uploading overdue config: {response.status_code} - {response.text}")
+                response.raise_for_status()
 
             logger.info("Successfully uploaded overdue configuration")
             return {"status": "uploaded"}
@@ -506,21 +531,19 @@ class KillBillClient:
                 "X-Killbill-CreatedBy": "billing-service",
                 "Content-Type": "text/xml"  # Must be text/xml for catalog upload
             }
+            client = self._get_client()
+            response = await client.post(
+                url=url,
+                headers=headers,
+                content=catalog_xml,
+                auth=(self.username, self.password)
+            )
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url=url,
-                    headers=headers,
-                    content=catalog_xml,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
+            logger.info(f"KillBill catalog XML upload: {response.status_code}")
 
-                logger.info(f"KillBill catalog XML upload: {response.status_code}")
-
-                if response.status_code >= 400:
-                    logger.error(f"Error uploading catalog XML: {response.status_code} - {response.text}")
-                    response.raise_for_status()
+            if response.status_code >= 400:
+                logger.error(f"Error uploading catalog XML: {response.status_code} - {response.text}")
+                response.raise_for_status()
 
             logger.info("Successfully uploaded catalog configuration via XML endpoint")
             return {"status": "uploaded"}
@@ -552,28 +575,26 @@ class KillBillClient:
             logger.info(f"Adding {len(custom_fields)} custom fields to subscription {subscription_id}: {field_summary}")
             
             endpoint = f"/1.0/kb/subscriptions/{subscription_id}/customFields"
-            
+
             # Add required headers for custom fields
             headers = self.headers.copy()
             headers["X-Killbill-CreatedBy"] = "billing-service"
             headers["X-Killbill-Reason"] = "Instance metadata"
             headers["X-Killbill-Comment"] = f"Adding instance metadata to subscription {subscription_id}"
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url=f"{self.base_url}{endpoint}",
-                    headers=headers,
-                    json=custom_fields,
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
-                
-                logger.info(f"KillBill custom fields POST {endpoint}: {response.status_code}")
-                
-                if response.status_code >= 400:
-                    logger.error(f"KillBill custom fields error: {response.status_code} - {response.text}")
-                    response.raise_for_status()
-            
+            client = self._get_client()
+            response = await client.post(
+                url=f"{self.base_url}{endpoint}",
+                headers=headers,
+                json=custom_fields,
+                auth=(self.username, self.password)
+            )
+
+            logger.info(f"KillBill custom fields POST {endpoint}: {response.status_code}")
+
+            if response.status_code >= 400:
+                logger.error(f"KillBill custom fields error: {response.status_code} - {response.text}")
+                response.raise_for_status()
+
             logger.info(f"Successfully added {len(custom_fields)} custom fields to subscription {subscription_id}")
             
             return {"status": "success", "metadata": metadata}
@@ -1002,31 +1023,30 @@ class KillBillClient:
         headers["X-Killbill-CreatedBy"] = "billing-service-paynow"
         headers["X-Killbill-Reason"] = "Paynow payment received"
         headers["X-Killbill-Comment"] = f"External payment for invoice {invoice_id}"
+        client = self._get_client()
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    json=payment_data,
-                    headers=headers,
-                    params={"externalPayment": "true"},
-                    auth=(self.username, self.password),
-                    timeout=30.0
-                )
+            response = await client.post(
+                url,
+                json=payment_data,
+                headers=headers,
+                params={"externalPayment": "true"},
+                auth=(self.username, self.password)
+            )
 
-                if response.status_code in [200, 201]:
-                    logger.info(f"Payment recorded in KillBill for invoice {invoice_id}")
-                    # KillBill returns 201 with empty body or Location header
-                    if response.text:
-                        return response.json()
-                    else:
-                        # Extract payment ID from Location header if available
-                        location = response.headers.get('Location', '')
-                        payment_id = location.split('/')[-2] if location else None
-                        return {"success": True, "payment_id": payment_id}
+            if response.status_code in [200, 201]:
+                logger.info(f"Payment recorded in KillBill for invoice {invoice_id}")
+                # KillBill returns 201 with empty body or Location header
+                if response.text:
+                    return response.json()
                 else:
-                    logger.error(f"Failed to record payment in KillBill: {response.status_code} - {response.text}")
-                    return None
+                    # Extract payment ID from Location header if available
+                    location = response.headers.get('Location', '')
+                    payment_id = location.split('/')[-2] if location else None
+                    return {"success": True, "payment_id": payment_id}
+            else:
+                logger.error(f"Failed to record payment in KillBill: {response.status_code} - {response.text}")
+                return None
 
         except Exception as e:
             logger.error(f"Error recording payment in KillBill: {e}")

@@ -59,19 +59,13 @@ async def create_account(
     account_data: CreateAccountRequest,
     killbill: KillBillClient = Depends(get_killbill_client)
 ):
-    """Create a new KillBill account for a customer"""
+    """Create a new KillBill account for a customer.
+
+    Uses optimistic creation - tries to create first, handles duplicates on conflict.
+    This is more efficient for high concurrency since most requests are new accounts.
+    """
     try:
-        # Check if account already exists
-        existing_account = await killbill.get_account_by_external_key(account_data.customer_id)
-        if existing_account:
-            return CreateAccountResponse(
-                success=True,
-                killbill_account_id=existing_account.get("accountId"),
-                customer_id=account_data.customer_id,
-                message="Account already exists"
-            )
-        
-        # Create new account
+        # Optimistic approach: try to create first (saves a GET for 99% of cases)
         account = await killbill.create_account(
             customer_id=account_data.customer_id,
             email=account_data.email,
@@ -79,15 +73,30 @@ async def create_account(
             company=account_data.company,
             currency=account_data.currency
         )
-        
+
         return CreateAccountResponse(
             success=True,
             killbill_account_id=account.get("accountId"),
             customer_id=account_data.customer_id,
             message="Account created successfully"
         )
-        
+
     except Exception as e:
+        error_msg = str(e)
+        # Handle duplicate account (HTTP 409 Conflict from KillBill)
+        if "409" in error_msg or "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+            try:
+                existing_account = await killbill.get_account_by_external_key(account_data.customer_id)
+                if existing_account:
+                    return CreateAccountResponse(
+                        success=True,
+                        killbill_account_id=existing_account.get("accountId"),
+                        customer_id=account_data.customer_id,
+                        message="Account already exists"
+                    )
+            except Exception as lookup_err:
+                logger.error(f"Failed to lookup existing account for {account_data.customer_id}: {lookup_err}")
+
         logger.error(f"Failed to create account for customer {account_data.customer_id}: {e}")
         return CreateAccountResponse(
             success=False,

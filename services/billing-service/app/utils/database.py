@@ -27,11 +27,12 @@ async def init_db():
         database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
         
         try:
+            pool_size = int(os.getenv("DB_POOL_SIZE", "20"))
             _pool = await asyncpg.create_pool(
                 database_url,
-                min_size=5,
-                max_size=20,
-                command_timeout=60
+                min_size=10,
+                max_size=pool_size,
+                command_timeout=30
             )
             logger.info("Database connection pool initialized")
         except Exception as e:

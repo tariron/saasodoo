@@ -125,6 +125,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Billing Service...")
+    await app.state.killbill.close()
     await close_db()
 
 # Create FastAPI app
