@@ -168,6 +168,14 @@ spec:
             "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
             | PGPASSWORD=$INSTANCE_PASSWORD psql -h $PGHOST -U instance_service -d instance -v ON_ERROR_STOP=1
 
+          echo "  → database_service on instance db"
+          printf "%s\n" \
+            "GRANT USAGE ON SCHEMA public TO database_service;" \
+            "GRANT ALL PRIVILEGES ON TABLE db_servers TO database_service;" \
+            "GRANT ALL PRIVILEGES ON TABLE instances TO database_service;" \
+            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO database_service;" \
+            | PGPASSWORD=$INSTANCE_PASSWORD psql -h $PGHOST -U instance_service -d instance -v ON_ERROR_STOP=1
+
           echo "  → communication"
           printf "%s\n" \
             "GRANT USAGE ON SCHEMA public TO readonly_user;" \

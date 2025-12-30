@@ -59,7 +59,7 @@ class CapacityTester:
         payload = self.generate_payload()
         start = time.perf_counter()
         try:
-            resp = requests.post(self.register_url, json=payload, timeout=60)
+            resp = requests.post(self.register_url, json=payload, timeout=30)
             elapsed_ms = (time.perf_counter() - start) * 1000
 
             if resp.status_code == 201:

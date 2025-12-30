@@ -36,6 +36,7 @@ spec:
             - --auto-generate-certificates
             - --namespace=kubernetes-dashboard
             - --enable-insecure-login    # Allow login over HTTP (dev only)
+            - --token-ttl=0              # Disable session expiration
           ports:
             - containerPort: 8443
               protocol: TCP

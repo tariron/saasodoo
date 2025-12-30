@@ -107,9 +107,10 @@ class RedisClient:
                 logger.info(f"Initializing Redis client with direct connection: {self.redis_url}")
 
                 # Create connection pool
+                redis_pool_size = int(os.getenv("REDIS_POOL_SIZE", "20"))
                 self.pool = ConnectionPool.from_url(
                     self.redis_url,
-                    max_connections=20,
+                    max_connections=redis_pool_size,
                     retry_on_timeout=True,
                     socket_keepalive=True,
                     socket_keepalive_options={},
