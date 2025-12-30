@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from app.routes import auth, users
 from app.utils.dependencies import get_database
 from app.utils.database import init_database
+from app.utils.billing_client import billing_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,12 +29,18 @@ async def lifespan(app: FastAPI):
     # Initialize database connections
     await init_database()
 
+    # Initialize HTTP client with connection pooling
+    await billing_client.start()
+
     logger.info("User Service startup complete - using Redis for sessions")
 
     yield
 
     # Shutdown
     logger.info("User Service shutting down...")
+
+    # Close HTTP client connections
+    await billing_client.stop()
 
 # Create FastAPI application
 app = FastAPI(
