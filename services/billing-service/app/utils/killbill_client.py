@@ -430,9 +430,60 @@ class KillBillClient:
             logger.error(f"Failed to create tenant: {e}")
             raise
 
-    async def register_webhook(self, webhook_url: str) -> Dict[str, Any]:
-        """Register webhook URL with KillBill using proper notification callback API"""
+    async def get_registered_webhook(self) -> Optional[str]:
+        """Get currently registered webhook URL from KillBill"""
         try:
+            headers = self.headers.copy()
+            headers["X-Killbill-ApiKey"] = self.api_key
+            headers["X-Killbill-ApiSecret"] = self.api_secret
+
+            url = f"{self.base_url}/1.0/kb/tenants/registerNotificationCallback"
+            client = self._get_client()
+            response = await client.get(
+                url=url,
+                headers=headers,
+                auth=(self.username, self.password)
+            )
+
+            if response.status_code == 200:
+                # Response is JSON: {"key":"PUSH_NOTIFICATION_CB","values":["url"],"auditLogs":[]}
+                try:
+                    data = response.json()
+                    values = data.get("values", [])
+                    if values and len(values) > 0:
+                        webhook_url = values[0]
+                        logger.info(f"Current registered webhook: {webhook_url}")
+                        return webhook_url
+                except Exception as parse_err:
+                    logger.warning(f"Failed to parse webhook response: {parse_err}")
+                    # Fallback: try plain text
+                    content = response.text.strip().strip('"')
+                    if content:
+                        return content
+            elif response.status_code == 404:
+                logger.info("No webhook currently registered")
+                return None
+
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get registered webhook: {e}")
+            return None
+
+    async def register_webhook(self, webhook_url: str) -> Dict[str, Any]:
+        """Register webhook URL with KillBill using proper notification callback API.
+
+        Checks if webhook is already registered to avoid duplicates.
+        """
+        try:
+            # First check if webhook is already registered
+            current_webhook = await self.get_registered_webhook()
+            if current_webhook == webhook_url:
+                logger.info(f"Webhook already registered with correct URL: {webhook_url}")
+                return {"status": "already_registered", "url": webhook_url}
+
+            if current_webhook:
+                logger.warning(f"Different webhook registered: {current_webhook}, will update to: {webhook_url}")
+
             headers = self.headers.copy()
             headers["X-Killbill-ApiKey"] = self.api_key
             headers["X-Killbill-ApiSecret"] = self.api_secret
