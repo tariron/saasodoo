@@ -38,6 +38,10 @@ spec:
             # 3. Service secrets (highest priority)
             - secretRef:
                 name: notification-service-secret
+          # Vhost isolation - use same vhost as notification-worker
+          env:
+            - name: RABBITMQ_VHOST
+              value: "saasodoo-notification"
           resources:
             requests:
               memory: "128Mi"

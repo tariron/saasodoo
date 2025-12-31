@@ -38,6 +38,10 @@ spec:
             # 3. Service secrets (highest priority)
             - secretRef:
                 name: database-service-secret
+          # Vhost isolation - use same vhost as database-worker
+          env:
+            - name: RABBITMQ_VHOST
+              value: "saasodoo-database"
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
