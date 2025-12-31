@@ -13,12 +13,23 @@ spec:
   entryPoints:
     - web
   routes:
+    # Auth endpoints - stricter rate limiting
+    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/user/auth`)
+      kind: Rule
+      services:
+        - name: user-service
+          port: 8001
+      middlewares:
+        - name: auth-ratelimit
+        - name: user-stripprefix
+    # General user endpoints
     - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/user`)
       kind: Rule
       services:
         - name: user-service
           port: 8001
       middlewares:
+        - name: api-ratelimit
         - name: user-stripprefix
 
 ---

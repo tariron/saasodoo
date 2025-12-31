@@ -97,13 +97,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# CORS Configuration from environment
+def get_cors_origins():
+    origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    if origins:
+        return [o.strip() for o in origins.split(",") if o.strip()]
+    return ["http://localhost:3000"]  # Development fallback
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure properly for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=get_cors_origins(),
+    allow_credentials=os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true",
+    allow_methods=os.getenv("CORS_ALLOWED_METHODS", "GET,POST,PUT,DELETE,OPTIONS").split(","),
+    allow_headers=os.getenv("CORS_ALLOWED_HEADERS", "Authorization,Content-Type").split(","),
 )
 
 

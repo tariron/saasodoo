@@ -1,0 +1,82 @@
+---
+# Traefik Rate Limiting Middleware
+# Protects API endpoints from abuse while allowing normal SaaS usage
+#
+# Rate limits are per source IP. For multi-tenant SaaS with 1000s of customers,
+# limits are set high enough to accommodate corporate NAT scenarios where
+# many users may share the same IP.
+
+# General API Rate Limiting - for most endpoints
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-ratelimit
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: api-ratelimit
+    app.kubernetes.io/component: security
+spec:
+  rateLimit:
+    average: 2000       # 2000 requests per minute per IP
+    period: 1m
+    burst: 500          # Allow burst of 500 for page loads
+    sourceCriterion:
+      ipStrategy:
+        depth: 1        # Use first X-Forwarded-For IP
+
+---
+# Auth Rate Limiting - stricter to prevent brute force
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: auth-ratelimit
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: auth-ratelimit
+    app.kubernetes.io/component: security
+spec:
+  rateLimit:
+    average: 30         # 30 auth attempts per minute per IP
+    period: 1m
+    burst: 10           # Burst of 10
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+
+---
+# Webhook Rate Limiting - permissive for internal/KillBill webhooks
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: webhook-ratelimit
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: webhook-ratelimit
+    app.kubernetes.io/component: security
+spec:
+  rateLimit:
+    average: 10000      # 10k/min - webhooks can be very bursty
+    period: 1m
+    burst: 1000
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+
+---
+# Instance Operations Rate Limiting - moderate for heavy operations
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: instance-ratelimit
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: instance-ratelimit
+    app.kubernetes.io/component: security
+spec:
+  rateLimit:
+    average: 500        # 500/min - creating/managing instances
+    period: 1m
+    burst: 100
+    sourceCriterion:
+      ipStrategy:
+        depth: 1

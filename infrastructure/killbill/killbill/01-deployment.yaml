@@ -49,7 +49,7 @@ spec:
             - name: KILLBILL_USERNAME
               valueFrom:
                 configMapKeyRef:
-                  name: saasodoo-config
+                  name: shared-config
                   key: KILLBILL_USERNAME
             - name: KILLBILL_PASSWORD
               valueFrom:
@@ -63,8 +63,8 @@ spec:
                   key: KILLBILL_API_SECRET
             - name: KILLBILL_API_KEY
               valueFrom:
-                configMapKeyRef:
-                  name: saasodoo-config
+                secretKeyRef:
+                  name: saasodoo-secrets
                   key: KILLBILL_API_KEY
 
             # JVM Memory Settings

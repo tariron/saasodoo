@@ -31,22 +31,22 @@ spec:
             - name: FLASK_ENV
               valueFrom:
                 configMapKeyRef:
-                  name: saasodoo-config
+                  name: shared-config
                   key: FLASK_ENV
             - name: FLASK_DEBUG
               valueFrom:
                 configMapKeyRef:
-                  name: saasodoo-config
+                  name: shared-config
                   key: FLASK_DEBUG
             - name: BASE_DOMAIN
               valueFrom:
                 configMapKeyRef:
-                  name: saasodoo-config
+                  name: shared-config
                   key: BASE_DOMAIN
             - name: ENVIRONMENT
               valueFrom:
                 configMapKeyRef:
-                  name: saasodoo-config
+                  name: shared-config
                   key: ENVIRONMENT
           livenessProbe:
             httpGet:

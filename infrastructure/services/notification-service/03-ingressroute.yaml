@@ -18,3 +18,5 @@ spec:
       services:
         - name: notification-service
           port: 5000
+      middlewares:
+        - name: api-ratelimit

@@ -13,12 +13,23 @@ spec:
   entryPoints:
     - web
   routes:
+    # Webhook endpoints - permissive rate limiting for KillBill
+    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/billing/api/billing/webhooks`)
+      kind: Rule
+      services:
+        - name: billing-service
+          port: 8004
+      middlewares:
+        - name: webhook-ratelimit
+        - name: billing-stripprefix
+    # General billing endpoints
     - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/billing`)
       kind: Rule
       services:
         - name: billing-service
           port: 8004
       middlewares:
+        - name: api-ratelimit
         - name: billing-stripprefix
 
 ---
