@@ -43,6 +43,10 @@ spec:
             # 3. Service secrets (highest priority)
             - secretRef:
                 name: database-service-secret
+          # Vhost isolation - override to use dedicated vhost
+          env:
+            - name: RABBITMQ_VHOST
+              value: "saasodoo-database"
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock

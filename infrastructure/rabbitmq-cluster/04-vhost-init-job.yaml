@@ -1,0 +1,114 @@
+---
+# RabbitMQ Vhost Initialization Job
+#
+# Creates separate vhosts for each worker type to provide isolation:
+# - saasodoo-instance: instance-worker (provisioning, operations, maintenance, monitoring)
+# - saasodoo-database: database-worker (pool provisioning, health checks)
+# - saasodoo-notification: notification-worker (email, bulk)
+#
+# Each vhost has connection limits to prevent cascading failures.
+# Uses RabbitMQ HTTP Management API for reliability.
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-vhost-init
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: rabbitmq-vhost-init
+    app.kubernetes.io/component: initialization
+spec:
+  ttlSecondsAfterFinished: 300  # Clean up job after 5 minutes
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-vhost-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: vhost-init
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              RABBITMQ_API="http://rabbitmq.saasodoo.svc.cluster.local:15672/api"
+              AUTH="$RABBITMQ_USER:$RABBITMQ_PASSWORD"
+
+              echo "Waiting for RabbitMQ Management API to be ready..."
+              until curl -sf -u "$AUTH" "$RABBITMQ_API/overview" > /dev/null 2>&1; do
+                echo "RabbitMQ API not ready, waiting..."
+                sleep 5
+              done
+              echo "RabbitMQ Management API is ready!"
+
+              # Create vhosts for each worker type
+              echo ""
+              echo "=== Creating vhosts ==="
+
+              for VHOST in saasodoo-instance saasodoo-database saasodoo-notification; do
+                echo ""
+                echo "--- Processing vhost: $VHOST ---"
+
+                # Create vhost (PUT is idempotent)
+                echo "Creating vhost: $VHOST"
+                curl -sf -u "$AUTH" -X PUT "$RABBITMQ_API/vhosts/$VHOST" \
+                  -H "Content-Type: application/json" \
+                  -d '{"description": "Isolated vhost for '"$VHOST"' workers", "tags": "production"}' \
+                  && echo " -> Created" || echo " -> Already exists or error"
+
+                # Set connection limits (50 connections max per vhost)
+                echo "Setting limits for $VHOST: max-connections=50, max-queues=100"
+                curl -sf -u "$AUTH" -X PUT "$RABBITMQ_API/vhost-limits/$VHOST/max-connections" \
+                  -H "Content-Type: application/json" \
+                  -d '{"value": 50}' \
+                  && echo " -> Connection limit set" || echo " -> Failed to set connection limit"
+
+                curl -sf -u "$AUTH" -X PUT "$RABBITMQ_API/vhost-limits/$VHOST/max-queues" \
+                  -H "Content-Type: application/json" \
+                  -d '{"value": 100}' \
+                  && echo " -> Queue limit set" || echo " -> Failed to set queue limit"
+
+                # Grant full permissions to the saasodoo user on each vhost
+                echo "Granting permissions for user $RABBITMQ_USER on $VHOST"
+                curl -sf -u "$AUTH" -X PUT "$RABBITMQ_API/permissions/$VHOST/$RABBITMQ_USER" \
+                  -H "Content-Type: application/json" \
+                  -d '{"configure": ".*", "write": ".*", "read": ".*"}' \
+                  && echo " -> Permissions granted" || echo " -> Failed to set permissions"
+              done
+
+              # Set limits on default saasodoo vhost too
+              echo ""
+              echo "=== Setting limits on default saasodoo vhost ==="
+              curl -sf -u "$AUTH" -X PUT "$RABBITMQ_API/vhost-limits/saasodoo/max-connections" \
+                -H "Content-Type: application/json" \
+                -d '{"value": 50}' || true
+              curl -sf -u "$AUTH" -X PUT "$RABBITMQ_API/vhost-limits/saasodoo/max-queues" \
+                -H "Content-Type: application/json" \
+                -d '{"value": 100}' || true
+
+              echo ""
+              echo "=== Verification ==="
+              echo "Listing all vhosts:"
+              curl -sf -u "$AUTH" "$RABBITMQ_API/vhosts" | grep -o '"name":"[^"]*"' | sed 's/"name":"//g; s/"//g'
+
+              echo ""
+              echo "Listing vhost limits:"
+              curl -sf -u "$AUTH" "$RABBITMQ_API/vhost-limits"
+
+              echo ""
+              echo "=== Vhost initialization complete! ==="
+          env:
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-admin
+                  key: username
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-admin
+                  key: password

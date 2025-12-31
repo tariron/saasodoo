@@ -45,6 +45,10 @@ spec:
             # 3. Service secrets (highest priority)
             - secretRef:
                 name: instance-service-secret
+          # Vhost isolation - override to use dedicated vhost
+          env:
+            - name: RABBITMQ_VHOST
+              value: "saasodoo-instance"
           volumeMounts:
             - name: odoo-backups
               mountPath: /mnt/cephfs/odoo_backups
