@@ -24,40 +24,23 @@ RUN npm run build
 RUN ls -la build/ && test -f build/index.html
 
 # ======================
-# Production Runtime
+# Production Runtime (Nginx)
 # ======================
-FROM python:3.11-slim AS runtime
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
-WORKDIR /app
-
-# Install Python dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+FROM nginx:alpine AS runtime
 
 # Copy React build output
-COPY --from=builder /app/build ./frontend/build
+COPY --from=builder /app/build /usr/share/nginx/html
 
-# Copy Flask application
-COPY backend/ .
+# Copy custom Nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash frontend_user \
-    && chown -R frontend_user:frontend_user /app
-
-USER frontend_user
-
-# Expose port
-EXPOSE 3000
+# Nginx runs as non-root by default in alpine image
+# Expose port 80
+EXPOSE 80
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD wget -q --spider http://localhost/health || exit 1
 
-# Production command
-CMD ["gunicorn", "--bind", "0.0.0.0:3000", "--workers", "2", "--timeout", "30", "app:app"]
+# Nginx runs in foreground by default
+CMD ["nginx", "-g", "daemon off;"]

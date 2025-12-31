@@ -17,4 +17,4 @@ spec:
       kind: Rule
       services:
         - name: frontend-service
-          port: 3000
+          port: 80

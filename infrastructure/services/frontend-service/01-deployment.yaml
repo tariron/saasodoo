@@ -24,43 +24,29 @@ spec:
           image: registry.62.171.153.219.nip.io/frontend-service:latest
           imagePullPolicy: Always
           ports:
-            - containerPort: 3000
+            - containerPort: 80
               name: http
               protocol: TCP
-          env:
-            - name: FLASK_ENV
-              valueFrom:
-                configMapKeyRef:
-                  name: shared-config
-                  key: FLASK_ENV
-            - name: FLASK_DEBUG
-              valueFrom:
-                configMapKeyRef:
-                  name: shared-config
-                  key: FLASK_DEBUG
-            - name: BASE_DOMAIN
-              valueFrom:
-                configMapKeyRef:
-                  name: shared-config
-                  key: BASE_DOMAIN
-            - name: ENVIRONMENT
-              valueFrom:
-                configMapKeyRef:
-                  name: shared-config
-                  key: ENVIRONMENT
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
           livenessProbe:
             httpGet:
               path: /health
-              port: 3000
-            initialDelaySeconds: 45
+              port: 80
+            initialDelaySeconds: 10
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health
-              port: 3000
-            initialDelaySeconds: 20
+              port: 80
+            initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 3
