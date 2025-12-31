@@ -1,0 +1,18 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We're sorry, but we encountered an issue while provisioning your Odoo instance "{{ instance_name }}".
+
+Error: {{ error_message }}
+
+Our team has been notified and is looking into this issue. In most cases, we'll automatically retry the provisioning process.
+
+If you continue to experience issues, please contact our support team at {{ support_email }}.
+
+We apologize for any inconvenience.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

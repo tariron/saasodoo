@@ -1,0 +1,18 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your instance "{{ instance_name }}" has been successfully restored from backup.
+
+RESTORE DETAILS
+---------------
+Instance: {{ instance_name }}
+Backup Used: {{ backup_name }}
+Restore Date: {{ restore_date }}
+
+Your instance is now running with the restored data. Please verify that everything is working as expected.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

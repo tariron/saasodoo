@@ -1,0 +1,21 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Great news! Your Odoo instance "{{ instance_name }}" has been successfully provisioned and is ready to use.
+
+INSTANCE DETAILS
+----------------
+Instance Name: {{ instance_name }}
+URL: {{ instance_url }}
+Admin Email: {{ admin_email }}
+Admin Password: {{ admin_password }}
+
+IMPORTANT: Please change your password after your first login. This password is sent only once for security reasons.
+
+Access your instance: {{ instance_url }}
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

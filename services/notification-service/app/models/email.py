@@ -76,22 +76,27 @@ class EmailRequest(BaseModel):
 
 class TemplateEmailRequest(BaseModel):
     """Request model for sending template-based emails"""
-    
+
     # Recipients
     to_emails: List[EmailStr]
-    
+    cc_emails: Optional[List[EmailStr]] = None
+    bcc_emails: Optional[List[EmailStr]] = None
+
     # Template
     template_name: str
     template_variables: Optional[Dict[str, Any]] = None
-    
+
     # Override template defaults
     subject_override: Optional[str] = None
     from_email_override: Optional[EmailStr] = None
     from_name_override: Optional[str] = None
-    
+
     # Metadata
     priority: EmailPriority = EmailPriority.NORMAL
     tags: Optional[List[str]] = None
+
+    # Processing mode
+    async_send: bool = True  # If True, queue via Celery; if False, send synchronously
     
     @validator('template_name')
     def validate_template_name(cls, v):
@@ -199,14 +204,38 @@ class BulkEmailRequest(BaseModel):
             raise ValueError('Batch size must be between 1 and 100')
         return v
 
-class BulkEmailResponse(BaseModel):
-    """Response model for bulk email operations"""
-    
+class AsyncEmailResponse(BaseModel):
+    """Response model for async email operations"""
+
     success: bool
     message: str
-    total_recipients: int
-    successful_sends: int
-    failed_sends: int
+    email_id: Optional[str] = None  # Created by task, not available immediately
+    status: str = "queued"  # queued, sending, sent, failed
+    celery_task_id: Optional[str] = None
+    queued_at: datetime
+
+
+class BulkEmailResponse(BaseModel):
+    """Response model for bulk email operations"""
+
+    success: bool
+    message: str
     batch_id: str
-    started_at: datetime
-    estimated_completion: Optional[datetime] = None
+    total_recipients: int
+    status: str = "queued"  # queued, processing, completed, failed
+    celery_task_id: Optional[str] = None
+    queued_at: datetime
+
+
+class BulkEmailStatusResponse(BaseModel):
+    """Response model for bulk email status"""
+
+    batch_id: str
+    status: str
+    total_recipients: int
+    successful_count: int
+    failed_count: int
+    pending_count: int
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    celery_task_id: Optional[str] = None

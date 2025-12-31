@@ -1,0 +1,19 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We were unable to process your payment for "{{ instance_name }}".
+
+Amount: ${{ amount }}
+Reason: {{ error_reason }}
+
+Please update your payment information or try a different payment method to continue your service without interruption.
+
+Retry payment: {{ retry_url }}
+
+If you need assistance, please contact our support team at {{ support_email }}.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

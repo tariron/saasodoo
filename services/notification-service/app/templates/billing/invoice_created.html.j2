@@ -1,0 +1,31 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}New Invoice - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1>Invoice {{ invoice_number }}</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>A new invoice has been generated for your {{ platform_name }} subscription.</p>
+
+<div class="info-box">
+    <h3>Invoice Details</h3>
+    <table>
+        <tr><th>Invoice Number</th><td>{{ invoice_number }}</td></tr>
+        <tr><th>Instance</th><td>{{ instance_name }}</td></tr>
+        <tr><th>Amount</th><td>${{ amount }}</td></tr>
+        <tr><th>Due Date</th><td>{{ due_date }}</td></tr>
+    </table>
+</div>
+
+<div class="text-center mt-20">
+    <a href="{{ invoice_url }}" class="button button-primary">View Invoice</a>
+</div>
+
+<p>Please ensure payment is made by the due date to avoid service interruption.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

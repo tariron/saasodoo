@@ -1,0 +1,14 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your Odoo instance "{{ instance_name }}" has been stopped.
+
+Your data is safe and the instance can be restarted at any time from your dashboard.
+
+If you didn't request this action or need assistance, please contact support.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

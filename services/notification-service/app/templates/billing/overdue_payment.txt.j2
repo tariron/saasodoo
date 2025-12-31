@@ -1,0 +1,22 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+URGENT: Your payment for {{ instance_name }} is {{ days_overdue }} days overdue.
+
+IMMEDIATE ACTION REQUIRED
+-------------------------
+Instance: {{ instance_name }}
+Amount Due: ${{ amount }}
+Days Overdue: {{ days_overdue }}
+
+WARNING: Your instance may be suspended if payment is not received soon. After suspension, your data will be retained for 30 days before permanent deletion.
+
+Pay now: {{ payment_url }}
+
+If you're experiencing payment difficulties, please contact our support team at {{ support_email }}. We're here to help.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

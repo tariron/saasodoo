@@ -1,0 +1,30 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Welcome to {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Welcome to {{ platform_name }}!</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Welcome to {{ platform_name }}! We're excited to have you on board.</p>
+
+<p>Your account has been successfully created. You can now:</p>
+
+<ul>
+    <li>Create and manage Odoo instances</li>
+    <li>Scale your business operations</li>
+    <li>Access enterprise-grade features</li>
+    <li>Get dedicated support</li>
+</ul>
+
+<div class="text-center mt-20">
+    <a href="{{ dashboard_url | default(support_url) }}" class="button button-success">Go to Dashboard</a>
+</div>
+
+<p>If you have any questions, our support team is here to help. Just reply to this email or visit our <a href="{{ support_url }}">Help Center</a>.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

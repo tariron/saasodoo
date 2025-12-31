@@ -1,0 +1,23 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Service Terminated - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Service Terminated</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your service for <strong>{{ instance_name }}</strong> has been terminated due to non-payment.</p>
+
+<div class="error-box">
+    <p style="margin: 0;"><strong>Important:</strong> All data associated with this instance has been permanently deleted.</p>
+</div>
+
+<p>If you believe this was done in error, please contact our support team immediately.</p>
+
+<p>You're welcome to create a new instance anytime from your dashboard.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

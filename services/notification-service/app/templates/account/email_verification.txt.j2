@@ -1,0 +1,16 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Thank you for registering with {{ platform_name }}. Please verify your email address to complete your account setup.
+
+Verify your email: {{ verification_url }}
+
+This link will expire in {{ expiry_hours }} hours.
+
+If you didn't create an account with {{ platform_name }}, please ignore this email.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

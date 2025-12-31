@@ -1,0 +1,24 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Restore Completed - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Restore Completed</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your instance <strong>{{ instance_name }}</strong> has been successfully restored from backup.</p>
+
+<div class="success-box">
+    <h3 style="margin-top: 0;">Restore Details</h3>
+    <p><strong>Instance:</strong> {{ instance_name }}</p>
+    <p><strong>Backup Used:</strong> {{ backup_name }}</p>
+    <p><strong>Restore Date:</strong> {{ restore_date }}</p>
+</div>
+
+<p>Your instance is now running with the restored data. Please verify that everything is working as expected.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

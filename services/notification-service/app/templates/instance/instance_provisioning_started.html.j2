@@ -1,0 +1,27 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Provisioning Started - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #3498db;">Instance Provisioning Started</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We've started provisioning your new Odoo instance <strong>{{ instance_name }}</strong>.</p>
+
+<div class="info-box">
+    <h3>What happens next?</h3>
+    <ul>
+        <li>Your instance is being set up on our servers</li>
+        <li>Database is being configured</li>
+        <li>Odoo is being installed and initialized</li>
+    </ul>
+    <p><strong>This process typically takes 2-5 minutes.</strong></p>
+</div>
+
+<p>You'll receive another email once your instance is ready with your login credentials.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

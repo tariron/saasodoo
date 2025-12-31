@@ -1,0 +1,22 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+This is a friendly reminder that your payment for "{{ instance_name }}" is coming due.
+
+PAYMENT DETAILS
+---------------
+Instance: {{ instance_name }}
+Amount Due: ${{ amount }}
+Due Date: {{ due_date }}
+
+Pay now: {{ payment_url }}
+
+To avoid any service interruption, please ensure your payment is made by the due date.
+
+If you've already made this payment, please disregard this message.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

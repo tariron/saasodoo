@@ -1,0 +1,21 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Instance Stopped - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1>Instance Stopped</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your Odoo instance <strong>{{ instance_name }}</strong> has been stopped.</p>
+
+<div class="info-box">
+    <p style="margin: 0;">Your data is safe and the instance can be restarted at any time from your dashboard.</p>
+</div>
+
+<p>If you didn't request this action or need assistance, please contact support.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

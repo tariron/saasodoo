@@ -1,0 +1,31 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Scheduled Maintenance - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #f39c12;">Scheduled Maintenance</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We will be performing scheduled maintenance on your instance <strong>{{ instance_name }}</strong>.</p>
+
+<div class="warning-box">
+    <h3 style="margin-top: 0;">Maintenance Window</h3>
+    <p><strong>Start:</strong> {{ maintenance_start }}</p>
+    <p><strong>End:</strong> {{ maintenance_end }}</p>
+</div>
+
+<div class="info-box">
+    <h3 style="margin-top: 0;">What to Expect</h3>
+    <p>{{ description }}</p>
+    <p>During this time, your instance may be temporarily unavailable or experience reduced performance.</p>
+</div>
+
+<p>We apologize for any inconvenience and appreciate your patience. No action is required on your part.</p>
+
+<p>If you have any concerns, please contact support.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

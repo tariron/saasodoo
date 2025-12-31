@@ -144,6 +144,12 @@ spec:
         passwordSecret:
           name: cnpg-database-service
 
+      - name: notification_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-notification-service
+
       - name: readonly_user
         ensure: present
         login: true

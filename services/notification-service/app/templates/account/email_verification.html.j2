@@ -1,0 +1,25 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Verify Your Email - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1>Verify Your Email Address</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Thank you for registering with {{ platform_name }}. Please verify your email address to complete your account setup.</p>
+
+<div class="text-center mt-20">
+    <a href="{{ verification_url }}" class="button button-success">Verify Email Address</a>
+</div>
+
+<div class="warning-box">
+    <p style="margin: 0;"><strong>This link will expire in {{ expiry_hours }} hours.</strong></p>
+</div>
+
+<p>If you didn't create an account with {{ platform_name }}, please ignore this email.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

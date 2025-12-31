@@ -1,0 +1,27 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Restore Failed - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Restore Failed</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We were unable to restore your instance <strong>{{ instance_name }}</strong> from backup <strong>{{ backup_name }}</strong>.</p>
+
+<div class="error-box">
+    <p style="margin: 0;"><strong>Error:</strong> {{ error_message }}</p>
+</div>
+
+<p>Your instance has been returned to its previous state. No data was lost.</p>
+
+<p>You can try the restore again or contact support for assistance.</p>
+
+<div class="text-center mt-20">
+    <a href="mailto:{{ support_email }}" class="button button-primary">Contact Support</a>
+</div>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

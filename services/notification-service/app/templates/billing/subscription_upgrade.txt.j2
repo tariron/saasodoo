@@ -1,0 +1,20 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Great news! Your subscription has been successfully upgraded.
+
+UPGRADE DETAILS
+---------------
+Previous Plan: {{ old_plan }}
+New Plan: {{ new_plan }}
+{% if new_resources %}New Resources: {{ new_resources }}{% endif %}
+
+Your new plan features are now active and available immediately.
+
+If you have any questions about your upgraded subscription, please don't hesitate to contact our support team.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We were unable to complete the backup for "{{ instance_name }}".
+
+Error: {{ error_message }}
+
+Our team has been notified and will investigate this issue. You can also try initiating a new backup from your dashboard.
+
+If this problem persists, please contact support at {{ support_email }}.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

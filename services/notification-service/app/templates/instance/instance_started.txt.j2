@@ -1,0 +1,12 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your Odoo instance "{{ instance_name }}" is now running and ready to use.
+
+Access your instance: {{ instance_url }}
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

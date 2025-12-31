@@ -1,0 +1,19 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Instance Started - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Instance Started</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your Odoo instance <strong>{{ instance_name }}</strong> is now running and ready to use.</p>
+
+<div class="text-center mt-20">
+    <a href="{{ instance_url }}" class="button button-success">Access Your Instance</a>
+</div>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

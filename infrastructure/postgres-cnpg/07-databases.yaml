@@ -62,11 +62,12 @@ spec:
   cluster:
     name: postgres-cluster
   name: communication
-  owner: auth_service  # Communication service uses auth_service credentials
+  owner: notification_service
   ensure: present
   extensions:
     - name: uuid-ossp
     - name: pgcrypto
+    - name: pg_trgm
 ---
 # Analytics Database
 apiVersion: postgresql.cnpg.io/v1

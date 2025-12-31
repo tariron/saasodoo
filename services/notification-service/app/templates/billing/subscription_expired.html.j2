@@ -1,0 +1,25 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Subscription Expired - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Subscription Expired</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your subscription for <strong>{{ instance_name }}</strong> has expired.</p>
+
+<div class="warning-box">
+    <p style="margin: 0;">Your instance has been suspended and is no longer accessible. Your data is still safe but will be deleted after 30 days if the subscription is not renewed.</p>
+</div>
+
+<p>To restore access to your instance and data, please renew your subscription.</p>
+
+<div class="text-center mt-20">
+    <a href="{{ renewal_url }}" class="button button-success">Renew Subscription</a>
+</div>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

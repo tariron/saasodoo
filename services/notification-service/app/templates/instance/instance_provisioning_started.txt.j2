@@ -1,0 +1,19 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We've started provisioning your new Odoo instance "{{ instance_name }}".
+
+What happens next:
+- Your instance is being set up on our servers
+- Database is being configured
+- Odoo is being installed and initialized
+
+This process typically takes 2-5 minutes.
+
+You'll receive another email once your instance is ready with your login credentials.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

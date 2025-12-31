@@ -1,0 +1,25 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We will be performing scheduled maintenance on your instance "{{ instance_name }}".
+
+MAINTENANCE WINDOW
+------------------
+Start: {{ maintenance_start }}
+End: {{ maintenance_end }}
+
+WHAT TO EXPECT
+--------------
+{{ description }}
+
+During this time, your instance may be temporarily unavailable or experience reduced performance.
+
+We apologize for any inconvenience and appreciate your patience. No action is required on your part.
+
+If you have any concerns, please contact support at {{ support_email }}.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

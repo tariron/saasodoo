@@ -1,0 +1,14 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We were unable to create your Odoo instance "{{ instance_name }}".
+
+Error: {{ error_message }}
+
+This may be due to a temporary system issue. Please try again or contact support at {{ support_email }} if the problem persists.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

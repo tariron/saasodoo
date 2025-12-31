@@ -10,11 +10,13 @@ metadata:
     app.kubernetes.io/component: backend
 data:
   # Database Configuration
-  DB_SERVICE_USER: "communication_service"
+  POSTGRES_HOST: "postgres-cluster-rw.saasodoo.svc.cluster.local"
+  POSTGRES_PORT: "5432"
   DB_NAME: "communication"
-  DB_POOL_SIZE: "10"
-  DB_MAX_OVERFLOW: "20"
-  DB_POOL_MAX_OVERFLOW: "20"
+  DB_SERVICE_USER: "notification_service"
+  POOL_SIZE: "10"
+  MAX_OVERFLOW: "20"
+  POOL_TIMEOUT: "30"
 
   # SMTP Configuration
   SMTP_HOST: "mailhog-service.saasodoo.svc.cluster.local"
@@ -23,11 +25,16 @@ data:
   SMTP_USE_SSL: "false"
   SMTP_TIMEOUT: "10"
   DEFAULT_FROM_EMAIL: "noreply@saasodoo.com"
-  DEFAULT_FROM_NAME: "SaaSOdoo Notifications"
+  DEFAULT_FROM_NAME: "SaaSOdoo Platform"
 
   # Rate Limiting
   MAX_EMAILS_PER_MINUTE: "100"
   MAX_EMAILS_PER_HOUR: "1000"
+
+  # Celery Configuration (uses shared-config for RABBITMQ_* and REDIS_*)
+  CELERY_WORKER_CONCURRENCY: "8"
+  CELERY_TASK_TIME_LIMIT: "300"
+  CELERY_TASK_SOFT_TIME_LIMIT: "280"
 
   # Logging
   LOG_LEVEL: "INFO"
@@ -39,3 +46,6 @@ data:
   APP_SERVICE_VERSION: "1.0.0"
   APP_API_PREFIX: "/api/v1"
   APP_TEMPLATES_DIR: "app/templates"
+  APP_PLATFORM_NAME: "SaaSOdoo Platform"
+  APP_SUPPORT_EMAIL: "support@saasodoo.com"
+  APP_SUPPORT_URL: "https://support.saasodoo.com"

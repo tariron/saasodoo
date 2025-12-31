@@ -1,0 +1,23 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Backup Failed - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Backup Failed</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We were unable to complete the backup for <strong>{{ instance_name }}</strong>.</p>
+
+<div class="error-box">
+    <p style="margin: 0;"><strong>Error:</strong> {{ error_message }}</p>
+</div>
+
+<p>Our team has been notified and will investigate this issue. You can also try initiating a new backup from your dashboard.</p>
+
+<p>If this problem persists, please contact support.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

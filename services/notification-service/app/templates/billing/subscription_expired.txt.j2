@@ -1,0 +1,14 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your subscription for "{{ instance_name }}" has expired.
+
+Your instance has been suspended and is no longer accessible. Your data is still safe but will be deleted after 30 days if the subscription is not renewed.
+
+To restore access to your instance and data, renew your subscription: {{ renewal_url }}
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

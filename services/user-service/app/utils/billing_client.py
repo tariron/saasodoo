@@ -42,7 +42,7 @@ class BillingServiceClient:
     # Connection pool settings (per worker)
     MAX_CONNECTIONS = 100         # Total concurrent connections to billing-service
     MAX_KEEPALIVE = 20            # Connections kept alive for reuse
-    KEEPALIVE_EXPIRY = 30.0       # Seconds before idle connection is closed
+    KEEPALIVE_EXPIRY = 5.0        # Seconds before idle connection is closed (reduced from 30s to avoid stale connections)
 
     # Timeout settings
     CONNECT_TIMEOUT = 5.0         # Time to establish connection

@@ -1,0 +1,35 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Your Instance is Ready - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Your Odoo Instance is Ready!</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Great news! Your Odoo instance <strong>{{ instance_name }}</strong> has been successfully provisioned and is ready to use.</p>
+
+<div class="credentials-box">
+    <h3 style="margin-top: 0; color: #27ae60;">Instance Details</h3>
+    <p><strong>Instance Name:</strong> {{ instance_name }}</p>
+    <p><strong>URL:</strong> <a href="{{ instance_url }}">{{ instance_url }}</a></p>
+    <p><strong>Admin Email:</strong> <code>{{ admin_email }}</code></p>
+    <p><strong>Admin Password:</strong> <code>{{ admin_password }}</code></p>
+</div>
+
+<div class="warning-box">
+    <p style="margin: 0;"><strong>Security Note:</strong> Please change your password after your first login. This password is sent only once for security reasons.</p>
+</div>
+
+<div class="text-center mt-20">
+    <a href="{{ instance_url }}" class="button button-success">Access Your Instance</a>
+</div>
+
+<p>You can now log in to your Odoo instance and start configuring your business processes.</p>
+
+<p>Need help getting started? Check out our <a href="{{ support_url }}">documentation and tutorials</a>.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

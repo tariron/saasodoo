@@ -1,0 +1,30 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Payment Reminder - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #f39c12;">Payment Reminder</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>This is a friendly reminder that your payment for <strong>{{ instance_name }}</strong> is coming due.</p>
+
+<div class="info-box">
+    <h3>Payment Details</h3>
+    <p><strong>Instance:</strong> {{ instance_name }}</p>
+    <p><strong>Amount Due:</strong> ${{ amount }}</p>
+    <p><strong>Due Date:</strong> {{ due_date }}</p>
+</div>
+
+<div class="text-center mt-20">
+    <a href="{{ payment_url }}" class="button button-warning">Pay Now</a>
+</div>
+
+<p>To avoid any service interruption, please ensure your payment is made by the due date.</p>
+
+<p>If you've already made this payment, please disregard this message.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

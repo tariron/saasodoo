@@ -1,0 +1,26 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Payment Received - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Payment Received - Thank You!</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We've successfully received your payment. Thank you!</p>
+
+<div class="success-box">
+    <h3 style="margin-top: 0;">Payment Details</h3>
+    <p><strong>Amount:</strong> ${{ amount }}</p>
+    <p><strong>Date:</strong> {{ payment_date }}</p>
+    <p><strong>Instance:</strong> {{ instance_name }}</p>
+</div>
+
+<p>Your subscription is now active and your instance is fully operational.</p>
+
+<p>Thank you for choosing {{ platform_name }}!</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

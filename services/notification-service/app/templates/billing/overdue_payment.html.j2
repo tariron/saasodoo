@@ -1,0 +1,32 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}URGENT: Overdue Payment - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">URGENT: Overdue Payment</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p><strong>Your payment for {{ instance_name }} is {{ days_overdue }} days overdue.</strong></p>
+
+<div class="error-box">
+    <h3 style="margin-top: 0;">Immediate Action Required</h3>
+    <p><strong>Instance:</strong> {{ instance_name }}</p>
+    <p><strong>Amount Due:</strong> ${{ amount }}</p>
+    <p><strong>Days Overdue:</strong> {{ days_overdue }}</p>
+</div>
+
+<div class="warning-box">
+    <p style="margin: 0;"><strong>Warning:</strong> Your instance may be suspended if payment is not received soon. After suspension, your data will be retained for 30 days before permanent deletion.</p>
+</div>
+
+<div class="text-center mt-20">
+    <a href="{{ payment_url }}" class="button button-danger">Pay Now</a>
+</div>
+
+<p>If you're experiencing payment difficulties, please contact our support team. We're here to help.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

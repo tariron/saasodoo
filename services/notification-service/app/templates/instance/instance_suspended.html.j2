@@ -1,0 +1,27 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Instance Suspended - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Instance Suspended</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your Odoo instance <strong>{{ instance_name }}</strong> has been suspended.</p>
+
+<div class="error-box">
+    <p style="margin: 0;"><strong>Reason:</strong> {{ reason }}</p>
+</div>
+
+<p>While suspended, you cannot access your instance. Your data remains safe and will be restored once the suspension is lifted.</p>
+
+<p>To restore access to your instance, please resolve the issue or contact support for assistance.</p>
+
+<div class="text-center mt-20">
+    <a href="mailto:{{ support_email }}" class="button button-primary">Contact Support</a>
+</div>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

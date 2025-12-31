@@ -1,0 +1,16 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We were unable to restore your instance "{{ instance_name }}" from backup "{{ backup_name }}".
+
+Error: {{ error_message }}
+
+Your instance has been returned to its previous state. No data was lost.
+
+You can try the restore again or contact support at {{ support_email }} for assistance.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

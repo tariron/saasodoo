@@ -1,0 +1,21 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+A new invoice has been generated for your {{ platform_name }} subscription.
+
+INVOICE DETAILS
+---------------
+Invoice Number: {{ invoice_number }}
+Instance: {{ instance_name }}
+Amount: ${{ amount }}
+Due Date: {{ due_date }}
+
+View invoice: {{ invoice_url }}
+
+Please ensure payment is made by the due date to avoid service interruption.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

@@ -138,36 +138,230 @@ data:
     -- Initialize instance database schema
   04-communication-schema.sql: |2
 
+    -- ==============================================================================
+    -- NOTIFICATION SERVICE SCHEMA
+    -- Comprehensive email management with templates, tracking, and bulk support
+    -- ==============================================================================
+
+    -- Drop legacy tables if they exist (migration from basic schema)
+    DROP TABLE IF EXISTS email_queue CASCADE;
+
+    -- 1. EMAIL TEMPLATES TABLE
+    -- Stores Jinja2 template metadata (actual templates in filesystem)
     CREATE TABLE IF NOT EXISTS email_templates (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        template_name VARCHAR(100) UNIQUE NOT NULL,
-        subject VARCHAR(255) NOT NULL,
-        html_content TEXT NOT NULL,
-        text_content TEXT,
-        variables JSONB,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        display_name VARCHAR(200) NOT NULL,
+        description TEXT,
+        subject_template VARCHAR(500) NOT NULL,
+        from_email VARCHAR(255) DEFAULT 'noreply@saasodoo.com',
+        from_name VARCHAR(100) DEFAULT 'SaaSOdoo Platform',
+        category VARCHAR(50) NOT NULL CHECK (category IN (
+            'account', 'instance', 'billing', 'backup', 'maintenance', 'system'
+        )),
+        variables JSONB DEFAULT '[]',
+        is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS email_queue (
+    -- 2. EMAILS TABLE
+    -- Stores all email records for audit, resend, and tracking
+    CREATE TABLE IF NOT EXISTS emails (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        recipient_email VARCHAR(255) NOT NULL,
-        subject VARCHAR(255) NOT NULL,
-        html_content TEXT NOT NULL,
+
+        -- Recipients (stored as JSONB arrays)
+        to_emails JSONB NOT NULL DEFAULT '[]',
+        cc_emails JSONB DEFAULT '[]',
+        bcc_emails JSONB DEFAULT '[]',
+
+        -- Content
+        subject VARCHAR(500) NOT NULL,
+        html_content TEXT,
         text_content TEXT,
-        status VARCHAR(50) DEFAULT 'pending',
+
+        -- Sender info
+        from_email VARCHAR(255) NOT NULL,
+        from_name VARCHAR(100),
+        reply_to VARCHAR(255),
+
+        -- Template reference
+        template_name VARCHAR(100) REFERENCES email_templates(name) ON DELETE SET NULL,
+        template_variables JSONB DEFAULT '{}',
+
+        -- Status tracking
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN (
+            'pending', 'queued', 'sending', 'sent', 'delivered', 'failed', 'bounced'
+        )),
+        priority VARCHAR(10) DEFAULT 'normal' CHECK (priority IN (
+            'low', 'normal', 'high', 'urgent'
+        )),
+
+        -- Celery task tracking
+        celery_task_id VARCHAR(100),
+
+        -- Attempt tracking
         attempts INTEGER DEFAULT 0,
         max_attempts INTEGER DEFAULT 3,
+        last_attempt_at TIMESTAMP WITH TIME ZONE,
+        error_message TEXT,
+
+        -- SMTP response
+        message_id VARCHAR(255),
+        smtp_response TEXT,
+
+        -- Scheduling
         scheduled_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         sent_at TIMESTAMP WITH TIME ZONE,
-        error_message TEXT,
+        delivered_at TIMESTAMP WITH TIME ZONE,
+
+        -- Metadata
+        tags JSONB DEFAULT '[]',
+        headers JSONB DEFAULT '{}',
+        metadata JSONB DEFAULT '{}',
+
+        -- Audit timestamps
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 3. EMAIL EVENTS TABLE
+    -- Tracks status changes and webhook events for each email
+    CREATE TABLE IF NOT EXISTS email_events (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email_id UUID NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
+        event_type VARCHAR(30) NOT NULL CHECK (event_type IN (
+            'created', 'queued', 'sending', 'sent', 'delivered',
+            'opened', 'clicked', 'bounced', 'failed', 'resent'
+        )),
+        event_data JSONB DEFAULT '{}',
+        ip_address INET,
+        user_agent TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- Create indexes for communication database
-    CREATE INDEX IF NOT EXISTS idx_email_templates_name ON email_templates(template_name);
-    CREATE INDEX IF NOT EXISTS idx_email_queue_status ON email_queue(status);
-    CREATE INDEX IF NOT EXISTS idx_email_queue_scheduled ON email_queue(scheduled_at);
+    -- 4. BULK EMAIL BATCHES TABLE
+    CREATE TABLE IF NOT EXISTS bulk_email_batches (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        template_name VARCHAR(100),
+        subject VARCHAR(500),
+        total_recipients INTEGER NOT NULL,
+        successful_count INTEGER DEFAULT 0,
+        failed_count INTEGER DEFAULT 0,
+        pending_count INTEGER NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN (
+            'pending', 'processing', 'completed', 'failed', 'cancelled'
+        )),
+        celery_task_id VARCHAR(100),
+        error_message TEXT,
+        started_at TIMESTAMP WITH TIME ZONE,
+        completed_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        metadata JSONB DEFAULT '{}'
+    );
+
+    -- ==============================================================================
+    -- INDEXES
+    -- ==============================================================================
+
+    -- Email templates
+    CREATE INDEX IF NOT EXISTS idx_email_templates_name ON email_templates(name);
+    CREATE INDEX IF NOT EXISTS idx_email_templates_category ON email_templates(category);
+    CREATE INDEX IF NOT EXISTS idx_email_templates_active ON email_templates(is_active);
+
+    -- Emails
+    CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
+    CREATE INDEX IF NOT EXISTS idx_emails_template ON emails(template_name);
+    CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority);
+    CREATE INDEX IF NOT EXISTS idx_emails_scheduled ON emails(scheduled_at);
+    CREATE INDEX IF NOT EXISTS idx_emails_sent ON emails(sent_at);
+    CREATE INDEX IF NOT EXISTS idx_emails_celery_task ON emails(celery_task_id);
+    CREATE INDEX IF NOT EXISTS idx_emails_created ON emails(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_emails_pending_queue ON emails(status, priority, scheduled_at)
+        WHERE status IN ('pending', 'queued');
+
+    -- Email events
+    CREATE INDEX IF NOT EXISTS idx_email_events_email ON email_events(email_id);
+    CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(event_type);
+    CREATE INDEX IF NOT EXISTS idx_email_events_created ON email_events(created_at);
+
+    -- Bulk batches
+    CREATE INDEX IF NOT EXISTS idx_bulk_batches_status ON bulk_email_batches(status);
+    CREATE INDEX IF NOT EXISTS idx_bulk_batches_created ON bulk_email_batches(created_at);
+
+    -- ==============================================================================
+    -- TRIGGERS
+    -- ==============================================================================
+
+    -- Auto-update updated_at
+    CREATE OR REPLACE FUNCTION update_notification_updated_at()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS emails_updated_at ON emails;
+    CREATE TRIGGER emails_updated_at
+        BEFORE UPDATE ON emails
+        FOR EACH ROW
+        EXECUTE FUNCTION update_notification_updated_at();
+
+    DROP TRIGGER IF EXISTS templates_updated_at ON email_templates;
+    CREATE TRIGGER templates_updated_at
+        BEFORE UPDATE ON email_templates
+        FOR EACH ROW
+        EXECUTE FUNCTION update_notification_updated_at();
+
+    -- ==============================================================================
+    -- SEED TEMPLATE METADATA
+    -- ==============================================================================
+
+    INSERT INTO email_templates (name, display_name, subject_template, category, variables, description) VALUES
+    -- Account templates
+    ('welcome', 'Welcome Email', 'Welcome to {{ platform_name }}!', 'account', '["first_name"]', 'Sent when a new user registers'),
+    ('password_reset', 'Password Reset', 'Reset Your {{ platform_name }} Password', 'account', '["first_name", "reset_url", "expiry_hours"]', 'Password reset request'),
+    ('email_verification', 'Email Verification', 'Verify Your Email Address', 'account', '["first_name", "verification_url", "expiry_hours"]', 'Email verification link'),
+
+    -- Instance templates
+    ('instance_ready', 'Instance Ready', 'Your Odoo Instance {{ instance_name }} is Ready!', 'instance', '["first_name", "instance_name", "instance_url", "admin_email", "admin_password"]', 'Instance provisioning complete'),
+    ('instance_provisioning_started', 'Provisioning Started', 'Provisioning Started for {{ instance_name }}', 'instance', '["first_name", "instance_name"]', 'Instance provisioning has begun'),
+    ('instance_provisioning_failed', 'Provisioning Failed', 'Instance Provisioning Failed: {{ instance_name }}', 'instance', '["first_name", "instance_name", "error_message"]', 'Instance provisioning failed'),
+    ('instance_creation_failed', 'Creation Failed', 'Instance Creation Failed', 'instance', '["first_name", "instance_name", "error_message"]', 'Instance creation failed'),
+    ('instance_stopped', 'Instance Stopped', 'Your Instance {{ instance_name }} Has Been Stopped', 'instance', '["first_name", "instance_name"]', 'Instance was stopped'),
+    ('instance_started', 'Instance Started', 'Your Instance {{ instance_name }} is Now Running', 'instance', '["first_name", "instance_name", "instance_url"]', 'Instance was started'),
+    ('instance_suspended', 'Instance Suspended', 'Your Instance {{ instance_name }} Has Been Suspended', 'instance', '["first_name", "instance_name", "reason"]', 'Instance suspended due to billing'),
+    ('instance_resumed', 'Instance Resumed', 'Your Instance {{ instance_name }} Has Been Restored', 'instance', '["first_name", "instance_name", "instance_url"]', 'Instance resumed after suspension'),
+    ('instance_deleted', 'Instance Deleted', 'Your Instance {{ instance_name }} Has Been Deleted', 'instance', '["first_name", "instance_name"]', 'Instance was deleted'),
+
+    -- Billing templates
+    ('billing_reminder', 'Billing Reminder', 'Payment Reminder for {{ instance_name }}', 'billing', '["first_name", "instance_name", "amount", "due_date", "payment_url"]', 'Upcoming payment reminder'),
+    ('payment_failure', 'Payment Failed', 'Payment Failed for {{ instance_name }}', 'billing', '["first_name", "instance_name", "amount", "error_reason", "retry_url"]', 'Payment processing failed'),
+    ('subscription_cancelled', 'Subscription Cancelled', 'Subscription Cancelled for {{ instance_name }}', 'billing', '["first_name", "instance_name", "end_date"]', 'Subscription was cancelled'),
+    ('subscription_expired', 'Subscription Expired', 'Your Subscription for {{ instance_name }} Has Expired', 'billing', '["first_name", "instance_name", "renewal_url"]', 'Subscription has expired'),
+    ('service_terminated', 'Service Terminated', 'Service Terminated for {{ instance_name }}', 'billing', '["first_name", "instance_name"]', 'Service terminated due to non-payment'),
+    ('invoice_created', 'Invoice Created', 'Invoice {{ invoice_number }} for {{ instance_name }}', 'billing', '["first_name", "instance_name", "invoice_number", "amount", "due_date", "invoice_url"]', 'New invoice generated'),
+    ('invoice_paid', 'Invoice Paid', 'Payment Received - Invoice {{ invoice_number }}', 'billing', '["first_name", "invoice_number", "amount_paid", "payment_date"]', 'Invoice payment confirmed'),
+    ('subscription_upgrade', 'Subscription Upgraded', 'Your Subscription Has Been Upgraded', 'billing', '["first_name", "old_plan", "new_plan", "new_resources"]', 'Subscription upgrade confirmation'),
+    ('payment_received', 'Payment Received', 'Payment Received - Thank You!', 'billing', '["first_name", "amount", "payment_date", "instance_name"]', 'Payment received confirmation'),
+    ('overdue_payment', 'Overdue Payment', 'URGENT: Overdue Payment for {{ instance_name }}', 'billing', '["first_name", "instance_name", "amount", "days_overdue", "payment_url"]', 'Overdue payment warning'),
+
+    -- Backup templates
+    ('backup_completed', 'Backup Completed', 'Backup Completed for {{ instance_name }}', 'backup', '["first_name", "instance_name", "backup_name", "backup_size", "backup_date"]', 'Backup completed successfully'),
+    ('backup_failed', 'Backup Failed', 'Backup Failed for {{ instance_name }}', 'backup', '["first_name", "instance_name", "error_message"]', 'Backup operation failed'),
+    ('restore_completed', 'Restore Completed', 'Restore Completed for {{ instance_name }}', 'backup', '["first_name", "instance_name", "backup_name", "restore_date"]', 'Restore completed successfully'),
+    ('restore_failed', 'Restore Failed', 'Restore Failed for {{ instance_name }}', 'backup', '["first_name", "instance_name", "backup_name", "error_message"]', 'Restore operation failed'),
+
+    -- Maintenance templates
+    ('maintenance_notification', 'Scheduled Maintenance', 'Scheduled Maintenance for {{ instance_name }}', 'maintenance', '["first_name", "instance_name", "maintenance_start", "maintenance_end", "description"]', 'Scheduled maintenance notification')
+    ON CONFLICT (name) DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        subject_template = EXCLUDED.subject_template,
+        category = EXCLUDED.category,
+        variables = EXCLUDED.variables,
+        description = EXCLUDED.description,
+        updated_at = CURRENT_TIMESTAMP;
 
     -- Initialize analytics database schema
   04-instance-schema.sql: "\n-- Create instances table (moved from tenant-service

@@ -33,9 +33,9 @@ async def init_database():
     try:
         _pool = await asyncpg.create_pool(
             database_url,
-            min_size=5,
+            min_size=10,  # Increased from 5 to match billing-service for better concurrency
             max_size=20,
-            command_timeout=60
+            command_timeout=30  # Reduced from 60 to fail faster on issues
         )
         logger.info("Database connection pool initialized successfully")
         

@@ -1,0 +1,19 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your backup for "{{ instance_name }}" has been completed successfully.
+
+BACKUP DETAILS
+--------------
+Instance: {{ instance_name }}
+Backup Name: {{ backup_name }}
+Size: {{ backup_size }}
+Date: {{ backup_date }}
+
+Your backup is stored securely and can be restored at any time from your dashboard.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

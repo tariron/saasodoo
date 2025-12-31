@@ -1,0 +1,16 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your Odoo instance "{{ instance_name }}" has been deleted.
+
+IMPORTANT: This action is permanent. All instance data has been removed from our servers.
+
+If you didn't request this deletion, please contact support immediately at {{ support_email }}.
+
+We hope to see you again! You can create a new instance anytime from your dashboard.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

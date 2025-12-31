@@ -1,0 +1,28 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Subscription Upgraded - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Subscription Upgraded</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Great news! Your subscription has been successfully upgraded.</p>
+
+<div class="success-box">
+    <h3 style="margin-top: 0;">Upgrade Details</h3>
+    <p><strong>Previous Plan:</strong> {{ old_plan }}</p>
+    <p><strong>New Plan:</strong> {{ new_plan }}</p>
+    {% if new_resources %}
+    <p><strong>New Resources:</strong> {{ new_resources }}</p>
+    {% endif %}
+</div>
+
+<p>Your new plan features are now active and available immediately.</p>
+
+<p>If you have any questions about your upgraded subscription, please don't hesitate to contact our support team.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

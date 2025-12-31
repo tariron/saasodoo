@@ -1,0 +1,25 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Instance Creation Failed - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Instance Creation Failed</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We were unable to create your Odoo instance <strong>{{ instance_name }}</strong>.</p>
+
+<div class="error-box">
+    <p style="margin: 0;"><strong>Error:</strong> {{ error_message }}</p>
+</div>
+
+<p>This may be due to a temporary system issue. Please try again or contact support if the problem persists.</p>
+
+<div class="text-center mt-20">
+    <a href="mailto:{{ support_email }}" class="button button-primary">Contact Support</a>
+</div>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

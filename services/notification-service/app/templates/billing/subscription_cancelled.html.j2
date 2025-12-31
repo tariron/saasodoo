@@ -1,0 +1,25 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Subscription Cancelled - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1>Subscription Cancelled</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your subscription for <strong>{{ instance_name }}</strong> has been cancelled.</p>
+
+<div class="info-box">
+    <h3>What happens next?</h3>
+    <p>Your instance will remain accessible until <strong>{{ end_date }}</strong>.</p>
+    <p>After this date, your instance will be suspended and eventually deleted.</p>
+</div>
+
+<p>If this was a mistake or you'd like to reactivate your subscription, please contact support before the end date.</p>
+
+<p>We're sorry to see you go. Thank you for using {{ platform_name }}.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

@@ -23,8 +23,8 @@ class SMTPError(Exception):
     pass
 
 class EmailMessage:
-    """Email message container"""
-    
+    """Email message container with CC/BCC support"""
+
     def __init__(
         self,
         to_emails: List[str],
@@ -34,10 +34,14 @@ class EmailMessage:
         from_email: Optional[str] = None,
         from_name: Optional[str] = None,
         reply_to: Optional[str] = None,
+        cc_emails: Optional[List[str]] = None,
+        bcc_emails: Optional[List[str]] = None,
         attachments: Optional[List[Dict[str, Any]]] = None,
         headers: Optional[Dict[str, str]] = None
     ):
         self.to_emails = to_emails if isinstance(to_emails, list) else [to_emails]
+        self.cc_emails = cc_emails or []
+        self.bcc_emails = bcc_emails or []
         self.subject = subject
         self.html_content = html_content
         self.text_content = text_content
@@ -46,7 +50,7 @@ class EmailMessage:
         self.reply_to = reply_to
         self.attachments = attachments or []
         self.headers = headers or {}
-        
+
         # Validation
         if not self.to_emails:
             raise ValueError("At least one recipient email is required")
@@ -55,13 +59,18 @@ class EmailMessage:
         if not self.html_content and not self.text_content:
             raise ValueError("Either HTML or text content is required")
 
+    def get_all_recipients(self) -> List[str]:
+        """Get all recipients (To + CC + BCC) for SMTP sending"""
+        all_recipients = list(self.to_emails)
+        all_recipients.extend(self.cc_emails)
+        all_recipients.extend(self.bcc_emails)
+        return all_recipients
+
 class SMTPClient:
     """Production-ready SMTP client with retry logic"""
-    
-    def __init__(self):
-        self.config = get_smtp_config()
-        self._connection_pool = {}
-        self._last_connection_time = {}
+
+    def __init__(self, config=None):
+        self.config = config or get_smtp_config()
         self._rate_limiter = RateLimiter(
             max_per_minute=self.config.max_emails_per_minute,
             max_per_hour=self.config.max_emails_per_hour
@@ -94,14 +103,15 @@ class SMTPClient:
             try:
                 # Create MIME message
                 mime_message = self._create_mime_message(email_message)
-                
-                # Send email
-                result = await self._send_mime_message(mime_message, email_message.to_emails)
-                
+
+                # Send to all recipients (To + CC + BCC)
+                all_recipients = email_message.get_all_recipients()
+                result = await self._send_mime_message(mime_message, all_recipients)
+
                 # Record successful send for rate limiting
                 self._rate_limiter.record_send()
-                
-                logger.info(f"✅ Email sent successfully to {email_message.to_emails}")
+
+                logger.info(f"Email sent successfully to {len(all_recipients)} recipients")
                 return {
                     "success": True,
                     "message_id": result.get("message_id"),
@@ -138,10 +148,14 @@ class SMTPClient:
         msg['From'] = from_address
         msg['To'] = ', '.join(email_message.to_emails)
         msg['Subject'] = email_message.subject
-        
+
+        # Add CC header (BCC is intentionally not added to headers - invisible to recipients)
+        if email_message.cc_emails:
+            msg['Cc'] = ', '.join(email_message.cc_emails)
+
         if email_message.reply_to:
             msg['Reply-To'] = email_message.reply_to
-        
+
         # Add custom headers
         for key, value in email_message.headers.items():
             msg[key] = value

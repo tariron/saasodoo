@@ -1,0 +1,25 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Backup Completed - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #27ae60;">Backup Completed</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>Your backup for <strong>{{ instance_name }}</strong> has been completed successfully.</p>
+
+<div class="success-box">
+    <h3 style="margin-top: 0;">Backup Details</h3>
+    <p><strong>Instance:</strong> {{ instance_name }}</p>
+    <p><strong>Backup Name:</strong> {{ backup_name }}</p>
+    <p><strong>Size:</strong> {{ backup_size }}</p>
+    <p><strong>Date:</strong> {{ backup_date }}</p>
+</div>
+
+<p>Your backup is stored securely and can be restored at any time from your dashboard.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

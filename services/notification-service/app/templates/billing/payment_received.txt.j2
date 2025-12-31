@@ -1,0 +1,20 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+We've successfully received your payment. Thank you!
+
+PAYMENT DETAILS
+---------------
+Amount: ${{ amount }}
+Date: {{ payment_date }}
+Instance: {{ instance_name }}
+
+Your subscription is now active and your instance is fully operational.
+
+Thank you for choosing {{ platform_name }}!
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

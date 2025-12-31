@@ -1,0 +1,16 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your service for "{{ instance_name }}" has been terminated due to non-payment.
+
+IMPORTANT: All data associated with this instance has been permanently deleted.
+
+If you believe this was done in error, please contact our support team at {{ support_email }} immediately.
+
+You're welcome to create a new instance anytime from your dashboard.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

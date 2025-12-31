@@ -1,0 +1,20 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Thank you! We've received your payment for invoice {{ invoice_number }}.
+
+PAYMENT CONFIRMATION
+--------------------
+Invoice: {{ invoice_number }}
+Amount: ${{ amount_paid }}
+Payment Date: {{ payment_date }}
+
+A receipt has been sent to your email. You can also download it from your dashboard.
+
+Thank you for your continued business!
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

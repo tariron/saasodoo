@@ -1,0 +1,16 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your Odoo instance "{{ instance_name }}" has been suspended.
+
+Reason: {{ reason }}
+
+While suspended, you cannot access your instance. Your data remains safe and will be restored once the suspension is lifted.
+
+To restore access, please resolve the issue or contact support at {{ support_email }}.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}

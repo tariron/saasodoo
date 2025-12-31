@@ -1,0 +1,75 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-worker
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: notification-worker
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notification-worker
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: saasodoo-service-sa
+      containers:
+        - name: notification-worker
+          image: registry.62.171.153.219.nip.io/notification-service:latest
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - app.celery_config
+            - worker
+            - --loglevel=info
+            - --pool=threads
+            - --concurrency=8
+            - --queues=notification_email,notification_bulk
+          # Load configurations in priority order (later overrides earlier)
+          envFrom:
+            # 1. Shared platform config (lowest priority)
+            - configMapRef:
+                name: shared-config
+            # 2. Service-specific config (higher priority)
+            - configMapRef:
+                name: notification-service-config
+            # 3. Service secrets (highest priority)
+            - secretRef:
+                name: notification-service-secret
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - celery -A app.celery_config status 2>&1 | grep -q ':.*OK' || exit 1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 3
+      terminationGracePeriodSeconds: 60

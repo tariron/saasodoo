@@ -14,6 +14,7 @@ from app.routes import auth, users
 from app.utils.dependencies import get_database
 from app.utils.database import init_database
 from app.utils.billing_client import billing_client
+from app.utils.redis_session import init_redis_client, close_redis_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,10 +29,14 @@ async def lifespan(app: FastAPI):
     # Initialize database connections
     await init_database()
 
+    # Initialize async Redis client
+    await init_redis_client()
+    logger.info("Async Redis client initialized")
+
     # Initialize HTTP client with connection pooling
     await billing_client.start()
 
-    logger.info("User Service startup complete - using Redis for sessions")
+    logger.info("User Service startup complete - using async Redis for sessions")
 
     yield
 
@@ -40,6 +45,9 @@ async def lifespan(app: FastAPI):
 
     # Close HTTP client connections
     await billing_client.stop()
+
+    # Close async Redis client
+    await close_redis_client()
 
 # Create FastAPI application
 app = FastAPI(

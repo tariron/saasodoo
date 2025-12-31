@@ -1,0 +1,28 @@
+{% extends "base/base.html.j2" %}
+
+{% block title %}Payment Failed - {{ platform_name }}{% endblock %}
+
+{% block header %}
+<h1 style="color: #e74c3c;">Payment Failed</h1>
+{% endblock %}
+
+{% block content %}
+<p>Hello {{ first_name }},</p>
+
+<p>We were unable to process your payment for <strong>{{ instance_name }}</strong>.</p>
+
+<div class="error-box">
+    <p><strong>Amount:</strong> ${{ amount }}</p>
+    <p><strong>Reason:</strong> {{ error_reason }}</p>
+</div>
+
+<p>Please update your payment information or try a different payment method to continue your service without interruption.</p>
+
+<div class="text-center mt-20">
+    <a href="{{ retry_url }}" class="button button-danger">Retry Payment</a>
+</div>
+
+<p>If you need assistance, please contact our support team.</p>
+
+<p>Best regards,<br>The {{ platform_name }} Team</p>
+{% endblock %}

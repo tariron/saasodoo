@@ -27,9 +27,9 @@ USER notificationuser
 # Expose port
 EXPOSE 5000
 
-# Health check
+# Health check using Python httpx (curl not available in slim image)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD python -c "import httpx; r = httpx.get('http://localhost:5000/health', timeout=10); exit(0 if r.status_code == 200 else 1)"
 
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5000"]

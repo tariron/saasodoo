@@ -1,0 +1,19 @@
+{% extends "base/base.txt.j2" %}
+
+{% block content %}
+Hello {{ first_name }},
+
+Your subscription for "{{ instance_name }}" has been cancelled.
+
+WHAT HAPPENS NEXT
+-----------------
+Your instance will remain accessible until {{ end_date }}.
+After this date, your instance will be suspended and eventually deleted.
+
+If this was a mistake or you'd like to reactivate your subscription, please contact support at {{ support_email }} before the end date.
+
+We're sorry to see you go. Thank you for using {{ platform_name }}.
+
+Best regards,
+The {{ platform_name }} Team
+{% endblock %}
