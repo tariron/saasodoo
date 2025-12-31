@@ -36,9 +36,9 @@ metadata:
     app.kubernetes.io/component: security
 spec:
   rateLimit:
-    average: 30         # 30 auth attempts per minute per IP
+    average: 400        # 400 auth attempts per minute per IP
     period: 1m
-    burst: 10           # Burst of 10
+    burst: 100          # Burst of 100
     sourceCriterion:
       ipStrategy:
         depth: 1
