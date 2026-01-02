@@ -87,6 +87,7 @@ export interface UserProfile {
   instance_count: number;
   subscription_plan?: string;
   subscription_status?: string;
+  is_verified?: boolean;
 }
 
 export interface Instance {
@@ -315,8 +316,11 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Handle 401 errors
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Skip 401 handling for logout endpoint - we expect it to fail if token is invalid
+    const isLogoutRequest = originalRequest?.url?.includes('/auth/logout');
+
+    // Handle 401 errors (but not for logout)
+    if (error.response?.status === 401 && !originalRequest._retry && !isLogoutRequest) {
       originalRequest._retry = true;
 
       // Try to refresh token
@@ -396,6 +400,9 @@ export const authAPI = {
 
   changePassword: (currentPassword: string, newPassword: string): Promise<AxiosResponse<{success: boolean, message: string}>> =>
     api.post('/user/auth/password-change', { current_password: currentPassword, new_password: newPassword }),
+
+  updateProfile: (data: { first_name?: string; last_name?: string; phone?: string; company?: string; country?: string }): Promise<AxiosResponse<UserProfile>> =>
+    api.put('/user/auth/profile', data),
 };
 
 

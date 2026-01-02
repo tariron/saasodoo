@@ -56,24 +56,20 @@ const Profile: React.FC = () => {
     setSuccessMessage(null);
 
     try {
-      const response = await fetch('/user/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token_data')?.replace(/"/g, '')}`
-        },
-        body: JSON.stringify(formData)
+      await authAPI.updateProfile({
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        phone: formData.phone || undefined,
+        company: formData.company || undefined,
+        country: formData.country || undefined
       });
 
-      if (response.ok) {
-        await fetchProfile();
-        setSuccessMessage('Profile updated successfully!');
-        setTimeout(() => setSuccessMessage(null), 3000);
-      } else {
-        throw new Error('Failed to update profile');
-      }
+      await fetchProfile();
+      setSuccessMessage('Profile updated successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError('Profile update is not yet implemented in the backend');
+      const errorMessage = err.response?.data?.detail || err.response?.data?.message || 'Failed to update profile';
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -97,32 +93,19 @@ const Profile: React.FC = () => {
     setSuccessMessage(null);
 
     try {
-      const response = await fetch('/user/auth/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token_data')?.replace(/"/g, '')}`
-        },
-        body: JSON.stringify({
-          current_password: passwordData.current_password,
-          new_password: passwordData.new_password
-        })
-      });
+      await authAPI.changePassword(passwordData.current_password, passwordData.new_password);
 
-      if (response.ok) {
-        setSuccessMessage('Password changed successfully!');
-        setPasswordData({
-          current_password: '',
-          new_password: '',
-          confirm_password: ''
-        });
-        setShowPasswordForm(false);
-        setTimeout(() => setSuccessMessage(null), 3000);
-      } else {
-        throw new Error('Failed to change password');
-      }
+      setSuccessMessage('Password changed successfully!');
+      setPasswordData({
+        current_password: '',
+        new_password: '',
+        confirm_password: ''
+      });
+      setShowPasswordForm(false);
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError('Password change is not yet implemented in the backend');
+      const errorMessage = err.response?.data?.detail || err.response?.data?.message || 'Failed to change password. Please check your current password.';
+      setError(errorMessage);
     } finally {
       setChangingPassword(false);
     }
@@ -465,14 +448,23 @@ const Profile: React.FC = () => {
                   </div>
 
                   <div className="p-3 bg-warm-50 rounded-xl">
-                    <span className="text-xs font-medium text-warm-500 uppercase tracking-wide">Email Verified</span>
+                    <span className="text-xs font-medium text-warm-500 uppercase tracking-wide">Email Status</span>
                     <p className="mt-1">
-                      <span className="badge badge-success">
-                        <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        Verified
-                      </span>
+                      {profile.is_verified !== false ? (
+                        <span className="badge badge-success">
+                          <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Verified
+                        </span>
+                      ) : (
+                        <span className="badge badge-warning">
+                          <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Pending
+                        </span>
+                      )}
                     </p>
                   </div>
 
