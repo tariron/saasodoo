@@ -1,18 +1,222 @@
+/* Import Plus Jakarta Sans from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Custom styles */
+/* Base styles */
+@layer base {
+  html {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-warm-50 text-warm-900;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Better focus states */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-warm-50;
+  }
+}
+
+/* Component styles */
 @layer components {
+  /* Primary button - teal with glow effect */
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply relative inline-flex items-center justify-center px-6 py-2.5
+           bg-gradient-to-r from-primary-600 to-primary-500
+           text-white font-semibold rounded-xl
+           shadow-soft hover:shadow-glow
+           transform transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:from-primary-500 hover:to-primary-400
+           active:translate-y-0 active:shadow-soft
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-warm-50
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-soft;
   }
-  
+
+  /* Secondary button */
   .btn-secondary {
-    @apply bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2;
+    @apply inline-flex items-center justify-center px-6 py-2.5
+           bg-warm-100 text-warm-700 font-semibold rounded-xl
+           border border-warm-200
+           shadow-sm hover:shadow-soft hover:bg-warm-50 hover:border-warm-300
+           transform transition-all duration-200 ease-out
+           hover:-translate-y-0.5
+           active:translate-y-0
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
   }
-  
+
+  /* Accent button - amber for CTAs */
+  .btn-accent {
+    @apply inline-flex items-center justify-center px-6 py-2.5
+           bg-gradient-to-r from-accent-500 to-accent-400
+           text-white font-semibold rounded-xl
+           shadow-soft hover:shadow-glow-accent
+           transform transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:from-accent-400 hover:to-accent-300
+           active:translate-y-0
+           focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2;
+  }
+
+  /* Input fields with warm styling */
   .input-field {
-    @apply mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500;
+    @apply block w-full px-4 py-3
+           bg-white border border-warm-200 rounded-xl
+           text-warm-900 placeholder-warm-400
+           shadow-sm
+           transition-all duration-200 ease-out
+           hover:border-warm-300
+           focus:outline-none focus:border-primary-400 focus:ring-4 focus:ring-primary-500/10;
+  }
+
+  /* Input with icon */
+  .input-with-icon {
+    @apply pl-11;
+  }
+
+  /* Input icon container */
+  .input-icon {
+    @apply absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-warm-400;
+  }
+
+  /* Card styles */
+  .card {
+    @apply bg-white rounded-2xl border border-warm-100 shadow-soft
+           transition-all duration-300 ease-out;
+  }
+
+  .card-hover {
+    @apply hover:shadow-soft-lg hover:-translate-y-1 hover:border-warm-200;
+  }
+
+  /* Status badges */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold
+           transition-all duration-200;
+  }
+
+  .badge-success {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+
+  .badge-warning {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+
+  .badge-error {
+    @apply bg-rose-50 text-rose-700 border border-rose-200;
+  }
+
+  .badge-info {
+    @apply bg-primary-50 text-primary-700 border border-primary-200;
+  }
+
+  .badge-neutral {
+    @apply bg-warm-100 text-warm-600 border border-warm-200;
+  }
+
+  /* Stat card */
+  .stat-card {
+    @apply relative overflow-hidden bg-white rounded-2xl border border-warm-100 p-6
+           shadow-soft transition-all duration-300
+           hover:shadow-soft-lg hover:border-warm-200 hover:-translate-y-0.5;
+  }
+
+  .stat-card::before {
+    content: '';
+    @apply absolute top-0 right-0 w-24 h-24
+           bg-gradient-to-br from-primary-500/5 to-transparent
+           rounded-full -translate-y-1/2 translate-x-1/2;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent;
+  }
+
+  /* Loading spinner */
+  .spinner {
+    @apply animate-spin h-5 w-5 text-current;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-warm-100;
+  }
+
+  /* Link styles */
+  .link {
+    @apply text-primary-600 font-medium hover:text-primary-500
+           transition-colors duration-200
+           underline-offset-4 hover:underline;
+  }
+}
+
+/* Utility classes */
+@layer utilities {
+  /* Animation delays for staggered effects */
+  .animation-delay-100 { animation-delay: 100ms; }
+  .animation-delay-200 { animation-delay: 200ms; }
+  .animation-delay-300 { animation-delay: 300ms; }
+  .animation-delay-400 { animation-delay: 400ms; }
+  .animation-delay-500 { animation-delay: 500ms; }
+
+  /* Gradient mesh background */
+  .bg-mesh {
+    @apply bg-gradient-mesh;
+  }
+
+  /* Glass effect */
+  .glass {
+    @apply bg-white/80 backdrop-blur-xl border border-white/20;
+  }
+
+  /* Subtle pattern overlay */
+  .pattern-overlay {
+    @apply bg-hero-pattern;
+  }
+
+  /* Hide scrollbar but allow scrolling */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Text shadow for emphasis */
+  .text-shadow {
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Smooth transitions for all properties */
+  .transition-smooth {
+    @apply transition-all duration-300 ease-out;
+  }
+}
+
+/* Custom scrollbar for content areas */
+@media (min-width: 768px) {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-warm-100 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-warm-300 rounded-full hover:bg-warm-400;
   }
 }

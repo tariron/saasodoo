@@ -18,15 +18,13 @@ const Instances: React.FC = () => {
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      
-      // Fetch user profile
+
       const profileResponse = await authAPI.getProfile();
       setProfile(profileResponse.data);
 
-      // Fetch instances for this customer
       const instancesResponse = await instanceAPI.list(profileResponse.data.id);
       setInstances(instancesResponse.data.instances || []);
-      
+
     } catch (err: any) {
       setError('Failed to load instances data');
       console.error('Instances page error:', err);
@@ -35,12 +33,10 @@ const Instances: React.FC = () => {
     }
   };
 
-  // Fetch instances on mount and whenever we navigate back to this page
   useEffect(() => {
     fetchInitialData();
-  }, [location.key]); // Re-fetch when location.key changes (new navigation)
+  }, [location.key]);
 
-  // Also refresh when the component becomes visible (e.g., after tab switch)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
@@ -48,7 +44,6 @@ const Instances: React.FC = () => {
       }
     };
 
-    // Also refresh when window gains focus
     const handleFocus = () => {
       fetchInitialData();
     };
@@ -66,22 +61,19 @@ const Instances: React.FC = () => {
     try {
       setActionLoading(instanceId);
       setError('');
-      
-      console.log(`🔵 Starting ${action} action for instance:`, instanceId);
+
+      console.log(`Starting ${action} action for instance:`, instanceId);
       await instanceAPI.action(instanceId, action, parameters);
-      console.log(`✅ ${action} action queued successfully`);
-      
-      // Wait for backend to process the action (since actions are asynchronous)
-      console.log('⏳ Waiting 3 seconds for backend processing...');
+      console.log(`${action} action queued successfully`);
+
+      console.log('Waiting 3 seconds for backend processing...');
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Refresh instances after delay to get updated status
-      console.log('🔄 Refreshing instance data...');
+
+      console.log('Refreshing instance data...');
       await fetchInitialData();
-      console.log('✅ Instance data refreshed');
-      
+
     } catch (err: any) {
-      console.error(`❌ ${action} action failed:`, err);
+      console.error(`${action} action failed:`, err);
       const errorMessage = err.response?.data?.detail || `Failed to ${action} instance`;
       setError(errorMessage);
     } finally {
@@ -103,104 +95,197 @@ const Instances: React.FC = () => {
     setRestoreInstance(null);
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'running': return 'text-green-700 bg-green-100';
-      case 'stopped': return 'text-gray-700 bg-gray-100';
-      case 'creating': return 'text-blue-700 bg-blue-100';
-      case 'starting': return 'text-blue-700 bg-blue-100';
-      case 'stopping': return 'text-yellow-700 bg-yellow-100';
-      case 'error': return 'text-red-700 bg-red-100';
-      case 'terminated': return 'text-red-700 bg-red-100';
-      default: return 'text-gray-700 bg-gray-100';
-    }
+  const getStatusBadge = (status: string) => {
+    const badges: Record<string, { class: string; icon: JSX.Element; label: string }> = {
+      running: {
+        class: 'badge-success',
+        icon: <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>,
+        label: 'Running'
+      },
+      stopped: {
+        class: 'badge-neutral',
+        icon: <span className="w-1.5 h-1.5 bg-warm-400 rounded-full mr-1.5"></span>,
+        label: 'Stopped'
+      },
+      creating: {
+        class: 'badge-info',
+        icon: <svg className="w-3 h-3 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>,
+        label: 'Creating'
+      },
+      starting: {
+        class: 'badge-info',
+        icon: <svg className="w-3 h-3 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>,
+        label: 'Starting'
+      },
+      stopping: {
+        class: 'badge-warning',
+        icon: <svg className="w-3 h-3 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>,
+        label: 'Stopping'
+      },
+      error: {
+        class: 'badge-error',
+        icon: <span className="w-1.5 h-1.5 bg-rose-500 rounded-full mr-1.5"></span>,
+        label: 'Error'
+      },
+      terminated: {
+        class: 'badge-error',
+        icon: <span className="w-1.5 h-1.5 bg-rose-500 rounded-full mr-1.5"></span>,
+        label: 'Terminated'
+      },
+      paused: {
+        class: 'badge-warning',
+        icon: <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mr-1.5"></span>,
+        label: 'Paused'
+      }
+    };
+    return badges[status] || { class: 'badge-neutral', icon: <span className="w-1.5 h-1.5 bg-warm-400 rounded-full mr-1.5"></span>, label: status };
+  };
+
+  const getBillingBadge = (status: string) => {
+    const badges: Record<string, { class: string; label: string }> = {
+      paid: { class: 'badge-success', label: 'Paid' },
+      trial: { class: 'badge-warning', label: 'Trial' },
+      payment_required: { class: 'badge-error', label: 'Payment Due' }
+    };
+    return badges[status] || { class: 'badge-neutral', label: 'Unknown' };
   };
 
   const getActionButtons = (instance: Instance) => {
     const buttons = [];
     const isLoading = actionLoading === instance.id;
 
-    // Only show Unpause button for paused instances
+    const buttonBase = "inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 disabled:opacity-50";
+
     if (instance.status === 'paused') {
       buttons.push(
         <button
           key="unpause"
           onClick={() => handleInstanceAction(instance.id, 'unpause')}
           disabled={isLoading}
-          className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
+          className={`${buttonBase} bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm`}
         >
-          {isLoading ? '...' : 'Unpause'}
+          {isLoading ? (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              </svg>
+              Unpause
+            </>
+          )}
         </button>
       );
       return buttons;
     }
 
-    // Start button: available for stopped or error instances
     if (['stopped', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="start"
           onClick={() => handleInstanceAction(instance.id, 'start')}
           disabled={isLoading}
-          className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
+          className={`${buttonBase} bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm`}
         >
-          {isLoading ? '...' : 'Start'}
+          {isLoading ? (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              </svg>
+              Start
+            </>
+          )}
         </button>
       );
     }
 
-    // Stop button: available for running or error instances
     if (['running', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="stop"
           onClick={() => handleInstanceAction(instance.id, 'stop')}
           disabled={isLoading}
-          className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 disabled:opacity-50"
+          className={`${buttonBase} bg-rose-500 text-white hover:bg-rose-600 shadow-sm`}
         >
-          {isLoading ? '...' : 'Stop'}
+          {isLoading ? (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+              </svg>
+              Stop
+            </>
+          )}
         </button>
       );
     }
 
-    // Backup button: available for running instances (not error to avoid corrupted backups)
     if (['running'].includes(instance.status)) {
       buttons.push(
         <button
           key="backup"
           onClick={() => handleInstanceAction(instance.id, 'backup')}
           disabled={isLoading}
-          className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
+          className={`${buttonBase} bg-primary-500 text-white hover:bg-primary-600 shadow-sm`}
         >
-          {isLoading ? '...' : 'Backup'}
+          {isLoading ? (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              Backup
+            </>
+          )}
         </button>
       );
     }
 
-    // Restart button: available for running or error instances
     if (['running', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="restart"
           onClick={() => handleInstanceAction(instance.id, 'restart')}
           disabled={isLoading}
-          className="text-xs bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700 disabled:opacity-50"
+          className={`${buttonBase} bg-amber-500 text-white hover:bg-amber-600 shadow-sm`}
         >
-          {isLoading ? '...' : 'Restart'}
+          {isLoading ? (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Restart
+            </>
+          )}
         </button>
       );
     }
 
-    // Restore button: available for stopped or error instances
     if (['stopped', 'error'].includes(instance.status)) {
       buttons.push(
         <button
           key="restore"
           onClick={() => openRestoreModal(instance)}
           disabled={isLoading}
-          className="text-xs bg-purple-600 text-white px-3 py-1 rounded hover:bg-purple-700 disabled:opacity-50"
+          className={`${buttonBase} bg-violet-500 text-white hover:bg-violet-600 shadow-sm`}
         >
-          {isLoading ? '...' : 'Restore'}
+          {isLoading ? (
+            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              Restore
+            </>
+          )}
         </button>
       );
     }
@@ -215,13 +300,13 @@ const Instances: React.FC = () => {
     return (
       <>
         <Navigation userProfile={profile || undefined} />
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="flex flex-col items-center">
-            <svg className="animate-spin h-8 w-8 text-primary-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p className="mt-2 text-sm text-gray-600">Loading instances...</p>
+        <div className="min-h-screen flex items-center justify-center bg-warm-50">
+          <div className="flex flex-col items-center animate-fade-in">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-primary-200 rounded-full"></div>
+              <div className="w-16 h-16 border-4 border-primary-600 rounded-full animate-spin absolute top-0 left-0 border-t-transparent"></div>
+            </div>
+            <p className="mt-4 text-warm-600 font-medium">Loading instances...</p>
           </div>
         </div>
       </>
@@ -231,122 +316,173 @@ const Instances: React.FC = () => {
   return (
     <>
       <Navigation userProfile={profile || undefined} />
-      
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
+
+      <main className="min-h-screen bg-warm-50 bg-mesh">
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">My Instances</h1>
-              <p className="mt-1 text-sm text-gray-600">
-                {totalInstances} total instances • {runningInstances} running
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8 animate-fade-in">
+            <div className="mb-4 sm:mb-0">
+              <h1 className="text-3xl font-bold text-warm-900">My Instances</h1>
+              <p className="mt-2 text-warm-500 flex items-center">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-warm-100 text-warm-600 mr-2">
+                  {totalInstances} total
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-600">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
+                  {runningInstances} running
+                </span>
               </p>
             </div>
             <Link
               to="/instances/create"
-              className="btn-primary inline-flex items-center"
+              className="btn-primary"
             >
-              <span className="mr-2">➕</span>
+              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
               Create Instance
             </Link>
           </div>
 
-
           {/* Error message */}
           {error && (
-            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
-              {error}
+            <div className="mb-6 animate-fade-in-down bg-rose-50 border border-rose-200 text-rose-700 px-5 py-4 rounded-xl flex items-start">
+              <svg className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{error}</span>
+              <button onClick={() => setError('')} className="ml-auto text-rose-500 hover:text-rose-700">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           )}
 
           {/* Instances */}
           {instances.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg shadow">
-              <div className="text-gray-400 text-6xl mb-4">🖥️</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No instances found</h3>
-              <p className="text-gray-600 mb-6">
-                Create your first Odoo instance to get started
+            <div className="card p-12 text-center animate-fade-in-up">
+              <div className="w-20 h-20 bg-gradient-to-br from-primary-100 to-primary-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <svg className="w-10 h-10 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-warm-900 mb-2">No instances found</h3>
+              <p className="text-warm-500 mb-8 max-w-md mx-auto">
+                Deploy your first Odoo instance in minutes. Choose from multiple versions and configurations.
               </p>
-              <Link
-                to="/instances/create"
-                className="btn-primary inline-flex items-center"
-              >
-                <span className="mr-2">➕</span>
+              <Link to="/instances/create" className="btn-primary">
+                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
                 Create Instance
               </Link>
             </div>
           ) : (
-            <div className="bg-white shadow rounded-lg">
-              <div className="divide-y divide-gray-200">
-                {instances.map((instance) => (
-                  <div key={instance.id} className="px-6 py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center mr-4">
-                          <span className="text-primary-600 font-medium">
+            <div className="space-y-4 animate-fade-in-up">
+              {instances.map((instance, index) => {
+                const statusBadge = getStatusBadge(instance.status);
+                const billingBadge = getBillingBadge(instance.billing_status);
+
+                return (
+                  <div
+                    key={instance.id}
+                    className="card p-4 sm:p-6 card-hover"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <div className="flex flex-col gap-4">
+                      {/* Instance info */}
+                      <div className="flex items-start space-x-3 sm:space-x-4">
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-primary-100 to-primary-200 rounded-xl flex items-center justify-center flex-shrink-0">
+                          <span className="text-primary-700 font-bold text-lg sm:text-xl">
                             {instance.name[0].toUpperCase()}
                           </span>
                         </div>
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-900">
-                            {instance.name}
-                          </h4>
-                          <p className="text-sm text-gray-600">
+                        <div className="min-w-0 flex-1">
+                          {/* Name and badges - stack on mobile */}
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 mb-1">
+                            <h3 className="text-base sm:text-lg font-semibold text-warm-900 truncate">
+                              {instance.name}
+                            </h3>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`badge text-xs ${statusBadge.class} flex items-center`}>
+                                {statusBadge.icon}
+                                {statusBadge.label}
+                              </span>
+                              <span className={`badge text-xs ${billingBadge.class}`}>
+                                {billingBadge.label}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs sm:text-sm text-warm-500 mb-2 line-clamp-1">
                             {instance.description || 'No description'}
                           </p>
-                          <div className="flex items-center space-x-4 mt-1">
-                            <span className="text-xs text-gray-500">
-                              {instance.instance_type} • {instance.odoo_version}
+                          {/* Meta info - hide some on mobile */}
+                          <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 text-xs text-warm-500">
+                            <span className="inline-flex items-center">
+                              <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 text-warm-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                              </svg>
+                              {instance.instance_type}
                             </span>
-                            <span className="text-xs text-gray-500">
-                              DB: {instance.database_name}
+                            <span className="inline-flex items-center">
+                              <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 text-warm-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                              </svg>
+                              Odoo {instance.odoo_version}
                             </span>
-                            <span className="text-xs text-gray-500">
-                              Created: {new Date(instance.created_at).toLocaleDateString()}
+                            <span className="hidden sm:inline-flex items-center">
+                              <svg className="w-3.5 h-3.5 mr-1 text-warm-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                              </svg>
+                              {instance.database_name}
+                            </span>
+                            <span className="inline-flex items-center">
+                              <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 text-warm-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              {new Date(instance.created_at).toLocaleDateString()}
                             </span>
                           </div>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(instance.status)}`}>
-                          {instance.status}
-                        </span>
-                        {/* Billing status badge */}
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          instance.billing_status === 'paid'
-                            ? 'text-green-600 bg-green-100'
-                            : instance.billing_status === 'payment_required'
-                            ? 'text-red-600 bg-red-100'
-                            : 'text-yellow-600 bg-yellow-100'
-                        }`}>
-                          {instance.billing_status === 'paid' ? 'Paid' :
-                           instance.billing_status === 'payment_required' ? 'Payment Required' :
-                           instance.billing_status === 'trial' ? 'Trial' : 'Unknown'}
-                        </span>
-                        
+
+                      {/* Actions - separate row on mobile, inline on larger screens */}
+                      <div className="flex items-center justify-end gap-2 flex-wrap border-t border-warm-100 pt-3 -mx-4 px-4 sm:mx-0 sm:px-0 sm:border-0 sm:pt-0">
                         {instance.external_url && (
                           <a
                             href={instance.external_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                            className="btn-secondary py-1.5 px-3 text-xs"
                           >
-                            Open →
+                            <svg className="w-3.5 h-3.5 sm:mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            <span className="hidden sm:inline">Open</span>
                           </a>
                         )}
-                        
-                        <div className="flex space-x-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {getActionButtons(instance)}
                         </div>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* Mobile FAB */}
+        <Link
+          to="/instances/create"
+          className="sm:hidden fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-br from-primary-600 to-primary-500 rounded-full shadow-soft-lg flex items-center justify-center text-white hover:shadow-glow transition-all duration-300 hover:scale-105 z-50"
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+        </Link>
       </main>
 
       {/* Restore Modal */}
