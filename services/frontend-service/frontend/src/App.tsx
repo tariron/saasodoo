@@ -15,7 +15,7 @@ import BillingPayment from './pages/BillingPayment';
 import BillingPaymentStatus from './pages/BillingPaymentStatus';
 import BillingInstanceManage from './pages/BillingInstanceManage';
 import SubscriptionUpgrade from './pages/SubscriptionUpgrade';
-import AuthGuard from './components/AuthGuard';
+import AuthenticatedLayout from './components/AuthenticatedLayout';
 import { TokenManager, initializeAPI } from './utils/api';
 
 function App() {
@@ -126,27 +126,27 @@ function App() {
           <Route 
             path="/dashboard" 
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <Dashboard />
-              </AuthGuard>
+              </AuthenticatedLayout>
             } 
           />
           
           <Route 
             path="/instances" 
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <Instances />
-              </AuthGuard>
+              </AuthenticatedLayout>
             } 
           />
           
           <Route 
             path="/instances/create" 
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <CreateInstance />
-              </AuthGuard>
+              </AuthenticatedLayout>
             } 
           />
           
@@ -154,9 +154,9 @@ function App() {
           <Route 
             path="/billing" 
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <Billing />
-              </AuthGuard>
+              </AuthenticatedLayout>
             } 
           />
           
@@ -164,45 +164,45 @@ function App() {
           <Route 
             path="/billing/invoices" 
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <BillingInvoices />
-              </AuthGuard>
+              </AuthenticatedLayout>
             } 
           />
           
           <Route
             path="/billing/payment"
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <BillingPayment />
-              </AuthGuard>
+              </AuthenticatedLayout>
             }
           />
 
           <Route
             path="/billing/payment-status"
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <BillingPaymentStatus />
-              </AuthGuard>
+              </AuthenticatedLayout>
             }
           />
 
           <Route
             path="/billing/instance/:instanceId"
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <BillingInstanceManage />
-              </AuthGuard>
+              </AuthenticatedLayout>
             }
           />
 
           <Route
             path="/billing/instance/:instanceId/upgrade"
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <SubscriptionUpgrade />
-              </AuthGuard>
+              </AuthenticatedLayout>
             }
           />
 
@@ -210,9 +210,9 @@ function App() {
           <Route 
             path="/profile" 
             element={
-              <AuthGuard>
+              <AuthenticatedLayout>
                 <Profile />
-              </AuthGuard>
+              </AuthenticatedLayout>
             } 
           />
           

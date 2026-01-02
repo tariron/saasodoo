@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { authAPI, TokenManager } from '../utils/api';
+import { useAbortController, isAbortError } from '../hooks/useAbortController';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -10,31 +11,42 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const location = useLocation();
+  const { getSignal, isAborted } = useAbortController();
 
   useEffect(() => {
     const checkAuth = async () => {
       // First check if we have a token
       if (!TokenManager.isAuthenticated()) {
-        setIsAuthenticated(false);
-        setIsLoading(false);
+        if (!isAborted()) {
+          setIsAuthenticated(false);
+          setIsLoading(false);
+        }
         return;
       }
 
       try {
         // Verify token with server
-        await authAPI.getProfile();
-        setIsAuthenticated(true);
+        await authAPI.getProfile(getSignal());
+        if (!isAborted()) {
+          setIsAuthenticated(true);
+        }
       } catch (error) {
+        // Ignore abort errors
+        if (isAbortError(error)) return;
         // Token is invalid
         TokenManager.clearTokens();
-        setIsAuthenticated(false);
+        if (!isAborted()) {
+          setIsAuthenticated(false);
+        }
       } finally {
-        setIsLoading(false);
+        if (!isAborted()) {
+          setIsLoading(false);
+        }
       }
     };
 
     checkAuth();
-  }, []);
+  }, [getSignal, isAborted]);
 
   if (isLoading) {
     return (

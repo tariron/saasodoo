@@ -1,51 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams, useLocation } from 'react-router-dom';
-import { instanceAPI, authAPI, Instance, UserProfile } from '../utils/api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { instanceAPI, Instance, getErrorMessage } from '../utils/api';
 import Navigation from '../components/Navigation';
 import RestoreModal from '../components/RestoreModal';
+import { useAbortController, isAbortError } from '../hooks/useAbortController';
+import { useUser } from '../contexts/UserContext';
 
 const Instances: React.FC = () => {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { profile, loading: profileLoading } = useUser();
   const [instances, setInstances] = useState<Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [searchParams] = useSearchParams();
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [restoreInstance, setRestoreInstance] = useState<Instance | null>(null);
   const location = useLocation();
+  const { getSignal, isAborted } = useAbortController();
+  const lastFetchRef = useRef<number>(0);
+  const STALE_TIME = 30000; // 30 seconds debounce for visibility/focus refetch
 
-  const fetchInitialData = async () => {
+  const fetchInstances = useCallback(async (signal?: AbortSignal) => {
+    if (!profile?.id) return;
+
     try {
       setLoading(true);
 
-      const profileResponse = await authAPI.getProfile();
-      setProfile(profileResponse.data);
-
-      const instancesResponse = await instanceAPI.list(profileResponse.data.id);
+      const instancesResponse = await instanceAPI.list(profile.id, signal);
+      if (isAborted()) return;
       setInstances(instancesResponse.data.instances || []);
+      lastFetchRef.current = Date.now();
 
-    } catch (err: any) {
-      setError('Failed to load instances data');
-      console.error('Instances page error:', err);
+    } catch (err: unknown) {
+      if (isAbortError(err)) return;
+      if (!isAborted()) {
+        setError(getErrorMessage(err, 'Failed to load instances'));
+      }
     } finally {
-      setLoading(false);
+      if (!isAborted()) {
+        setLoading(false);
+      }
     }
-  };
+  }, [profile?.id, isAborted]);
 
+  // Fetch instances when profile is available
   useEffect(() => {
-    fetchInitialData();
-  }, [location.key]);
+    if (profile?.id) {
+      fetchInstances(getSignal());
+    }
+  }, [location.key, profile?.id, fetchInstances, getSignal]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        fetchInitialData();
+      if (!document.hidden && Date.now() - lastFetchRef.current > STALE_TIME) {
+        fetchInstances(getSignal());
       }
     };
 
     const handleFocus = () => {
-      fetchInitialData();
+      if (Date.now() - lastFetchRef.current > STALE_TIME) {
+        fetchInstances(getSignal());
+      }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -55,9 +69,11 @@ const Instances: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [fetchInstances, getSignal]);
 
-  const handleInstanceAction = async (instanceId: string, action: string, parameters?: any) => {
+  const handleInstanceAction = useCallback(async (instanceId: string, action: string, parameters?: Record<string, unknown>) => {
+    if (!profile?.id) return;
+
     try {
       setActionLoading(instanceId);
       setError('');
@@ -70,10 +86,13 @@ const Instances: React.FC = () => {
           await new Promise(resolve =>
             setTimeout(resolve, Math.min(1000 * Math.pow(1.5, attempt), 5000))
           );
-          await fetchInitialData();
+
+          // Fetch fresh instances data and check status
+          const instancesResponse = await instanceAPI.list(profile.id);
+          setInstances(instancesResponse.data.instances || []);
 
           // Check if the instance status has changed (action completed)
-          const instance = instances.find(i => i.id === instanceId);
+          const instance = instancesResponse.data.instances?.find((i: Instance) => i.id === instanceId);
           if (instance && !['creating', 'starting', 'stopping'].includes(instance.status)) {
             return;
           }
@@ -83,27 +102,25 @@ const Instances: React.FC = () => {
       await pollForStatusChange();
 
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { detail?: string } } };
-      const errorMessage = axiosError.response?.data?.detail || `Failed to ${action} instance`;
-      setError(errorMessage);
+      setError(getErrorMessage(err, `Failed to ${action} instance`));
     } finally {
       setActionLoading(null);
     }
-  };
+  }, [profile?.id]);
 
-  const handleRestoreInstance = async (instanceId: string, backupId: string) => {
+  const handleRestoreInstance = useCallback(async (instanceId: string, backupId: string) => {
     await handleInstanceAction(instanceId, 'restore', { backup_id: backupId });
-  };
+  }, [handleInstanceAction]);
 
-  const openRestoreModal = (instance: Instance) => {
+  const openRestoreModal = useCallback((instance: Instance) => {
     setRestoreInstance(instance);
     setRestoreModalOpen(true);
-  };
+  }, []);
 
-  const closeRestoreModal = () => {
+  const closeRestoreModal = useCallback(() => {
     setRestoreModalOpen(false);
     setRestoreInstance(null);
-  };
+  }, []);
 
   const getStatusBadge = (status: string) => {
     const badges: Record<string, { class: string; icon: JSX.Element; label: string }> = {
@@ -306,10 +323,13 @@ const Instances: React.FC = () => {
   const totalInstances = instances.length;
   const runningInstances = instances.filter(i => i.status === 'running').length;
 
-  if (loading) {
+  // Show loading while profile or instances are loading
+  const isLoading = profileLoading || (profile && loading);
+
+  if (isLoading) {
     return (
       <>
-        <Navigation userProfile={profile || undefined} />
+        <Navigation userProfile={profile ?? undefined} />
         <div className="min-h-screen flex items-center justify-center bg-warm-50">
           <div className="flex flex-col items-center animate-fade-in">
             <div className="relative">
@@ -325,7 +345,7 @@ const Instances: React.FC = () => {
 
   return (
     <>
-      <Navigation userProfile={profile || undefined} />
+      <Navigation userProfile={profile ?? undefined} />
 
       <main className="min-h-screen bg-warm-50 bg-mesh">
         <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">

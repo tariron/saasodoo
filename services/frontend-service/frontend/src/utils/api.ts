@@ -403,8 +403,8 @@ export const authAPI = {
   logout: (): Promise<AxiosResponse<{success: boolean}>> => 
     api.post('/user/auth/logout'),
   
-  getProfile: (): Promise<AxiosResponse<UserProfile>> => 
-    api.get('/user/auth/me'),
+  getProfile: (signal?: AbortSignal): Promise<AxiosResponse<UserProfile>> =>
+    api.get('/user/auth/me', { signal }),
   
   refreshToken: (refreshToken: string): Promise<AxiosResponse<{tokens: any}>> => 
     api.post('/user/auth/refresh-token', { refresh_token: refreshToken }),
@@ -433,11 +433,11 @@ export const authAPI = {
 
 
 export const instanceAPI = {
-  list: (customerId: string): Promise<AxiosResponse<{instances: Instance[], total: number}>> => 
-    api.get(`/instance/api/v1/instances/?customer_id=${customerId}`),
-  
-  get: (id: string): Promise<AxiosResponse<Instance>> => 
-    api.get(`/instance/api/v1/instances/${id}`),
+  list: (customerId: string, signal?: AbortSignal): Promise<AxiosResponse<{instances: Instance[], total: number}>> =>
+    api.get(`/instance/api/v1/instances/?customer_id=${customerId}`, { signal }),
+
+  get: (id: string, signal?: AbortSignal): Promise<AxiosResponse<Instance>> =>
+    api.get(`/instance/api/v1/instances/${id}`, { signal }),
   
   create: (data: CreateInstanceRequest): Promise<AxiosResponse<Instance>> => 
     api.post('/instance/api/v1/instances/', data),
