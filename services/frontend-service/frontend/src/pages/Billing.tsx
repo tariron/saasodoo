@@ -1,52 +1,47 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { billingAPI, authAPI, UserProfile } from '../utils/api';
-import { BillingOverview, Subscription, Invoice, OutstandingInvoice } from '../types/billing';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { billingAPI, getErrorMessage } from '../utils/api';
+import { BillingOverview, Invoice, OutstandingInvoice, CustomerInstance, Subscription } from '../types/billing';
 import Navigation from '../components/Navigation';
 import PaymentModal from '../components/PaymentModal';
+import { useUser } from '../contexts/UserContext';
+import { useAbortController, isAbortError } from '../hooks/useAbortController';
 
 const Billing: React.FC = () => {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { profile, loading: profileLoading } = useUser();
   const [billingData, setBillingData] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [customerId, setCustomerId] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const { getSignal, isAborted } = useAbortController();
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchUserProfile();
-  }, []);
-
-  useEffect(() => {
-    if (customerId) {
-      fetchBillingData();
-    }
-  }, [customerId]);
-
-  const fetchUserProfile = async () => {
-    try {
-      const response = await authAPI.getProfile();
-      setProfile(response.data);
-      setCustomerId(response.data.id);
-    } catch (err) {
-      setError('Failed to load user profile');
-      setLoading(false);
-    }
-  };
-
-  const fetchBillingData = async () => {
-    if (!customerId) return;
+  const fetchBillingData = useCallback(async (signal?: AbortSignal) => {
+    if (!profile?.id) return;
     try {
       setLoading(true);
-      const response = await billingAPI.getBillingOverview(customerId);
-      setBillingData(response.data.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load billing information');
+      const response = await billingAPI.getBillingOverview(profile.id);
+      if (!isAborted()) {
+        setBillingData(response.data.data);
+      }
+    } catch (err: unknown) {
+      if (isAbortError(err)) return;
+      if (!isAborted()) {
+        setError(getErrorMessage(err, 'Failed to load billing information'));
+      }
     } finally {
-      setLoading(false);
+      if (!isAborted()) {
+        setLoading(false);
+      }
     }
-  };
+  }, [profile?.id, isAborted]);
+
+  useEffect(() => {
+    if (profile?.id) {
+      fetchBillingData(getSignal());
+    }
+  }, [profile?.id, fetchBillingData, getSignal]);
 
   const formatCurrency = (amount: number, currency: string = 'USD') => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
@@ -80,10 +75,13 @@ const Billing: React.FC = () => {
     setShowPaymentModal(true);
   };
 
-  if (loading) {
+  // Show loading while profile or billing data is loading
+  const isLoading = profileLoading || (profile && loading);
+
+  if (isLoading) {
     return (
       <>
-        <Navigation userProfile={profile || undefined} />
+        <Navigation userProfile={profile ?? undefined} />
         <div className="min-h-screen flex items-center justify-center bg-warm-50">
           <div className="flex flex-col items-center animate-fade-in">
             <div className="relative">
@@ -100,7 +98,7 @@ const Billing: React.FC = () => {
   if (error) {
     return (
       <>
-        <Navigation userProfile={profile || undefined} />
+        <Navigation userProfile={profile ?? undefined} />
         <div className="min-h-screen flex items-center justify-center bg-warm-50">
           <div className="card p-8 max-w-md text-center animate-fade-in">
             <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -119,7 +117,7 @@ const Billing: React.FC = () => {
   if (!billingData) {
     return (
       <>
-        <Navigation userProfile={profile || undefined} />
+        <Navigation userProfile={profile ?? undefined} />
         <div className="min-h-screen flex items-center justify-center bg-warm-50">
           <div className="card p-12 text-center animate-fade-in">
             <div className="w-20 h-20 bg-warm-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -137,7 +135,7 @@ const Billing: React.FC = () => {
 
   return (
     <>
-      <Navigation userProfile={profile || undefined} />
+      <Navigation userProfile={profile ?? undefined} />
 
       <main className="min-h-screen bg-warm-50 bg-mesh">
         <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -307,9 +305,9 @@ const Billing: React.FC = () => {
 
             {billingData.customer_instances && billingData.customer_instances.length > 0 ? (
               <div className="divide-y divide-warm-100">
-                {billingData.customer_instances.map((instance: any) => {
+                {billingData.customer_instances.map((instance: CustomerInstance) => {
                   const linkedSubscription = billingData.active_subscriptions.find(
-                    (sub: any) => sub.instance_id === instance.id || sub.id === instance.subscription_id
+                    (sub: Subscription) => sub.instance_id === instance.id || sub.id === instance.subscription_id
                   );
 
                   return (
@@ -476,7 +474,7 @@ const Billing: React.FC = () => {
             setSelectedInvoice(null);
           }}
           onSuccess={() => {
-            window.location.href = '/instances';
+            navigate('/instances');
           }}
         />
       )}

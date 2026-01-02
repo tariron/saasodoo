@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { instanceAPI, authAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, UserProfile } from '../utils/api';
+import { useNavigate } from 'react-router-dom';
+import { instanceAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, getErrorMessage } from '../utils/api';
 import { Plan, Invoice, TrialEligibilityResponse } from '../types/billing';
 import Navigation from '../components/Navigation';
 import PaymentModal from '../components/PaymentModal';
 import { useConfig } from '../hooks/useConfig';
+import { useUser } from '../contexts/UserContext';
+import { useAbortController, isAbortError } from '../hooks/useAbortController';
 
 /**
  * Transform plan data for display based on trial eligibility
@@ -32,7 +34,7 @@ const transformPlanForDisplay = (plan: Plan, eligibility: TrialEligibilityRespon
 
 const CreateInstance: React.FC = () => {
   const { config } = useConfig();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { profile, loading: profileLoading } = useUser();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [phaseType, setPhaseType] = useState<string>('TRIAL');
@@ -65,40 +67,31 @@ const CreateInstance: React.FC = () => {
     message: ''
   });
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { getSignal, isAborted } = useAbortController();
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
+  // Update form data when profile is loaded from context
   useEffect(() => {
-    const fetchInitialData = async () => {
+    if (profile) {
+      setFormData(prev => ({
+        ...prev,
+        customer_id: profile.id,
+        admin_email: profile.email
+      }));
+    }
+  }, [profile]);
+
+  // Fetch plans and trial eligibility when profile is available
+  useEffect(() => {
+    const fetchInitialData = async (signal?: AbortSignal) => {
+      if (!profile?.id) return;
+
       try {
-        const [profileResponse, plansResponse] = await Promise.all([
-          authAPI.getProfile(),
-          billingAPI.getPlans()
-        ]);
+        const plansResponse = await billingAPI.getPlans();
 
-        setProfile(profileResponse.data);
-        setFormData(prev => ({
-          ...prev,
-          customer_id: profileResponse.data.id,
-          admin_email: profileResponse.data.email
-        }));
-
-        try {
-          const eligibilityResponse = await billingAPI.getTrialEligibility(profileResponse.data.id);
-          setTrialEligibility(eligibilityResponse.data);
-        } catch (eligibilityError) {
-          console.error('Failed to check trial eligibility:', eligibilityError);
-          setTrialEligibility({
-            eligible: false,
-            can_show_trial_info: false,
-            trial_days: 0,
-            has_active_subscriptions: false,
-            subscription_count: 0,
-            reason: 'system_error'
-          });
-        }
+        if (isAborted()) return;
 
         if (plansResponse.data.success) {
           setPlans(plansResponse.data.plans);
@@ -109,16 +102,43 @@ const CreateInstance: React.FC = () => {
             setSelectedPlan(plansResponse.data.plans[0]);
           }
         }
-      } catch (err) {
-        setError('Failed to load form data and plans');
-        console.error('Failed to fetch initial data:', err);
+
+        // Fetch trial eligibility
+        try {
+          const eligibilityResponse = await billingAPI.getTrialEligibility(profile.id);
+          if (!isAborted()) {
+            setTrialEligibility(eligibilityResponse.data);
+          }
+        } catch (eligibilityError: unknown) {
+          if (isAbortError(eligibilityError)) return;
+          // Fail closed - deny trials on error
+          if (!isAborted()) {
+            setTrialEligibility({
+              eligible: false,
+              can_show_trial_info: false,
+              trial_days: 0,
+              has_active_subscriptions: false,
+              subscription_count: 0,
+              reason: 'system_error'
+            });
+          }
+        }
+      } catch (err: unknown) {
+        if (isAbortError(err)) return;
+        if (!isAborted()) {
+          setError(getErrorMessage(err, 'Failed to load plans'));
+        }
       } finally {
-        setInitialLoading(false);
+        if (!isAborted()) {
+          setInitialLoading(false);
+        }
       }
     };
 
-    fetchInitialData();
-  }, []);
+    if (profile?.id) {
+      fetchInitialData(getSignal());
+    }
+  }, [profile?.id, getSignal, isAborted]);
 
   useEffect(() => {
     if (trialEligibility && !trialEligibility.can_show_trial_info && selectedPlan && selectedPlan.trial_length > 0) {
@@ -196,19 +216,14 @@ const CreateInstance: React.FC = () => {
             navigate('/billing');
           }
         }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail ||
-                          (err.response?.data?.errors ?
-                            Object.values(err.response.data.errors).flat().join(', ') :
-                            'Failed to create instance'
-                          );
-      setError(errorMessage);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to create instance'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleInputChange = (field: keyof CreateInstanceRequest, value: any) => {
+  const handleInputChange = (field: keyof CreateInstanceRequest, value: CreateInstanceRequest[keyof CreateInstanceRequest]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -228,11 +243,11 @@ const CreateInstance: React.FC = () => {
           available: response.data.available,
           message: response.data.message
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         setSubdomainStatus({
           checking: false,
           available: false,
-          message: error.response?.data?.detail || 'Error checking subdomain'
+          message: getErrorMessage(error, 'Error checking subdomain')
         });
       }
     };
@@ -274,10 +289,13 @@ const CreateInstance: React.FC = () => {
     }
   };
 
-  if (initialLoading) {
+  // Show loading while profile is loading or plans are being fetched
+  const isLoading = profileLoading || (profile && initialLoading);
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-warm-50 bg-mesh">
-        <Navigation userProfile={profile || undefined} />
+        <Navigation userProfile={profile ?? undefined} />
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <svg className="animate-spin h-12 w-12 text-primary-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
@@ -294,7 +312,7 @@ const CreateInstance: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-warm-50 bg-mesh">
-      <Navigation userProfile={profile || undefined} />
+      <Navigation userProfile={profile ?? undefined} />
 
       <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {/* Header */}
@@ -592,7 +610,7 @@ const CreateInstance: React.FC = () => {
                 </label>
                 <select
                   value={formData.instance_type}
-                  onChange={(e) => handleInputChange('instance_type', e.target.value as any)}
+                  onChange={(e) => handleInputChange('instance_type', e.target.value as 'development' | 'staging' | 'production')}
                   className="input-field"
                 >
                   <option value="development">Development</option>

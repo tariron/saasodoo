@@ -1,64 +1,76 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { authAPI, instanceAPI, billingAPI, UserProfile, Instance } from '../utils/api';
+import { instanceAPI, billingAPI, Instance, getErrorMessage } from '../utils/api';
 import { BillingOverview } from '../types/billing';
 import Navigation from '../components/Navigation';
+import { useUser } from '../contexts/UserContext';
+import { useAbortController, isAbortError } from '../hooks/useAbortController';
 
 const Dashboard: React.FC = () => {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { profile, loading: profileLoading } = useUser();
   const [instances, setInstances] = useState<Instance[]>([]);
   const [billingData, setBillingData] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [billingLoading, setBillingLoading] = useState(false);
   const [error, setError] = useState('');
+  const { getSignal, isAborted } = useAbortController();
 
-  const fetchBillingData = async (customerId: string) => {
+  const fetchBillingData = useCallback(async (customerId: string, signal?: AbortSignal) => {
     try {
       setBillingLoading(true);
       const billingResponse = await billingAPI.getBillingOverview(customerId);
-      setBillingData(billingResponse.data.data);
-    } catch (billingErr) {
-      console.warn('Failed to fetch billing data:', billingErr);
-      setBillingData(null);
+      if (!isAborted()) {
+        setBillingData(billingResponse.data.data);
+      }
+    } catch (billingErr: unknown) {
+      if (isAbortError(billingErr)) return;
+      if (!isAborted()) {
+        setBillingData(null);
+      }
     } finally {
-      setBillingLoading(false);
+      if (!isAborted()) {
+        setBillingLoading(false);
+      }
     }
-  };
+  }, [isAborted]);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      if (!profile?.id) return;
+
       try {
         setLoading(true);
-
-        // Fetch user profile
-        console.log('Fetching user profile...');
-        const profileResponse = await authAPI.getProfile();
-        console.log('User profile:', profileResponse.data);
-        setProfile(profileResponse.data);
+        const signal = getSignal();
 
         // Fetch instances for this customer
         try {
-          console.log('Fetching instances for customer:', profileResponse.data.id);
-          const instancesResponse = await instanceAPI.list(profileResponse.data.id);
-          console.log('Instances response:', instancesResponse.data);
-          setInstances(instancesResponse.data.instances || []);
-        } catch (instanceErr) {
-          console.warn('Failed to fetch instances:', instanceErr);
-          setInstances([]);
+          const instancesResponse = await instanceAPI.list(profile.id, signal);
+          if (!isAborted()) {
+            setInstances(instancesResponse.data.instances || []);
+          }
+        } catch (instanceErr: unknown) {
+          if (isAbortError(instanceErr)) return;
+          if (!isAborted()) {
+            setInstances([]);
+          }
         }
 
         // Fetch billing data
-        await fetchBillingData(profileResponse.data.id);
-      } catch (err: any) {
-        console.error('Dashboard error:', err);
-        setError(`Failed to load dashboard data: ${err.response?.data?.detail || err.message}`);
+        await fetchBillingData(profile.id, signal);
+      } catch (err: unknown) {
+        if (isAbortError(err)) return;
+        if (!isAborted()) {
+          setError(getErrorMessage(err, 'Failed to load dashboard data'));
+        }
       } finally {
-        setLoading(false);
+        if (!isAborted()) {
+          setLoading(false);
+        }
       }
     };
 
     fetchDashboardData();
-  }, []);
+  }, [profile?.id, getSignal, isAborted, fetchBillingData]);
 
   const getStatusBadge = (status: string) => {
     const badges: Record<string, { class: string; icon: JSX.Element }> = {
@@ -139,10 +151,13 @@ const Dashboard: React.FC = () => {
   const subscriptionInfo = getSubscriptionInfo();
   const trialInfo = getTrialInfo();
 
-  if (loading) {
+  // Show loading while profile or dashboard data is loading
+  const isLoading = profileLoading || (profile && loading);
+
+  if (isLoading) {
     return (
       <>
-        <Navigation userProfile={profile || undefined} />
+        <Navigation userProfile={profile ?? undefined} />
         <div className="min-h-screen flex items-center justify-center bg-warm-50">
           <div className="flex flex-col items-center animate-fade-in">
             <div className="relative">
@@ -158,7 +173,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <>
-      <Navigation userProfile={profile || undefined} />
+      <Navigation userProfile={profile ?? undefined} />
 
       <main className="min-h-screen bg-warm-50 bg-mesh">
         <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">

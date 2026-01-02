@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import { authAPI, UserProfile, getErrorMessage, TokenManager } from '../utils/api';
+import { authAPI, UserProfile, getErrorMessage } from '../utils/api';
 import { useAbortController, isAbortError } from '../hooks/useAbortController';
 
 interface UserContextType {
