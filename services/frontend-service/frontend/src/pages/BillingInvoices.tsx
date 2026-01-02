@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { billingAPI, authAPI } from '../utils/api';
 import { Invoice } from '../types/billing';
 import Navigation from '../components/Navigation';
@@ -205,15 +206,15 @@ const BillingInvoices: React.FC = () => {
               <h1 className="text-2xl sm:text-3xl font-bold text-warm-900">Invoices</h1>
               <p className="mt-1 text-warm-600">View and manage your billing history</p>
             </div>
-            <a
-              href="/billing"
+            <Link
+              to="/billing"
               className="btn-secondary inline-flex items-center self-start"
             >
               <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
               Back to Billing
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -558,12 +559,12 @@ const BillingInvoices: React.FC = () => {
               <p className="text-warm-600 max-w-sm mx-auto mb-6">
                 Your invoices will appear here once you have active subscriptions.
               </p>
-              <a href="/instances" className="btn-primary inline-flex items-center">
+              <Link to="/instances" className="btn-primary inline-flex items-center">
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
                 Create an Instance
-              </a>
+              </Link>
             </div>
           )}
         </div>

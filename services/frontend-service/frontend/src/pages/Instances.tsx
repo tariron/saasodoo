@@ -62,19 +62,29 @@ const Instances: React.FC = () => {
       setActionLoading(instanceId);
       setError('');
 
-      console.log(`Starting ${action} action for instance:`, instanceId);
       await instanceAPI.action(instanceId, action, parameters);
-      console.log(`${action} action queued successfully`);
 
-      console.log('Waiting 3 seconds for backend processing...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Poll for status change with exponential backoff
+      const pollForStatusChange = async (maxAttempts = 10): Promise<void> => {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise(resolve =>
+            setTimeout(resolve, Math.min(1000 * Math.pow(1.5, attempt), 5000))
+          );
+          await fetchInitialData();
 
-      console.log('Refreshing instance data...');
-      await fetchInitialData();
+          // Check if the instance status has changed (action completed)
+          const instance = instances.find(i => i.id === instanceId);
+          if (instance && !['creating', 'starting', 'stopping'].includes(instance.status)) {
+            return;
+          }
+        }
+      };
 
-    } catch (err: any) {
-      console.error(`${action} action failed:`, err);
-      const errorMessage = err.response?.data?.detail || `Failed to ${action} instance`;
+      await pollForStatusChange();
+
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { detail?: string } } };
+      const errorMessage = axiosError.response?.data?.detail || `Failed to ${action} instance`;
       setError(errorMessage);
     } finally {
       setActionLoading(null);

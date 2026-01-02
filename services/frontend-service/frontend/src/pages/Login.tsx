@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { authAPI, LoginRequest, TokenManager } from '../utils/api';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { authAPI, LoginRequest, TokenManager, getErrorMessage } from '../utils/api';
 import { useConfig } from '../hooks/useConfig';
 
 interface LocationState {
@@ -31,10 +31,7 @@ const Login: React.FC = () => {
     setError('');
 
     try {
-      console.log('Attempting login with:', { email: formData.email });
       const response = await authAPI.login(formData);
-      console.log('Login response:', response.data);
-
       const { tokens } = response.data;
 
       // Store tokens securely
@@ -44,15 +41,10 @@ const Login: React.FC = () => {
         tokens.refresh_token
       );
 
-      console.log('Tokens stored, redirecting to:', from);
-
       // Redirect to intended page
       navigate(from, { replace: true });
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail ||
-                          err.response?.data?.message ||
-                          'Login failed. Please check your credentials.';
-      setError(errorMessage);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Login failed. Please check your credentials.'));
     } finally {
       setLoading(false);
     }
@@ -245,12 +237,12 @@ const Login: React.FC = () => {
                 </span>
               </label>
 
-              <a
-                href="/forgot-password"
+              <Link
+                to="/forgot-password"
                 className="text-sm font-medium text-primary-600 hover:text-primary-500 transition-colors"
               >
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             {/* Submit button */}
@@ -288,15 +280,15 @@ const Login: React.FC = () => {
             </div>
 
             {/* Sign up link */}
-            <a
-              href="/register"
+            <Link
+              to="/register"
               className="w-full btn-secondary py-3 text-base flex items-center justify-center"
             >
               Create an account
               <svg className="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
               </svg>
-            </a>
+            </Link>
           </form>
 
           {/* Environment indicator (development only) */}

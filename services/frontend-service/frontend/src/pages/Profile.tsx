@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { authAPI } from '../utils/api';
+import { Link } from 'react-router-dom';
+import { authAPI, getErrorMessage } from '../utils/api';
 import { UserProfile } from '../utils/api';
 import Navigation from '../components/Navigation';
 
@@ -42,8 +43,8 @@ const Profile: React.FC = () => {
         company: response.data.company || '',
         country: response.data.country || ''
       });
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load profile');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load profile'));
     } finally {
       setLoading(false);
     }
@@ -67,9 +68,8 @@ const Profile: React.FC = () => {
       await fetchProfile();
       setSuccessMessage('Profile updated successfully!');
       setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.response?.data?.message || 'Failed to update profile';
-      setError(errorMessage);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to update profile'));
     } finally {
       setSaving(false);
     }
@@ -103,9 +103,8 @@ const Profile: React.FC = () => {
       });
       setShowPasswordForm(false);
       setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.response?.data?.message || 'Failed to change password. Please check your current password.';
-      setError(errorMessage);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to change password. Please check your current password.'));
     } finally {
       setChangingPassword(false);
     }
@@ -490,18 +489,18 @@ const Profile: React.FC = () => {
               <div className="mt-6 pt-6 border-t border-warm-200">
                 <h3 className="text-sm font-semibold text-warm-900 mb-3">Quick Actions</h3>
                 <div className="space-y-2">
-                  <a href="/billing" className="btn-secondary w-full justify-center text-sm">
+                  <Link to="/billing" className="btn-secondary w-full justify-center text-sm">
                     <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                     </svg>
                     Manage Billing
-                  </a>
-                  <a href="/instances" className="btn-secondary w-full justify-center text-sm">
+                  </Link>
+                  <Link to="/instances" className="btn-secondary w-full justify-center text-sm">
                     <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                     </svg>
                     View Instances
-                  </a>
+                  </Link>
                 </div>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import axios, { AxiosResponse } from 'axios';
+import axios, { AxiosResponse, AxiosError } from 'axios';
 import {
   BillingAccount,
   Subscription,
@@ -24,6 +24,32 @@ import {
   UpgradeSubscriptionRequest,
   UpgradeSubscriptionResponse,
 } from '../types/billing';
+
+// API Error types for proper error handling
+export interface APIErrorResponse {
+  detail?: string;
+  message?: string;
+  error?: string;
+  errors?: Record<string, string[]>;
+}
+
+export type APIError = AxiosError<APIErrorResponse>;
+
+// Helper function to extract error message from API errors
+export const getErrorMessage = (error: unknown, fallback: string = 'An error occurred'): string => {
+  if (axios.isAxiosError(error)) {
+    const axiosError = error as APIError;
+    return axiosError.response?.data?.detail ||
+           axiosError.response?.data?.message ||
+           axiosError.response?.data?.error ||
+           axiosError.message ||
+           fallback;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+};
 
 // Types
 export interface LoginRequest {
@@ -335,9 +361,9 @@ api.interceptors.response.use(
           
           const { tokens } = response.data;
           TokenManager.setTokens(
-            tokens.access_token, 
-            tokens.refresh_token, 
-            tokens.expires_in
+            tokens.access_token,
+            tokens.expires_at,
+            tokens.refresh_token
           );
 
           // Retry original request
