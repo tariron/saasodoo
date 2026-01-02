@@ -167,14 +167,84 @@ curl -s -u admin:password \
   "http://billing.62.171.153.219.nip.io/1.0/kb/subscriptions/SUBSCRIPTION_ID_HERE" | python3 -m json.tool | grep -E "state|cancelledDate|chargedThroughDate|phaseType"
 ```
 
+#### List All Subscriptions Summary for Account
+```bash
+curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://billing.62.171.153.219.nip.io/1.0/kb/accounts/ACCOUNT_ID_HERE/bundles" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for bundle in data:
+    for sub in bundle.get('subscriptions', []):
+        print(f\"Plan: {sub.get('planName'):25} State: {sub.get('state'):10} Phase: {sub.get('phaseType')}\")
+"
+```
+
+### Catalog Commands
+
+#### Get Active Catalog (Current Date)
+**IMPORTANT**: Use `requestedDate` parameter to get the currently active catalog. Without it, KillBill returns ALL catalog versions.
+```bash
+curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://billing.62.171.153.219.nip.io/1.0/kb/catalog?requestedDate=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" | python3 -m json.tool
+```
+
+#### List All Plans from Active Catalog
+```bash
+curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://billing.62.171.153.219.nip.io/1.0/kb/catalog?requestedDate=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if data:
+    catalog = data[0]
+    print(f\"Catalog Version: {catalog.get('effectiveDate')}\")
+    for product in catalog.get('products', []):
+        for plan in product.get('plans', []):
+            for phase in plan.get('phases', []):
+                if phase.get('type') == 'EVERGREEN':
+                    price = phase.get('prices', [{}])[0].get('value', 'N/A')
+                    period = phase.get('duration', {}).get('unit', 'N/A')
+                    print(f\"  {plan.get('name'):25} \${price} / {period}\")
+"
+```
+
 ### Invoice Commands
 
-#### Get Invoice Details with Items
+#### Get All Account Invoices with Items
+```bash
+curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://billing.62.171.153.219.nip.io/1.0/kb/accounts/ACCOUNT_ID_HERE/invoices?withItems=true" | python3 -m json.tool
+```
+
+#### Get Specific Invoice by ID with Items
 ```bash
 curl -s -u admin:password \
   -H "X-Killbill-ApiKey: fresh-tenant" \
   -H "X-Killbill-ApiSecret: fresh-secret" \
   "http://billing.62.171.153.219.nip.io/1.0/kb/invoices/INVOICE_ID_HERE?withItems=true" | python3 -m json.tool
+```
+
+#### List Invoice Summary (Amount, Balance, Number)
+```bash
+curl -s -u admin:password \
+  -H "X-Killbill-ApiKey: fresh-tenant" \
+  -H "X-Killbill-ApiSecret: fresh-secret" \
+  "http://billing.62.171.153.219.nip.io/1.0/kb/accounts/ACCOUNT_ID_HERE/invoices?withItems=true" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for inv in data:
+    if float(inv.get('amount', 0)) > 0:
+        print(f\"Invoice #{inv['invoiceNumber']}: Amount=\${inv['amount']}, Balance=\${inv['balance']}, Date={inv['invoiceDate']}\")
+        for item in inv.get('items', []):
+            print(f\"  - {item.get('planName', item.get('description', 'N/A'))}: \${item.get('amount')} ({item.get('itemType')})\")
+"
 ```
 
 ### Bundle Commands
@@ -370,6 +440,38 @@ curl -s -u admin:password \
 5. **Traefik Access**: All KillBill API calls can be made via `http://billing.62.171.153.219.nip.io`
 6. **File Uploads**: Catalog and overdue config uploads require docker exec due to file access requirements
 
+## Catalog Versioning
+
+### Key Concepts
+- **Multiple Catalog Versions**: KillBill supports multiple catalog versions with different `effectiveDate` values
+- **Grandfathering**: Existing subscriptions stay on their original catalog version pricing
+- **New Subscriptions**: Use the catalog version active at subscription creation time
+- **Plan Shape Consistency**: Plans with the same name MUST have the same phase structure across versions (e.g., TRIAL→EVERGREEN)
+
+### Catalog API Behavior
+- **Without `requestedDate`**: Returns ALL catalog versions (oldest to newest)
+- **With `requestedDate`**: Returns only the catalog(s) active at that date
+
+### REPAIR_ADJ Invoice Items
+When subscriptions are re-rated (e.g., catalog change, plan change), KillBill creates `REPAIR_ADJ` items:
+- Negative amounts credit back previous charges
+- New charges are added at the updated price
+- Net effect: Customer pays the difference
+
+Example invoice breakdown:
+```
+basic-monthly:   $9.00  (new catalog price)
+REPAIR_ADJ:     -$5.00  (credit for old price)
+standard-biannual: $99.00  (new subscription)
+Total:         $103.00
+```
+
+### Uploading New Catalog Version
+When uploading a new catalog:
+1. Use a NEW `effectiveDate` (must be after any existing catalog dates)
+2. Maintain phase structure for existing plan names (add 0-day trials if needed)
+3. New pricing applies only to new subscriptions/invoices after the effective date
+
 ## Important Notes
 
 - Replace `CUSTOMER_ID_HERE`, `ACCOUNT_ID_HERE`, `SUBSCRIPTION_ID_HERE`, etc. with actual IDs
@@ -378,6 +480,45 @@ curl -s -u admin:password \
 - **Traefik URL** (host accessible): `http://billing.62.171.153.219.nip.io`
 - **Internal URL** (Docker network only): `http://killbill:8080`
 - Always check logs after webhook events: `docker logs saasodoo-billing-service --tail 100`
+
+## Billing Service API Commands
+
+The billing-service wraps KillBill with additional processing. Use these endpoints for frontend-facing data.
+
+### Get Billing Overview for Customer
+```bash
+curl -s "http://api.62.171.153.219.nip.io/billing/api/billing/accounts/overview/CUSTOMER_ID_HERE" | python3 -m json.tool
+```
+
+### Get Customer Invoices (with transformed data)
+```bash
+curl -s "http://api.62.171.153.219.nip.io/billing/api/billing/invoices/CUSTOMER_ID_HERE" | python3 -m json.tool
+```
+
+### Get Available Plans (from active catalog)
+```bash
+curl -s "http://api.62.171.153.219.nip.io/billing/api/billing/plans/" | python3 -m json.tool
+```
+
+### List Plans with Prices
+```bash
+curl -s "http://api.62.171.153.219.nip.io/billing/api/billing/plans/" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for plan in data.get('plans', []):
+    print(f\"{plan['name']:25} \${plan.get('price', 0):>6} {plan.get('billing_period', 'N/A')}\")
+"
+```
+
+### Check Trial Eligibility
+```bash
+curl -s "http://api.62.171.153.219.nip.io/billing/api/billing/trial-eligibility/CUSTOMER_ID_HERE" | python3 -m json.tool
+```
+
+### Check Billing Service Health
+```bash
+curl -s "http://api.62.171.153.219.nip.io/billing/health"
+```
 
 ## Troubleshooting
 

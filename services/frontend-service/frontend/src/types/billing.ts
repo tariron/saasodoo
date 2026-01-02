@@ -1,5 +1,29 @@
 // Billing Types for Frontend
 
+// Billing Period Types
+export type BillingPeriod = 'MONTHLY' | 'QUARTERLY' | 'BIANNUAL' | 'ANNUAL';
+
+export const BILLING_PERIOD_LABELS: Record<BillingPeriod, string> = {
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  BIANNUAL: 'Half-Yearly',
+  ANNUAL: 'Annual'
+};
+
+export const BILLING_PERIOD_MONTHS: Record<BillingPeriod, number> = {
+  MONTHLY: 1,
+  QUARTERLY: 3,
+  BIANNUAL: 6,
+  ANNUAL: 12
+};
+
+export const BILLING_PERIOD_SHORT: Record<BillingPeriod, string> = {
+  MONTHLY: '/mo',
+  QUARTERLY: '/qtr',
+  BIANNUAL: '/6mo',
+  ANNUAL: '/yr'
+};
+
 export interface BillingAccount {
   id: string;
   customer_id: string;
@@ -18,7 +42,7 @@ export interface Subscription {
   plan_name: string;
   product_name: string;
   product_category: string;
-  billing_period: 'MONTHLY' | 'ANNUAL';
+  billing_period: BillingPeriod;
   state: 'ACTIVE' | 'CANCELLED' | 'PENDING' | 'PAUSED' | 'COMMITTED';
   start_date: string;
   charged_through_date?: string;
@@ -58,7 +82,7 @@ export interface PendingSubscription {
   account_id: string;
   plan_name: string;
   product_name: string;
-  billing_period: 'MONTHLY' | 'ANNUAL';
+  billing_period: BillingPeriod;
   state: 'COMMITTED' | 'PENDING';
   start_date: string;
   created_at: string;
@@ -171,7 +195,7 @@ export interface Plan {
 export interface CreateSubscriptionRequest {
   customer_id: string;
   plan_name: string;
-  billing_period?: 'MONTHLY' | 'ANNUAL';
+  billing_period?: BillingPeriod;
   phase_type?: 'TRIAL' | 'EVERGREEN';
 }
 

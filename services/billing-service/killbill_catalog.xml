@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <catalog>
-    <effectiveDate>2024-01-01T00:00:00Z</effectiveDate>
+    <effectiveDate>2026-01-02T00:00:00Z</effectiveDate>
     <catalogName>SaasOdoo</catalogName>
 
     <currencies>
@@ -53,25 +53,11 @@
     </rules>
 
     <plans>
-        <plan name="basic-immediate">
-            <product>Basic</product>
-            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
-            <finalPhase type="EVERGREEN">
-                <duration>
-                    <unit>UNLIMITED</unit>
-                </duration>
-                <recurring>
-                    <billingPeriod>MONTHLY</billingPeriod>
-                    <recurringPrice>
-                        <price>
-                            <currency>USD</currency>
-                            <value>5.00</value>
-                        </price>
-                    </recurringPrice>
-                </recurring>
-            </finalPhase>
-        </plan>
+        <!-- ============================================================ -->
+        <!-- BASIC PLANS - $9/month base (ONLY PLAN WITH TRIAL)           -->
+        <!-- ============================================================ -->
 
+        <!-- Basic Monthly - WITH 14-day trial -->
         <plan name="basic-monthly">
             <product>Basic</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
@@ -100,13 +86,78 @@
                     <recurringPrice>
                         <price>
                             <currency>USD</currency>
-                            <value>5.00</value>
+                            <value>9.00</value>
                         </price>
                     </recurringPrice>
                 </recurring>
             </finalPhase>
         </plan>
 
+        <!-- Basic Quarterly - $25/quarter ($8.33/mo, ~7% savings) - NO trial -->
+        <plan name="basic-quarterly">
+            <product>Basic</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>QUARTERLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>25.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- Basic Biannual - $49/6mo ($8.17/mo, ~9% savings) - NO trial -->
+        <plan name="basic-biannual">
+            <product>Basic</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>BIANNUAL</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>49.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- Basic Annual - $89/year ($7.42/mo, ~18% savings) - NO trial -->
+        <plan name="basic-annual">
+            <product>Basic</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>ANNUAL</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>89.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- ============================================================ -->
+        <!-- STANDARD PLANS - $19/month base (NO TRIAL)                   -->
+        <!-- ============================================================ -->
+
+        <!-- Standard Monthly - 0-day trial (maintains phase structure for KillBill compatibility) -->
         <plan name="standard-monthly">
             <product>Standard</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
@@ -114,7 +165,7 @@
                 <phase type="TRIAL">
                     <duration>
                         <unit>DAYS</unit>
-                        <number>14</number>
+                        <number>0</number>
                     </duration>
                     <fixed>
                         <fixedPrice>
@@ -135,13 +186,78 @@
                     <recurringPrice>
                         <price>
                             <currency>USD</currency>
-                            <value>8.00</value>
+                            <value>19.00</value>
                         </price>
                     </recurringPrice>
                 </recurring>
             </finalPhase>
         </plan>
 
+        <!-- Standard Quarterly - $49/quarter ($16.33/mo, ~14% savings) - NO trial -->
+        <plan name="standard-quarterly">
+            <product>Standard</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>QUARTERLY</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>49.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- Standard Biannual - $99/6mo ($16.50/mo, ~13% savings) - NO trial -->
+        <plan name="standard-biannual">
+            <product>Standard</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>BIANNUAL</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>99.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- Standard Annual - $179/year ($14.92/mo, ~21% savings) - NO trial -->
+        <plan name="standard-annual">
+            <product>Standard</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>ANNUAL</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>179.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- ============================================================ -->
+        <!-- PREMIUM PLANS - $39/month base (NO TRIAL)                    -->
+        <!-- ============================================================ -->
+
+        <!-- Premium Monthly - 0-day trial (maintains phase structure for KillBill compatibility) -->
         <plan name="premium-monthly">
             <product>Premium</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
@@ -149,7 +265,7 @@
                 <phase type="TRIAL">
                     <duration>
                         <unit>DAYS</unit>
-                        <number>14</number>
+                        <number>0</number>
                     </duration>
                     <fixed>
                         <fixedPrice>
@@ -170,42 +286,67 @@
                     <recurringPrice>
                         <price>
                             <currency>USD</currency>
-                            <value>10.00</value>
+                            <value>39.00</value>
                         </price>
                     </recurringPrice>
                 </recurring>
             </finalPhase>
         </plan>
 
-        <plan name="basic-test-trial">
-            <product>Basic</product>
+        <!-- Premium Quarterly - $99/quarter ($33/mo, ~15% savings) - NO trial -->
+        <plan name="premium-quarterly">
+            <product>Premium</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
-            <initialPhases>
-                <phase type="TRIAL">
-                    <duration>
-                        <unit>DAYS</unit>
-                        <number>1</number>
-                    </duration>
-                    <fixed>
-                        <fixedPrice>
-                            <price>
-                                <currency>USD</currency>
-                                <value>0.00</value>
-                            </price>
-                        </fixedPrice>
-                    </fixed>
-                </phase>
-            </initialPhases>
             <finalPhase type="EVERGREEN">
                 <duration>
                     <unit>UNLIMITED</unit>
                 </duration>
                 <recurring>
-                    <billingPeriod>MONTHLY</billingPeriod>
+                    <billingPeriod>QUARTERLY</billingPeriod>
                     <recurringPrice>
                         <price>
                             <currency>USD</currency>
-                            <value>5.00</value>
+                            <value>99.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- Premium Biannual - $199/6mo ($33.17/mo, ~15% savings) - NO trial -->
+        <plan name="premium-biannual">
+            <product>Premium</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>BIANNUAL</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>199.00</value>
+                        </price>
+                    </recurringPrice>
+                </recurring>
+            </finalPhase>
+        </plan>
+
+        <!-- Premium Annual - $379/year ($31.58/mo, ~19% savings) - NO trial -->
+        <plan name="premium-annual">
+            <product>Premium</product>
+            <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <finalPhase type="EVERGREEN">
+                <duration>
+                    <unit>UNLIMITED</unit>
+                </duration>
+                <recurring>
+                    <billingPeriod>ANNUAL</billingPeriod>
+                    <recurringPrice>
+                        <price>
+                            <currency>USD</currency>
+                            <value>379.00</value>
                         </price>
                     </recurringPrice>
                 </recurring>
@@ -216,11 +357,21 @@
     <priceLists>
         <defaultPriceList name="DEFAULT">
             <plans>
-                <plan>basic-immediate</plan>
+                <!-- Basic Plans -->
                 <plan>basic-monthly</plan>
+                <plan>basic-quarterly</plan>
+                <plan>basic-biannual</plan>
+                <plan>basic-annual</plan>
+                <!-- Standard Plans -->
                 <plan>standard-monthly</plan>
+                <plan>standard-quarterly</plan>
+                <plan>standard-biannual</plan>
+                <plan>standard-annual</plan>
+                <!-- Premium Plans -->
                 <plan>premium-monthly</plan>
-                <plan>basic-test-trial</plan>
+                <plan>premium-quarterly</plan>
+                <plan>premium-biannual</plan>
+                <plan>premium-annual</plan>
             </plans>
         </defaultPriceList>
     </priceLists>

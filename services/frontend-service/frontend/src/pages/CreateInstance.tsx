@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { instanceAPI, billingAPI, CreateInstanceRequest, CreateInstanceWithSubscriptionRequest, getErrorMessage } from '../utils/api';
-import { Plan, Invoice, TrialEligibilityResponse } from '../types/billing';
+import { Plan, Invoice, TrialEligibilityResponse, BillingPeriod, BILLING_PERIOD_LABELS, BILLING_PERIOD_MONTHS, BILLING_PERIOD_SHORT } from '../types/billing';
 import Navigation from '../components/Navigation';
 import PaymentModal from '../components/PaymentModal';
 import { useConfig } from '../hooks/useConfig';
@@ -32,11 +32,38 @@ const transformPlanForDisplay = (plan: Plan, eligibility: TrialEligibilityRespon
   };
 };
 
+/**
+ * Calculate monthly equivalent price for a plan
+ */
+const getMonthlyEquivalent = (plan: Plan): number => {
+  const months = BILLING_PERIOD_MONTHS[plan.billing_period as BillingPeriod] || 1;
+  return plan.price ? plan.price / months : 0;
+};
+
+/**
+ * Calculate savings percentage compared to monthly
+ */
+const getSavingsPercent = (plan: Plan, monthlyPrice: number): number => {
+  if (!monthlyPrice || !plan.price) return 0;
+  const monthlyEquiv = getMonthlyEquivalent(plan);
+  const savings = Math.round((1 - monthlyEquiv / monthlyPrice) * 100);
+  return savings > 0 ? savings : 0;
+};
+
+/**
+ * Get the base monthly price for a product
+ */
+const getBaseMonthlyPrice = (plans: Plan[], productName: string): number => {
+  const monthlyPlan = plans.find(p => p.product === productName && p.billing_period === 'MONTHLY');
+  return monthlyPlan?.price || 0;
+};
+
 const CreateInstance: React.FC = () => {
   const { config } = useConfig();
   const { profile, loading: profileLoading } = useUser();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [selectedBillingPeriod, setSelectedBillingPeriod] = useState<BillingPeriod>('MONTHLY');
   const [phaseType, setPhaseType] = useState<string>('TRIAL');
   const [trialEligibility, setTrialEligibility] = useState<TrialEligibilityResponse | null>(null);
   const [formData, setFormData] = useState<CreateInstanceRequest>({
@@ -72,6 +99,17 @@ const CreateInstance: React.FC = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
+  // Filter plans by selected billing period
+  const filteredPlans = useMemo(() => {
+    return plans.filter(plan => plan.billing_period === selectedBillingPeriod);
+  }, [plans, selectedBillingPeriod]);
+
+  // Get unique products for display
+  const uniqueProducts = useMemo(() => {
+    const products = new Set(plans.map(p => p.product));
+    return Array.from(products);
+  }, [plans]);
+
   // Update form data when profile is loaded from context
   useEffect(() => {
     if (profile) {
@@ -85,7 +123,7 @@ const CreateInstance: React.FC = () => {
 
   // Fetch plans and trial eligibility when profile is available
   useEffect(() => {
-    const fetchInitialData = async (signal?: AbortSignal) => {
+    const fetchInitialData = async () => {
       if (!profile?.id) return;
 
       try {
@@ -95,9 +133,12 @@ const CreateInstance: React.FC = () => {
 
         if (plansResponse.data.success) {
           setPlans(plansResponse.data.plans);
-          const trialPlan = plansResponse.data.plans.find(plan => plan.trial_length > 0);
-          if (trialPlan) {
-            setSelectedPlan(trialPlan);
+          // Select the first monthly plan (Basic with trial)
+          const basicMonthly = plansResponse.data.plans.find(
+            plan => plan.product === 'Basic' && plan.billing_period === 'MONTHLY'
+          );
+          if (basicMonthly) {
+            setSelectedPlan(basicMonthly);
           } else if (plansResponse.data.plans.length > 0) {
             setSelectedPlan(plansResponse.data.plans[0]);
           }
@@ -136,9 +177,22 @@ const CreateInstance: React.FC = () => {
     };
 
     if (profile?.id) {
-      fetchInitialData(getSignal());
+      fetchInitialData();
     }
   }, [profile?.id, getSignal, isAborted]);
+
+  // Update selected plan when billing period changes
+  useEffect(() => {
+    if (selectedPlan && plans.length > 0) {
+      // Find the same product with the new billing period
+      const newPlan = plans.find(
+        p => p.product === selectedPlan.product && p.billing_period === selectedBillingPeriod
+      );
+      if (newPlan) {
+        setSelectedPlan(newPlan);
+      }
+    }
+  }, [selectedBillingPeriod, plans]);
 
   useEffect(() => {
     if (trialEligibility && !trialEligibility.can_show_trial_info && selectedPlan && selectedPlan.trial_length > 0) {
@@ -352,6 +406,56 @@ const CreateInstance: React.FC = () => {
               <h3 className="text-lg font-semibold text-warm-900">Select Plan</h3>
             </div>
 
+            {/* Billing Period Toggle */}
+            <div className="mb-6">
+              <div className="flex justify-center">
+                <div className="inline-flex p-1 bg-warm-100 rounded-xl">
+                  {(['MONTHLY', 'QUARTERLY', 'BIANNUAL', 'ANNUAL'] as BillingPeriod[]).map((period, index) => {
+                    const isSelected = selectedBillingPeriod === period;
+                    const isAnnual = period === 'ANNUAL';
+                    return (
+                      <button
+                        key={period}
+                        type="button"
+                        onClick={() => setSelectedBillingPeriod(period)}
+                        className={`
+                          relative px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-200
+                          ${isSelected
+                            ? 'bg-white text-primary-700 shadow-md'
+                            : 'text-warm-600 hover:text-warm-900 hover:bg-warm-50'
+                          }
+                          ${index === 0 ? 'rounded-l-lg' : ''}
+                          ${index === 3 ? 'rounded-r-lg' : ''}
+                        `}
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        <span className="relative z-10">{BILLING_PERIOD_LABELS[period]}</span>
+                        {isAnnual && (
+                          <span className={`
+                            ml-1.5 px-1.5 py-0.5 text-[10px] font-bold rounded-md
+                            ${isSelected
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-emerald-50 text-emerald-600'
+                            }
+                          `}>
+                            SAVE 20%
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Period description */}
+              <p className="text-center text-xs text-warm-500 mt-3">
+                {selectedBillingPeriod === 'MONTHLY' && 'Pay monthly with maximum flexibility'}
+                {selectedBillingPeriod === 'QUARTERLY' && 'Pay every 3 months and save ~10%'}
+                {selectedBillingPeriod === 'BIANNUAL' && 'Pay every 6 months and save ~15%'}
+                {selectedBillingPeriod === 'ANNUAL' && 'Pay yearly for the best value — save up to 20%'}
+              </p>
+            </div>
+
             {plans.length === 0 ? (
               <div className="text-center py-8">
                 <svg className="animate-spin h-8 w-8 text-primary-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24">
@@ -361,70 +465,145 @@ const CreateInstance: React.FC = () => {
                 <p className="text-warm-500">Loading available plans...</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {plans.map((plan) => {
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {filteredPlans.map((plan, index) => {
                   const displayPlan = transformPlanForDisplay(plan, trialEligibility);
                   const isSelected = selectedPlan?.name === plan.name;
+                  const baseMonthlyPrice = getBaseMonthlyPrice(plans, plan.product);
+                  const savings = getSavingsPercent(plan, baseMonthlyPrice);
+                  const monthlyEquiv = getMonthlyEquivalent(plan);
+                  const hasTrial = displayPlan.display_trial && displayPlan.trial_length > 0;
+
+                  // Determine tier styling
+                  const isBasic = plan.product === 'Basic';
+                  const isStandard = plan.product === 'Standard';
+                  const isPremium = plan.product === 'Premium';
+
                   return (
                     <div
                       key={plan.name}
-                      className={`relative rounded-xl border-2 p-4 cursor-pointer transition-all ${
-                        isSelected
-                          ? 'border-primary-500 bg-primary-50 shadow-md'
-                          : 'border-warm-200 hover:border-warm-300 hover:bg-warm-50'
-                      }`}
+                      className={`
+                        relative rounded-2xl border-2 p-5 cursor-pointer transition-all duration-300
+                        ${isSelected
+                          ? 'border-primary-500 bg-gradient-to-b from-primary-50 to-white shadow-lg scale-[1.02]'
+                          : 'border-warm-200 hover:border-primary-300 hover:bg-warm-50/50 hover:shadow-md'
+                        }
+                        ${isPremium && !isSelected ? 'bg-gradient-to-b from-amber-50/30 to-white' : ''}
+                      `}
                       onClick={() => setSelectedPlan(plan)}
+                      style={{ animationDelay: `${index * 100}ms` }}
                     >
+                      {/* Savings badge */}
+                      {savings > 0 && (
+                        <div className="absolute -top-2.5 -right-2 z-10">
+                          <div className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md">
+                            SAVE {savings}%
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Trial badge - only for Basic Monthly */}
+                      {hasTrial && (
+                        <div className="absolute -top-2.5 left-3 z-10">
+                          <div className="bg-gradient-to-r from-primary-500 to-primary-400 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center">
+                            <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {displayPlan.trial_length}-DAY TRIAL
+                          </div>
+                        </div>
+                      )}
+
                       {/* Selected indicator */}
                       {isSelected && (
-                        <div className="absolute top-3 right-3 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
+                        <div className="absolute top-3 right-3 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center shadow-md">
                           <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                           </svg>
                         </div>
                       )}
 
-                      <div className="pr-8">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-semibold text-warm-900">{displayPlan.product}</h4>
-                          {displayPlan.display_trial && (
-                            <span className="badge badge-success text-xs">
-                              {displayPlan.trial_length}-day trial
-                            </span>
-                          )}
+                      <div className={`${hasTrial || savings > 0 ? 'pt-3' : ''}`}>
+                        {/* Plan name with tier indicator */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className={`
+                            w-8 h-8 rounded-lg flex items-center justify-center
+                            ${isBasic ? 'bg-warm-100' : ''}
+                            ${isStandard ? 'bg-primary-100' : ''}
+                            ${isPremium ? 'bg-amber-100' : ''}
+                          `}>
+                            {isBasic && (
+                              <svg className="w-4 h-4 text-warm-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                              </svg>
+                            )}
+                            {isStandard && (
+                              <svg className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                              </svg>
+                            )}
+                            {isPremium && (
+                              <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l3.5 6L12 3l3.5 6L19 3v12a2 2 0 01-2 2H7a2 2 0 01-2-2V3z" />
+                              </svg>
+                            )}
+                          </div>
+                          <h4 className="font-bold text-warm-900 text-lg">{plan.product}</h4>
                         </div>
 
-                        <p className="text-sm text-warm-500 mb-3 line-clamp-2">
-                          {plan.description}
+                        <p className="text-sm text-warm-500 mb-4 line-clamp-2 min-h-[40px]">
+                          {plan.description || `${plan.product} tier with dedicated resources`}
                         </p>
 
                         {/* Resources */}
                         {plan.cpu_limit && (
-                          <div className="space-y-1.5 mb-3">
-                            <div className="text-xs text-warm-600 flex items-center">
-                              <svg className="w-3.5 h-3.5 mr-1.5 text-warm-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <div className="space-y-2 mb-4 p-3 bg-warm-50 rounded-xl">
+                            <div className="flex items-center text-xs text-warm-600">
+                              <svg className="w-3.5 h-3.5 mr-2 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
                               </svg>
-                              {plan.cpu_limit} CPU • {plan.memory_limit} RAM • {plan.storage_limit}
+                              <span className="font-medium">{plan.cpu_limit} CPU</span>
+                            </div>
+                            <div className="flex items-center text-xs text-warm-600">
+                              <svg className="w-3.5 h-3.5 mr-2 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                              </svg>
+                              <span className="font-medium">{plan.memory_limit} RAM</span>
+                            </div>
+                            <div className="flex items-center text-xs text-warm-600">
+                              <svg className="w-3.5 h-3.5 mr-2 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                              </svg>
+                              <span className="font-medium">{plan.storage_limit} Storage</span>
                             </div>
                           </div>
                         )}
 
                         {/* Pricing */}
-                        <div className="pt-2 border-t border-warm-200">
-                          {displayPlan.display_trial && displayPlan.price === 0 ? (
-                            <span className="text-lg font-bold text-emerald-600">Free Trial</span>
-                          ) : displayPlan.display_trial ? (
+                        <div className="pt-3 border-t border-warm-200">
+                          {hasTrial && trialEligibility?.can_show_trial_info ? (
                             <div>
-                              <span className="text-sm text-emerald-600 font-medium">$0 for {displayPlan.trial_length} days</span>
-                              <span className="block text-lg font-bold text-warm-900">
-                                then ${plan.price}/{plan.billing_period.toLowerCase()}
-                              </span>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-2xl font-bold text-emerald-600">$0</span>
+                                <span className="text-sm text-warm-500">for {displayPlan.trial_length} days</span>
+                              </div>
+                              <div className="text-sm text-warm-600 mt-1">
+                                then <span className="font-semibold text-warm-900">${plan.price}</span>
+                                <span className="text-warm-500">{BILLING_PERIOD_SHORT[selectedBillingPeriod]}</span>
+                              </div>
                             </div>
                           ) : (
-                            <span className="text-lg font-bold text-warm-900">
-                              ${plan.price}<span className="text-sm font-normal text-warm-500">/{plan.billing_period.toLowerCase()}</span>
-                            </span>
+                            <div>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-2xl font-bold text-warm-900">${plan.price}</span>
+                                <span className="text-sm text-warm-500">{BILLING_PERIOD_SHORT[selectedBillingPeriod]}</span>
+                              </div>
+                              {selectedBillingPeriod !== 'MONTHLY' && (
+                                <div className="text-xs text-warm-500 mt-1">
+                                  ${monthlyEquiv.toFixed(2)}/mo equivalent
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -434,13 +613,18 @@ const CreateInstance: React.FC = () => {
               </div>
             )}
 
-            {/* Trial/Payment Choice */}
+            {/* Trial/Payment Choice - Only show for plans with trial */}
             {selectedPlan && trialEligibility?.can_show_trial_info && selectedPlan.trial_length > 0 && (
-              <div className="mt-5 p-4 bg-warm-50 rounded-xl border border-warm-200">
-                <h4 className="text-sm font-semibold text-warm-900 mb-3">Billing Options</h4>
+              <div className="mt-6 p-4 bg-gradient-to-br from-primary-50 to-warm-50 rounded-xl border border-primary-100">
+                <h4 className="text-sm font-semibold text-warm-900 mb-3 flex items-center">
+                  <svg className="w-4 h-4 mr-2 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  How would you like to start?
+                </h4>
                 <div className="space-y-3">
-                  <label className={`flex items-start p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                    phaseType === 'TRIAL' ? 'border-primary-500 bg-primary-50' : 'border-warm-200 hover:border-warm-300'
+                  <label className={`flex items-start p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                    phaseType === 'TRIAL' ? 'border-primary-500 bg-white shadow-sm' : 'border-warm-200 hover:border-warm-300 bg-white/50'
                   }`}>
                     <input
                       type="radio"
@@ -450,7 +634,7 @@ const CreateInstance: React.FC = () => {
                       className="mt-0.5 h-4 w-4 text-primary-600 focus:ring-primary-500 border-warm-300"
                     />
                     <div className="ml-3">
-                      <span className="block text-sm font-medium text-warm-900">
+                      <span className="block text-sm font-semibold text-warm-900">
                         Start with {selectedPlan.trial_length}-day free trial
                       </span>
                       <span className="block text-xs text-warm-500 mt-0.5">
@@ -459,8 +643,8 @@ const CreateInstance: React.FC = () => {
                     </div>
                   </label>
 
-                  <label className={`flex items-start p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                    phaseType === 'EVERGREEN' ? 'border-primary-500 bg-primary-50' : 'border-warm-200 hover:border-warm-300'
+                  <label className={`flex items-start p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                    phaseType === 'EVERGREEN' ? 'border-primary-500 bg-white shadow-sm' : 'border-warm-200 hover:border-warm-300 bg-white/50'
                   }`}>
                     <input
                       type="radio"
@@ -470,11 +654,11 @@ const CreateInstance: React.FC = () => {
                       className="mt-0.5 h-4 w-4 text-primary-600 focus:ring-primary-500 border-warm-300"
                     />
                     <div className="ml-3">
-                      <span className="block text-sm font-medium text-warm-900">
-                        Skip trial, start paid subscription immediately
+                      <span className="block text-sm font-semibold text-warm-900">
+                        Skip trial, start paid subscription
                       </span>
                       <span className="block text-xs text-warm-500 mt-0.5">
-                        You'll be charged ${selectedPlan.price} immediately to activate your instance.
+                        Pay ${selectedPlan.price} now to activate your instance immediately.
                       </span>
                     </div>
                   </label>
@@ -740,7 +924,7 @@ const CreateInstance: React.FC = () => {
                   {selectedPlan
                     ? trialEligibility?.can_show_trial_info && selectedPlan.trial_length > 0 && phaseType === 'TRIAL'
                       ? `Start ${selectedPlan.trial_length}-Day Trial`
-                      : `Create Instance - $${selectedPlan.price}/${selectedPlan.billing_period.toLowerCase()}`
+                      : `Create Instance — $${selectedPlan.price}${BILLING_PERIOD_SHORT[selectedBillingPeriod]}`
                     : 'Select a Plan'}
                   <svg className="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
