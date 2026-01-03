@@ -5,6 +5,32 @@ interface MarketingLayoutProps {
   children: React.ReactNode;
 }
 
+/**
+ * Get the app domain URL for auth redirects.
+ * On www.example.com -> redirects to app.example.com
+ * On app.example.com or localhost -> returns same-domain path
+ */
+const getAppDomainUrl = (path: string = '/dashboard'): string => {
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  const port = window.location.port;
+
+  // If already on app subdomain or localhost, just return the path
+  if (hostname.startsWith('app.') || hostname.includes('localhost') || hostname.match(/^\d+\.\d+\.\d+\.\d+/)) {
+    return path;
+  }
+
+  // If on www, redirect to app subdomain
+  if (hostname.startsWith('www.')) {
+    const baseDomain = hostname.replace('www.', '');
+    const portSuffix = port ? `:${port}` : '';
+    return `${protocol}//app.${baseDomain}${portSuffix}${path}`;
+  }
+
+  // Fallback - just return path
+  return path;
+};
+
 const MarketingLayout: React.FC<MarketingLayoutProps> = ({ children }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -86,18 +112,18 @@ const MarketingLayout: React.FC<MarketingLayoutProps> = ({ children }) => {
 
             {/* Desktop Auth Buttons */}
             <div className="hidden md:flex items-center gap-4">
-              <Link
-                to="/login"
+              <a
+                href={getAppDomainUrl('/login')}
                 className="text-sm font-medium text-warm-700 hover:text-warm-900 transition-colors duration-200"
               >
                 Log in
-              </Link>
-              <Link
-                to="/register"
+              </a>
+              <a
+                href={getAppDomainUrl('/register')}
                 className="btn-primary text-sm px-5 py-2.5"
               >
                 Start Free Trial
-              </Link>
+              </a>
             </div>
 
             {/* Mobile Menu Button */}
@@ -142,18 +168,18 @@ const MarketingLayout: React.FC<MarketingLayoutProps> = ({ children }) => {
                 </Link>
               ))}
               <div className="pt-4 space-y-3 border-t border-warm-200">
-                <Link
-                  to="/login"
+                <a
+                  href={getAppDomainUrl('/login')}
                   className="block text-base font-medium text-warm-700"
                 >
                   Log in
-                </Link>
-                <Link
-                  to="/register"
+                </a>
+                <a
+                  href={getAppDomainUrl('/register')}
                   className="block btn-primary text-center"
                 >
                   Start Free Trial
-                </Link>
+                </a>
               </div>
             </div>
           </div>

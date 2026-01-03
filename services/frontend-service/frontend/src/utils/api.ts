@@ -267,20 +267,20 @@ class TokenManager {
       created_at: Date.now()
     };
     
-    // Use sessionStorage for better security
-    sessionStorage.setItem(this.TOKEN_KEY, JSON.stringify(tokenData));
+    // Use localStorage to share auth state across all tabs
+    localStorage.setItem(this.TOKEN_KEY, JSON.stringify(tokenData));
     if (refreshToken) {
-      sessionStorage.setItem(this.REFRESH_KEY, refreshToken);
+      localStorage.setItem(this.REFRESH_KEY, refreshToken);
     }
   }
 
   static getAccessToken(): string | null {
     try {
-      const tokenDataStr = sessionStorage.getItem(this.TOKEN_KEY);
+      const tokenDataStr = localStorage.getItem(this.TOKEN_KEY);
       if (!tokenDataStr) return null;
 
       const tokenData = JSON.parse(tokenDataStr);
-      
+
       // Check if token is expired
       if (Date.now() >= tokenData.expires_at) {
         this.clearTokens();
@@ -295,12 +295,12 @@ class TokenManager {
   }
 
   static getRefreshToken(): string | null {
-    return sessionStorage.getItem(this.REFRESH_KEY);
+    return localStorage.getItem(this.REFRESH_KEY);
   }
 
   static clearTokens(): void {
-    sessionStorage.removeItem(this.TOKEN_KEY);
-    sessionStorage.removeItem(this.REFRESH_KEY);
+    localStorage.removeItem(this.TOKEN_KEY);
+    localStorage.removeItem(this.REFRESH_KEY);
   }
 
   static isAuthenticated(): boolean {
