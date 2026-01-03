@@ -11,18 +11,21 @@ from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID
 
-# Import helpers globally to fix NameError in exception handlers
+# Import shared helpers from centralized module
+from app.tasks.helpers import (
+    get_instance_from_db as _get_instance_from_db,
+    update_instance_status as _update_instance_status,
+    wait_for_odoo_startup as _wait_for_odoo_startup,
+)
+# Import maintenance-specific functions
 from app.tasks.maintenance import (
-    _get_instance_from_db,
-    _update_instance_status,
     _stop_kubernetes_deployment,
     _start_kubernetes_deployment,
     _backup_instance_workflow,
     _restore_database_backup,
     _get_backup_record,
-    _wait_for_odoo_startup
 )
-from app.utils.k8s_client import KubernetesClient
+from app.utils.kubernetes import KubernetesClient
 
 from celery import current_task
 from app.celery_config import celery_app
@@ -203,7 +206,7 @@ async def _create_db_user_on_dedicated_server(instance: Dict[str, Any], db_serve
     the database user using credentials provided in the request.
     """
     # Read existing credentials from odoo.conf in PVC using Kubernetes Job
-    from app.utils.k8s_client import KubernetesClient
+    from app.utils.kubernetes import KubernetesClient
 
     pvc_name = f"odoo-instance-{instance['id'].hex}"
     k8s_client = KubernetesClient()
@@ -330,7 +333,7 @@ async def _update_service_environment(instance: Dict[str, Any], dedicated: Dict[
 
     # Step 1: Update odoo.conf file in PVC using Kubernetes Job
     # (REQUIRED - this is what Odoo actually uses)
-    from app.utils.k8s_client import KubernetesClient
+    from app.utils.kubernetes import KubernetesClient
     from io import StringIO
 
     pvc_name = f"odoo-instance-{instance['id'].hex}"

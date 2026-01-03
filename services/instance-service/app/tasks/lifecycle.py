@@ -12,7 +12,14 @@ from uuid import UUID
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
 from app.utils.notification_client import get_notification_client
-from app.utils.k8s_client import KubernetesClient
+from app.utils.kubernetes import KubernetesClient
+from app.tasks.helpers import (
+    get_instance_from_db as _get_instance_from_db,
+    update_instance_status as _update_instance_status,
+    wait_for_odoo_startup as _wait_for_odoo_startup,
+    update_instance_network_info as _update_instance_network_info,
+    get_user_info as _get_user_info,
+)
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -455,152 +462,3 @@ async def _unpause_docker_container(instance: Dict[str, Any]):
     """Unpause Kubernetes deployment (Kubernetes doesn't support pause, so we map to start)"""
     logger.info("Kubernetes doesn't support pause/unpause - mapping unpause to start")
     return await _start_docker_container(instance)
-
-
-# ===== DATABASE UTILITIES (duplicated from provisioning.py for now) =====
-
-async def _get_instance_from_db(instance_id: str) -> Dict[str, Any]:
-    """Get instance details from database"""
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=os.getenv('POSTGRES_DB', 'instance'),
-        user=os.getenv('DB_SERVICE_USER', 'instance_service'),
-        password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
-    )
-    
-    try:
-        row = await conn.fetchrow("SELECT * FROM instances WHERE id = $1", UUID(instance_id))
-        if row:
-            instance_data = dict(row)
-            
-            # Deserialize JSON fields
-            import json
-            
-            if instance_data.get('custom_addons'):
-                instance_data['custom_addons'] = json.loads(instance_data['custom_addons'])
-            else:
-                instance_data['custom_addons'] = []
-                
-            if instance_data.get('disabled_modules'):
-                instance_data['disabled_modules'] = json.loads(instance_data['disabled_modules'])
-            else:
-                instance_data['disabled_modules'] = []
-                
-            if instance_data.get('environment_vars'):
-                instance_data['environment_vars'] = json.loads(instance_data['environment_vars'])
-            else:
-                instance_data['environment_vars'] = {}
-                
-            if instance_data.get('metadata'):
-                instance_data['metadata'] = json.loads(instance_data['metadata'])
-            else:
-                instance_data['metadata'] = {}
-            
-            return instance_data
-        return None
-    finally:
-        await conn.close()
-
-
-async def _update_instance_status(instance_id: str, status: InstanceStatus, error_message: str = None):
-    """Update instance status in database"""
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=os.getenv('POSTGRES_DB', 'instance'),
-        user=os.getenv('DB_SERVICE_USER', 'instance_service'),
-        password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
-    )
-    
-    try:
-        await conn.execute("""
-            UPDATE instances 
-            SET status = $1, error_message = $2, updated_at = $3
-            WHERE id = $4
-        """, status.value, error_message, datetime.utcnow(), UUID(instance_id))
-        
-        logger.info("Instance status updated", instance_id=instance_id, status=status.value)
-    finally:
-        await conn.close()
-
-
-async def _wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 300): #120 seconds
-    """Wait for Odoo to start up and be accessible"""
-    import httpx
-    
-    url = container_info['internal_url']
-    start_time = datetime.utcnow()
-    
-    logger.info("Waiting for Odoo startup", url=url, timeout=timeout)
-    
-    async with httpx.AsyncClient() as client:
-        while (datetime.utcnow() - start_time).seconds < timeout:
-            try:
-                response = await client.get(url, timeout=10)
-                if response.status_code in [200, 303, 302]:  # Odoo redirects are normal
-                    logger.info("Odoo is accessible")
-                    return True
-            except Exception:
-                pass  # Continue waiting
-            
-            await asyncio.sleep(10)  # Check every 10 seconds
-    
-    raise TimeoutError(f"Odoo did not start within {timeout} seconds")
-
-
-async def _update_instance_network_info(instance_id: str, container_info: Dict[str, Any]):
-    """Update instance with network and container information"""
-    conn = await asyncpg.connect(
-        host=os.getenv('POSTGRES_HOST', 'postgres'),
-        port=int(os.getenv('POSTGRES_PORT', '5432')),
-        database=os.getenv('POSTGRES_DB', 'instance'),
-        user=os.getenv('DB_SERVICE_USER', 'instance_service'),
-        password=os.getenv('DB_SERVICE_PASSWORD', 'instance_service_secure_pass_change_me')
-    )
-    
-    try:
-        await conn.execute("""
-            UPDATE instances 
-            SET service_id = $1, service_name = $2, 
-                internal_url = $3, external_url = $4, updated_at = $5
-            WHERE id = $6
-        """, 
-            container_info.get('service_id'),
-            container_info.get('service_name'),
-            container_info['internal_url'],
-            container_info['external_url'],
-            datetime.utcnow(),
-            UUID(instance_id)
-        )
-        
-        logger.info("Instance network info updated", instance_id=instance_id)
-    finally:
-        await conn.close()
-
-
-async def _get_user_info(customer_id: str) -> Dict[str, Any]:
-    """Get user information from user-service for email notifications"""
-    try:
-        import httpx
-        
-        # Use the user-service API to get customer details
-        user_service_url = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{user_service_url}/users/internal/{customer_id}")
-            
-            if response.status_code == 200:
-                user_data = response.json()
-                return {
-                    'email': user_data.get('email', ''),
-                    'first_name': user_data.get('first_name', 'there')
-                }
-            else:
-                logger.warning("Failed to get user info from user-service", 
-                              customer_id=customer_id, status_code=response.status_code)
-                return None
-                
-    except Exception as e:
-        logger.error("Error getting user info", customer_id=customer_id, error=str(e))
-        return None

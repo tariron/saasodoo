@@ -15,7 +15,7 @@ from app.models.events import (
     EventFilterConfig, MonitoringStatus
 )
 from app.utils.database import InstanceDatabase
-from app.utils.k8s_client import KubernetesClient
+from app.utils.kubernetes import KubernetesClient
 from app.tasks.monitoring import (
     monitor_docker_events_task,
     stop_docker_events_monitoring_task,

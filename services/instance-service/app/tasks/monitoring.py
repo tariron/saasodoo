@@ -25,7 +25,7 @@ from kubernetes.client.rest import ApiException
 
 from app.celery_config import celery_app
 from app.models.instance import InstanceStatus
-from app.utils.k8s_client import KubernetesClient
+from app.utils.kubernetes import KubernetesClient
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +67,7 @@ class KubernetesPodMonitor:
     def _init_k8s_client(self):
         """Initialize Kubernetes client with error handling"""
         try:
-            from app.utils.k8s_client import KubernetesClient
+            from app.utils.kubernetes import KubernetesClient
             self.k8s_client = KubernetesClient()
             self.core_v1 = self.k8s_client.core_v1
             # Test connection by listing pods

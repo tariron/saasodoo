@@ -41,7 +41,16 @@ celery_app = Celery(
     "instance_service",
     broker=f"amqp://{os.getenv('RABBITMQ_USER', 'saasodoo')}:{os.getenv('RABBITMQ_PASSWORD', 'saasodoo123')}@{os.getenv('RABBITMQ_HOST', 'rabbitmq')}:{os.getenv('RABBITMQ_PORT', '5672')}/{os.getenv('RABBITMQ_VHOST', 'saasodoo')}",
     backend=_get_redis_backend_url(),
-    include=['app.tasks.provisioning', 'app.tasks.lifecycle', 'app.tasks.maintenance', 'app.tasks.monitoring', 'app.tasks.migration']
+    include=[
+        'app.tasks.provisioning',
+        'app.tasks.lifecycle',
+        'app.tasks.maintenance',
+        'app.tasks.monitoring',
+        'app.tasks.migration',
+        'app.tasks.backup',
+        'app.tasks.restore',
+        'app.tasks.upgrade',
+    ]
 )
 
 # Configure Sentinel transport options if using Sentinel
@@ -78,6 +87,9 @@ celery_app.conf.update(
         'app.tasks.maintenance.*': {'queue': 'instance_maintenance'},
         'app.tasks.monitoring.*': {'queue': 'instance_monitoring'},
         'app.tasks.migration.*': {'queue': 'instance_maintenance'},
+        'app.tasks.backup.*': {'queue': 'instance_maintenance'},
+        'app.tasks.restore.*': {'queue': 'instance_maintenance'},
+        'app.tasks.upgrade.*': {'queue': 'instance_maintenance'},
     },
     # No automatic retry - admin manual retry only
     task_retry_jitter=False,
