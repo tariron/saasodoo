@@ -135,7 +135,10 @@ class PostgreSQLKubernetesClient:
         network: str = "saasodoo-network"
     ) -> Dict[str, str]:
         """
-        Create a PostgreSQL pool StatefulSet in Kubernetes
+        Create a PostgreSQL pool StatefulSet in Kubernetes (idempotent)
+
+        If StatefulSet/Service already exist, returns their info.
+        Only creates resources that don't exist.
 
         Args:
             pool_name: Name of the pool
@@ -149,10 +152,50 @@ class PostgreSQLKubernetesClient:
             network: (Ignored in K8s - using Services)
 
         Returns:
-            Dictionary with service_id (StatefulSet name) and service_name
+            Dictionary with service_id (StatefulSet UID) and service_name
         """
         try:
             self._ensure_connection()
+
+            # Check if StatefulSet already exists
+            existing_statefulset = None
+            try:
+                existing_statefulset = self.apps_v1.read_namespaced_stateful_set(
+                    name=pool_name,
+                    namespace=self.namespace
+                )
+                logger.info("StatefulSet already exists",
+                           pool_name=pool_name,
+                           uid=existing_statefulset.metadata.uid,
+                           ready_replicas=existing_statefulset.status.ready_replicas)
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                # StatefulSet doesn't exist, will create below
+
+            # Check if Service already exists
+            existing_service = None
+            try:
+                existing_service = self.core_v1.read_namespaced_service(
+                    name=pool_name,
+                    namespace=self.namespace
+                )
+                logger.info("Service already exists", pool_name=pool_name)
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                # Service doesn't exist, will create below
+
+            # If both exist, return existing info
+            if existing_statefulset and existing_service:
+                logger.info("Both StatefulSet and Service already exist, skipping creation",
+                           pool_name=pool_name)
+                # Note: service_id is the StatefulSet name (not UID) because
+                # wait_for_service_ready() uses it to look up by name
+                return {
+                    "service_id": pool_name,
+                    "service_name": pool_name
+                }
 
             # Parse memory limit
             memory_bytes = self._parse_memory(memory_limit)
@@ -293,35 +336,46 @@ class PostgreSQLKubernetesClient:
                 spec=statefulset_spec
             )
 
-            # Create StatefulSet
-            created = self.apps_v1.create_namespaced_stateful_set(
-                namespace=self.namespace,
-                body=statefulset
-            )
-
-            # Create Service for the pool
-            service = client.V1Service(
-                api_version="v1",
-                kind="Service",
-                metadata=client.V1ObjectMeta(name=pool_name),
-                spec=client.V1ServiceSpec(
-                    selector={"app": "postgres-pool", "pool-name": pool_name},
-                    ports=[client.V1ServicePort(port=5432, target_port=5432)],
-                    cluster_ip="None"  # Headless service
+            # Create StatefulSet if it doesn't exist
+            if existing_statefulset:
+                created = existing_statefulset
+                logger.info("Using existing StatefulSet", pool_name=pool_name)
+            else:
+                created = self.apps_v1.create_namespaced_stateful_set(
+                    namespace=self.namespace,
+                    body=statefulset
                 )
-            )
+                logger.info("Created new StatefulSet", pool_name=pool_name)
 
-            self.core_v1.create_namespaced_service(
-                namespace=self.namespace,
-                body=service
-            )
+            # Create Service if it doesn't exist
+            if not existing_service:
+                service = client.V1Service(
+                    api_version="v1",
+                    kind="Service",
+                    metadata=client.V1ObjectMeta(name=pool_name),
+                    spec=client.V1ServiceSpec(
+                        selector={"app": "postgres-pool", "pool-name": pool_name},
+                        ports=[client.V1ServicePort(port=5432, target_port=5432)],
+                        cluster_ip="None"  # Headless service
+                    )
+                )
 
-            logger.info("PostgreSQL pool StatefulSet created",
+                self.core_v1.create_namespaced_service(
+                    namespace=self.namespace,
+                    body=service
+                )
+                logger.info("Created new Service", pool_name=pool_name)
+            else:
+                logger.info("Using existing Service", pool_name=pool_name)
+
+            logger.info("PostgreSQL pool StatefulSet ready",
                        pool_name=pool_name,
                        statefulset_name=created.metadata.name)
 
+            # Note: service_id is the StatefulSet name (not UID) because
+            # wait_for_service_ready() uses it to look up the StatefulSet by name
             return {
-                "service_id": created.metadata.uid,
+                "service_id": pool_name,
                 "service_name": pool_name
             }
 
@@ -481,20 +535,52 @@ class PostgreSQLKubernetesClient:
 
     def create_postgres_pvc(self, pvc_name: str, storage_size: str) -> bool:
         """
-        Create PVC for PostgreSQL server
+        Create PVC for PostgreSQL server (idempotent)
+
+        If PVC already exists and is healthy (Bound or Pending), returns True.
+        Only creates if PVC doesn't exist.
 
         Args:
             pvc_name: Name of the PVC (e.g., 'postgres-pool-1', 'postgres-dedicated-{uuid}')
             storage_size: Storage size in Kubernetes format (e.g., '50Gi', '100Gi')
 
         Returns:
-            True if successful
+            True if successful (either created or already exists)
 
         Raises:
-            Exception if PVC creation fails
+            Exception if PVC creation fails or existing PVC is in failed state
         """
         try:
             self._ensure_connection()
+
+            # Check if PVC already exists
+            try:
+                existing_pvc = self.core_v1.read_namespaced_persistent_volume_claim(
+                    name=pvc_name,
+                    namespace=self.namespace
+                )
+                pvc_phase = existing_pvc.status.phase
+
+                if pvc_phase in ('Bound', 'Pending'):
+                    logger.info("PVC already exists and is healthy",
+                               pvc_name=pvc_name,
+                               phase=pvc_phase,
+                               size=existing_pvc.spec.resources.requests.get('storage'))
+                    return True
+                elif pvc_phase == 'Lost':
+                    raise Exception(f"PVC {pvc_name} exists but is in Lost state - manual intervention required")
+                else:
+                    logger.warning("PVC exists in unexpected state",
+                                 pvc_name=pvc_name,
+                                 phase=pvc_phase)
+                    # Continue and let it be - might recover
+                    return True
+
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                # PVC doesn't exist, proceed to create
+
             from datetime import datetime
 
             pvc = client.V1PersistentVolumeClaim(

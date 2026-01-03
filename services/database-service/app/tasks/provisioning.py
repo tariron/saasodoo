@@ -110,58 +110,77 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
             result = await conn.fetchrow(count_query)
             pool_number = result['count'] + 1
             pool_name = f"postgres-pool-{pool_number}"
+            pvc_name = f"postgres-pool-{pool_number}"
 
             logger.info("Determined pool name", pool_name=pool_name, pool_number=pool_number)
 
-            # Step 2: Create PVC for PostgreSQL pool storage
-            pvc_name = f"postgres-pool-{pool_number}"
+            # Step 2: Check if db_servers record already exists (idempotent retry handling)
+            existing_query = """
+                SELECT id, admin_password, status
+                FROM db_servers
+                WHERE name = $1
+            """
+            existing_row = await conn.fetchrow(existing_query, pool_name)
+
+            if existing_row:
+                # Record exists - this is a retry, reuse existing password
+                db_server_id = str(existing_row['id'])
+                admin_password = existing_row['admin_password']
+                logger.info("Found existing db_server record (retry scenario)",
+                           db_server_id=db_server_id,
+                           pool_name=pool_name,
+                           current_status=existing_row['status'])
+
+                # Reset status to provisioning if it was error
+                if existing_row['status'] == 'error':
+                    await conn.execute(
+                        "UPDATE db_servers SET status = 'provisioning' WHERE id = $1",
+                        db_server_id
+                    )
+            else:
+                # Step 3: Generate new credentials (only for first run)
+                admin_password = secrets.token_urlsafe(32)
+
+                # Step 4: Create database record
+                insert_query = """
+                    INSERT INTO db_servers (
+                        name, host, port, server_type, max_instances, current_instances,
+                        status, health_status, storage_path, postgres_version, postgres_image,
+                        cpu_limit, memory_limit, allocation_strategy, priority,
+                        provisioned_by, provisioned_at, admin_user, admin_password
+                    )
+                    VALUES (
+                        $1, $2, 5432, 'shared', $3, 0,
+                        'provisioning', 'unknown', $4, '16', 'postgres:16-alpine',
+                        '2', '4G', 'auto', 10,
+                        'provisioning_task', NOW(), 'postgres', $5
+                    )
+                    RETURNING id
+                """
+                row = await conn.fetchrow(
+                    insert_query,
+                    pool_name,  # name
+                    pool_name,  # host (K8s service DNS)
+                    max_instances,  # max_instances
+                    pvc_name,  # storage_path (now stores PVC name)
+                    admin_password  # admin_password
+                )
+                db_server_id = str(row['id'])
+                logger.info("Created new db_server record", db_server_id=db_server_id, pool_name=pool_name)
+
+            # Step 5: Create PVC (idempotent - checks if exists)
             storage_size = "50Gi"  # Default pool storage size
 
             try:
-                logger.info("Creating PVC for PostgreSQL pool", pvc_name=pvc_name, size=storage_size)
+                logger.info("Ensuring PVC for PostgreSQL pool", pvc_name=pvc_name, size=storage_size)
                 self.k8s_client.create_postgres_pvc(pvc_name, storage_size)
-                logger.info("PVC created successfully", pvc_name=pvc_name)
+                logger.info("PVC ready", pvc_name=pvc_name)
 
             except Exception as e:
                 logger.error("PVC creation failed", pvc_name=pvc_name, error=str(e))
                 raise Reject(f"Failed to create PVC: {e}", requeue=False)
 
-            # Step 3: Generate credentials
-            admin_password = secrets.token_urlsafe(32)
-
-            # Step 4: Create database record
-            insert_query = """
-                INSERT INTO db_servers (
-                    name, host, port, server_type, max_instances, current_instances,
-                    status, health_status, storage_path, postgres_version, postgres_image,
-                    cpu_limit, memory_limit, allocation_strategy, priority,
-                    provisioned_by, provisioned_at, admin_user, admin_password
-                )
-                VALUES (
-                    $1, $2, 5432, 'shared', $3, 0,
-                    'provisioning', 'unknown', $4, '16', 'postgres:16-alpine',
-                    '2', '4G', 'auto', 10,
-                    'provisioning_task', NOW(), 'postgres', $5
-                )
-                RETURNING id
-            """
-            row = await conn.fetchrow(
-                insert_query,
-                pool_name,  # name
-                pool_name,  # host (K8s service DNS)
-                max_instances,  # max_instances
-                pvc_name,  # storage_path (now stores PVC name)
-                admin_password  # admin_password
-            )
-            db_server_id = str(row['id'])
-
-            logger.info(
-                "Database record created",
-                db_server_id=db_server_id,
-                pool_name=pool_name
-            )
-
-            # Step 5: Create Kubernetes StatefulSet
+            # Step 6: Create Kubernetes StatefulSet (idempotent)
             try:
                 service_info = self.k8s_client.create_postgres_pool_service(
                     pool_name=pool_name,
@@ -368,53 +387,76 @@ async def _provision_dedicated_server_workflow(
             # Step 1: Generate server name (use instance_id for uniqueness, not customer_id)
             instance_short = instance_id[:8]
             server_name = f"postgres-dedicated-{instance_short}"
+            pvc_name = f"postgres-dedicated-{instance_short}"
 
             logger.info("Determined server name", server_name=server_name, instance_id=instance_id)
 
-            # Step 2: Create PVC for dedicated PostgreSQL server
-            pvc_name = f"postgres-dedicated-{instance_short}"
+            # Step 2: Check if db_servers record already exists (idempotent retry handling)
+            existing_query = """
+                SELECT id, admin_password, status
+                FROM db_servers
+                WHERE name = $1
+            """
+            existing_row = await conn.fetchrow(existing_query, server_name)
+
+            if existing_row:
+                # Record exists - this is a retry, reuse existing password
+                db_server_id = str(existing_row['id'])
+                admin_password = existing_row['admin_password']
+                logger.info("Found existing db_server record (retry scenario)",
+                           db_server_id=db_server_id,
+                           server_name=server_name,
+                           current_status=existing_row['status'])
+
+                # Reset status to provisioning if it was error
+                if existing_row['status'] == 'error':
+                    await conn.execute(
+                        "UPDATE db_servers SET status = 'provisioning' WHERE id = $1",
+                        db_server_id
+                    )
+            else:
+                # Step 3: Generate new credentials (only for first run)
+                admin_password = secrets.token_urlsafe(32)
+
+                # Step 4: Create database record
+                insert_query = """
+                    INSERT INTO db_servers (
+                        name, host, port, server_type, max_instances, current_instances,
+                        status, health_status, storage_path, postgres_version, postgres_image,
+                        cpu_limit, memory_limit, allocation_strategy,
+                        dedicated_to_customer_id, dedicated_to_instance_id,
+                        provisioned_by, provisioned_at, admin_user, admin_password
+                    )
+                    VALUES (
+                        $1, $2, 5432, 'dedicated', 1, 0,
+                        'provisioning', 'unknown', $3, '16', 'postgres:16-alpine',
+                        '2', '4G', 'manual',
+                        $4, $5,
+                        'provisioning_task', NOW(), 'postgres', $6
+                    )
+                    RETURNING id
+                """
+                row = await conn.fetchrow(
+                    insert_query,
+                    server_name, server_name, pvc_name,  # storage_path now stores PVC name
+                    customer_id, instance_id, admin_password
+                )
+                db_server_id = str(row['id'])
+                logger.info("Created new db_server record", db_server_id=db_server_id)
+
+            # Step 5: Create PVC (idempotent - checks if exists)
             storage_size = "100Gi"  # Dedicated server storage size
 
             try:
-                logger.info("Creating PVC for dedicated PostgreSQL server", pvc_name=pvc_name, size=storage_size)
+                logger.info("Ensuring PVC for dedicated PostgreSQL server", pvc_name=pvc_name, size=storage_size)
                 self.k8s_client.create_postgres_pvc(pvc_name, storage_size)
-                logger.info("PVC created successfully", pvc_name=pvc_name)
+                logger.info("PVC ready", pvc_name=pvc_name)
 
             except Exception as e:
                 logger.error("PVC creation failed", pvc_name=pvc_name, error=str(e))
                 raise Reject(f"Failed to create PVC: {e}", requeue=False)
 
-            # Step 3: Generate credentials
-            admin_password = secrets.token_urlsafe(32)
-
-            # Step 4: Create database record
-            insert_query = """
-                INSERT INTO db_servers (
-                    name, host, port, server_type, max_instances, current_instances,
-                    status, health_status, storage_path, postgres_version, postgres_image,
-                    cpu_limit, memory_limit, allocation_strategy,
-                    dedicated_to_customer_id, dedicated_to_instance_id,
-                    provisioned_by, provisioned_at, admin_user, admin_password
-                )
-                VALUES (
-                    $1, $2, 5432, 'dedicated', 1, 0,
-                    'provisioning', 'unknown', $3, '16', 'postgres:16-alpine',
-                    '2', '4G', 'manual',
-                    $4, $5,
-                    'provisioning_task', NOW(), 'postgres', $6
-                )
-                RETURNING id
-            """
-            row = await conn.fetchrow(
-                insert_query,
-                server_name, server_name, pvc_name,  # storage_path now stores PVC name
-                customer_id, instance_id, admin_password
-            )
-            db_server_id = str(row['id'])
-
-            logger.info("Dedicated server record created", db_server_id=db_server_id)
-
-            # Step 5: Create Kubernetes StatefulSet for dedicated server
+            # Step 6: Create Kubernetes StatefulSet for dedicated server (idempotent)
             try:
                 service_info = self.k8s_client.create_postgres_pool_service(
                     pool_name=server_name,
