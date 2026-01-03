@@ -949,7 +949,7 @@ const CreateInstance: React.FC = () => {
           onSuccess={() => {
             setShowPaymentModal(false);
             setSelectedInvoice(null);
-            navigate('/instances');
+            navigate('/instances', { state: { fromPayment: true } });
           }}
         />
       )}

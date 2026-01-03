@@ -71,6 +71,43 @@ const Instances: React.FC = () => {
     };
   }, [fetchInstances, getSignal]);
 
+  // Poll for new instances when navigating from payment success
+  // This handles the race condition where the backend is still processing
+  useEffect(() => {
+    const state = location.state as { fromPayment?: boolean } | null;
+    if (!state?.fromPayment || !profile?.id) return;
+
+    // Clear the navigation state so refresh doesn't re-trigger polling
+    window.history.replaceState({}, document.title);
+
+    let cancelled = false;
+    const pollForNewInstance = async () => {
+      const maxAttempts = 5;
+      const pollInterval = 2000; // 2 seconds between polls
+
+      for (let attempt = 0; attempt < maxAttempts && !cancelled; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        if (cancelled) break;
+
+        try {
+          const response = await instanceAPI.list(profile.id);
+          if (!cancelled) {
+            setInstances(response.data.instances || []);
+            lastFetchRef.current = Date.now();
+          }
+        } catch {
+          // Ignore errors during polling, will retry
+        }
+      }
+    };
+
+    pollForNewInstance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.state, profile?.id]);
+
   const handleInstanceAction = useCallback(async (instanceId: string, action: string, parameters?: Record<string, unknown>) => {
     if (!profile?.id) return;
 
