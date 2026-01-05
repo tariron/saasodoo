@@ -1,0 +1,56 @@
+---
+# cert-manager - Automatic TLS certificate management for Kubernetes
+#
+# Uses k3s/RKE2 HelmChart CRD for declarative Helm deployment
+# This installs cert-manager with all CRDs automatically
+#
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: v1.16.2
+  targetNamespace: cert-manager
+  createNamespace: true
+  valuesContent: |-
+    # Install CRDs with the chart
+    crds:
+      enabled: true
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 256Mi
+
+    # Webhook
+    webhook:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 50m
+          memory: 128Mi
+
+    # CA Injector
+    cainjector:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 50m
+          memory: 256Mi
+
+    # Enable Prometheus metrics
+    prometheus:
+      enabled: true
+      servicemonitor:
+        enabled: false

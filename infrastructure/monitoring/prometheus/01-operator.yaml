@@ -1,0 +1,60 @@
+---
+# Prometheus Operator Installation
+#
+# The Prometheus Operator manages Prometheus, Alertmanager, and related monitoring
+# components using Kubernetes Custom Resource Definitions (CRDs).
+#
+# Documentation: https://prometheus-operator.dev/
+# GitHub: https://github.com/prometheus-operator/prometheus-operator
+#
+# INSTALLATION (choose one method):
+#
+# Method 1: Apply bundle directly (recommended for production)
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/bundle.yaml
+#
+# Method 2: Install just the CRDs first, then operator
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_alertmanagerconfigs.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_alertmanagers.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_probes.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_prometheuses.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.79.0/example/prometheus-operator-crd/monitoring.coreos.com_thanosrulers.yaml
+#
+# This installs:
+# - Namespace: default (bundle installs to default, we'll run Prometheus in monitoring namespace)
+# - CRDs:
+#   - Prometheus (monitoring.coreos.com/v1)
+#   - Alertmanager (monitoring.coreos.com/v1)
+#   - ServiceMonitor (monitoring.coreos.com/v1)
+#   - PodMonitor (monitoring.coreos.com/v1)
+#   - PrometheusRule (monitoring.coreos.com/v1)
+#   - AlertmanagerConfig (monitoring.coreos.com/v1alpha1)
+#   - Probe (monitoring.coreos.com/v1)
+#   - ThanosRuler (monitoring.coreos.com/v1)
+# - ServiceAccount: prometheus-operator
+# - ClusterRole: prometheus-operator
+# - ClusterRoleBinding: prometheus-operator
+# - Deployment: prometheus-operator
+#
+# VERIFY INSTALLATION:
+#   kubectl get deployment prometheus-operator
+#   kubectl get crd | grep monitoring.coreos.com
+#   kubectl get pods -l app.kubernetes.io/name=prometheus-operator
+#
+# OPERATOR FEATURES:
+# - Manages Prometheus instances declaratively via CRDs
+# - Auto-discovers ServiceMonitors for scrape targets
+# - Manages Alertmanager clusters with HA
+# - Handles PrometheusRule for alerting rules
+# - Supports Thanos integration for long-term storage
+#
+# VERSION:
+# - Operator: v0.79.0 (latest stable as of Jan 2026)
+# - Prometheus: 3.1.0 (configurable via Prometheus CR)
+# - Alertmanager: 0.28.0 (configurable via Alertmanager CR)
+#
+# NOTE: After installing the operator, apply the manifests in this folder:
+#   kubectl apply -f infrastructure/monitoring/prometheus/
+#

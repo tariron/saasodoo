@@ -1,0 +1,195 @@
+---
+# Prometheus Instance - SaaSOdoo Platform Monitoring
+#
+# This creates a Prometheus instance that:
+# - Scrapes all ServiceMonitors in saasodoo and monitoring namespaces
+# - Stores 15 days of metrics data
+# - Uses CephFS for persistent storage
+# - Connects to Alertmanager for alerting
+#
+# Access: http://prometheus.62.171.153.219.nip.io
+# Internal: prometheus.monitoring.svc.cluster.local:9090
+#
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  # Prometheus version
+  version: v3.1.0
+
+  # Replicas for HA (1 for dev, 2+ for production)
+  replicas: 1
+
+  # Service account with RBAC permissions
+  serviceAccountName: prometheus
+
+  # ServiceMonitor selector - match all ServiceMonitors with these labels
+  serviceMonitorSelector:
+    matchLabels:
+      prometheus: saasodoo
+
+  # ServiceMonitor namespace selector - watch all namespaces
+  # (filtering is done by serviceMonitorSelector labels)
+  serviceMonitorNamespaceSelector: {}
+
+  # PodMonitor selector (for pods without services)
+  podMonitorSelector:
+    matchLabels:
+      prometheus: saasodoo
+
+  # PodMonitor namespace selector - watch all namespaces
+  podMonitorNamespaceSelector: {}
+
+  # PrometheusRule selector for alerting rules
+  ruleSelector:
+    matchLabels:
+      prometheus: saasodoo
+
+  # Rule namespace selector - watch all namespaces
+  ruleNamespaceSelector: {}
+
+  # Alertmanager connection
+  alerting:
+    alertmanagers:
+      - namespace: monitoring
+        name: alertmanager
+        port: web
+
+  # Data retention
+  retention: 15d
+  retentionSize: 45GB
+
+  # Persistent storage using CephFS
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: rook-cephfs
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 50Gi
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+
+  # Additional scrape configs for external targets
+  # (like node-exporter on host network)
+  additionalScrapeConfigs:
+    name: prometheus-additional-scrape-configs
+    key: additional-scrape-configs.yaml
+
+  # Enable admin API for snapshots and rule reloading
+  enableAdminAPI: true
+
+  # External labels for identifying this Prometheus instance
+  externalLabels:
+    cluster: saasodoo-prod
+    environment: production
+
+  # Web configuration
+  web:
+    pageTitle: "SaaSOdoo Prometheus"
+
+  # Affinity - prefer running on nodes with monitoring label
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/monitoring
+                operator: Exists
+---
+# Service to expose Prometheus
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    prometheus: prometheus
+---
+# Additional scrape configs Secret
+# Used for scraping targets that don't have ServiceMonitors
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-additional-scrape-configs
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: saasodoo
+type: Opaque
+stringData:
+  additional-scrape-configs.yaml: |
+    # Scrape Kubernetes API server
+    - job_name: 'kubernetes-apiservers'
+      kubernetes_sd_configs:
+        - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: default;kubernetes;https
+
+    # Scrape kubelet metrics
+    - job_name: 'kubelet'
+      kubernetes_sd_configs:
+        - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+
+    # Scrape cAdvisor metrics (container metrics from kubelet)
+    - job_name: 'cadvisor'
+      kubernetes_sd_configs:
+        - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      metrics_path: /metrics/cadvisor
+      relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)

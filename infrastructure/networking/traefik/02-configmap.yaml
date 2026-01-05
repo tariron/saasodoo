@@ -58,3 +58,11 @@ data:
         defaultMode: keep
         headers:
           defaultMode: keep
+
+    # Prometheus Metrics
+    metrics:
+      prometheus:
+        entryPoint: traefik
+        addEntryPointsLabels: true
+        addRoutersLabels: true
+        addServicesLabels: true

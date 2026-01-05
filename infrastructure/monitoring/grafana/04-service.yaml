@@ -1,0 +1,24 @@
+---
+# Grafana Service
+#
+# Exposes Grafana internally within the cluster.
+# External access is provided via Traefik IngressRoute.
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: visualization
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: grafana

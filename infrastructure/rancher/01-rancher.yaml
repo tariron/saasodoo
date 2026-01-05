@@ -1,0 +1,74 @@
+---
+# Rancher - Kubernetes Management UI
+#
+# Uses k3s/RKE2 HelmChart CRD for declarative Helm deployment
+#
+# Prerequisites:
+#   - cert-manager installed (for certificate management)
+#   OR use ingress.tls.source=rancher for Rancher-generated self-signed certs
+#
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rancher
+  namespace: kube-system
+spec:
+  repo: https://releases.rancher.com/server-charts/latest
+  chart: rancher
+  version: 2.12.3
+  targetNamespace: cattle-system
+  createNamespace: true
+  valuesContent: |-
+    # Hostname for Rancher UI
+    # Change this to your domain (e.g., rancher.yourdomain.com)
+    hostname: rancher.62.171.153.219.nip.io
+
+    # Number of replicas (1 for dev, 3 for HA production)
+    replicas: 1
+
+    # Bootstrap password (change on first login!)
+    bootstrapPassword: "admin"
+
+    # ==========================================================================
+    # TLS Configuration - Choose ONE option:
+    # ==========================================================================
+
+    # OPTION 1: Rancher self-signed (simplest - no cert-manager needed)
+    # Good for nip.io domains and development
+    ingress:
+      tls:
+        source: rancher  # Rancher generates its own self-signed cert
+
+    # OPTION 2: cert-manager with self-signed issuer
+    # Uncomment below and comment out OPTION 1
+    # ingress:
+    #   tls:
+    #     source: secret
+    # privateCA: true
+
+    # OPTION 3: Let's Encrypt (for real domains only)
+    # Uncomment below and comment out OPTION 1
+    # ingress:
+    #   tls:
+    #     source: letsEncrypt
+    # letsEncrypt:
+    #   email: admin@yourdomain.com
+    #   environment: production  # or 'staging' for testing
+
+    # ==========================================================================
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+    # Audit logging
+    auditLog:
+      level: 1  # 0=off, 1=metadata, 2=request, 3=request+response
+
+    # Anti-affinity for HA (when replicas > 1)
+    antiAffinity: preferred

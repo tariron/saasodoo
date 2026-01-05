@@ -1,0 +1,355 @@
+---
+# Infrastructure Grafana Dashboards
+#
+# Dashboards for monitoring infrastructure components:
+# - PostgreSQL: Connections, queries, replication
+# - RabbitMQ: Queues, connections, messages
+# - Redis: Memory, commands, connections
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-infrastructure
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: dashboards
+    app.kubernetes.io/part-of: saasodoo
+data:
+  postgresql.json: |
+    {
+      "annotations": { "list": [] },
+      "description": "PostgreSQL (CloudNativePG) Monitoring Dashboard",
+      "editable": true,
+      "graphTooltip": 1,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 1,
+          "panels": [],
+          "title": "Cluster Health",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "mappings": [
+                { "options": { "0": { "color": "red", "text": "DOWN" }, "1": { "color": "green", "text": "UP" } }, "type": "value" }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+          "id": 2,
+          "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center" },
+          "targets": [
+            { "expr": "cnpg_collector_up", "legendFormat": "{{pod}}", "refId": "A" }
+          ],
+          "title": "PostgreSQL Status",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 100 },
+                  { "color": "red", "value": 200 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center" },
+          "targets": [
+            { "expr": "sum(cnpg_backends_total)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Active Connections",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 10 },
+                  { "color": "red", "value": 30 }
+                ]
+              },
+              "unit": "s"
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center" },
+          "targets": [
+            { "expr": "max(cnpg_pg_replication_lag)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Replication Lag",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null }
+                ]
+              },
+              "unit": "bytes"
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+          "id": 5,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center" },
+          "targets": [
+            { "expr": "sum(cnpg_pg_database_size_bytes)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Total Database Size",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+          "id": 10,
+          "panels": [],
+          "title": "Query Performance",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "id": 11,
+          "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+          "targets": [
+            { "expr": "sum(rate(cnpg_pg_stat_database_xact_commit[5m])) by (pod)", "legendFormat": "{{pod}} commits", "refId": "A" },
+            { "expr": "sum(rate(cnpg_pg_stat_database_xact_rollback[5m])) by (pod)", "legendFormat": "{{pod}} rollbacks", "refId": "B" }
+          ],
+          "title": "Transactions/sec",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "id": 12,
+          "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+          "targets": [
+            { "expr": "sum(rate(cnpg_pg_stat_database_blks_hit[5m])) by (pod)", "legendFormat": "{{pod}} hits", "refId": "A" },
+            { "expr": "sum(rate(cnpg_pg_stat_database_blks_read[5m])) by (pod)", "legendFormat": "{{pod}} reads", "refId": "B" }
+          ],
+          "title": "Buffer Cache Hit Ratio",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["postgresql", "database", "infrastructure"],
+      "time": { "from": "now-1h", "to": "now" },
+      "title": "PostgreSQL (CNPG)",
+      "uid": "postgresql-cnpg",
+      "version": 1
+    }
+
+  rabbitmq.json: |
+    {
+      "annotations": { "list": [] },
+      "description": "RabbitMQ Cluster Monitoring Dashboard",
+      "editable": true,
+      "graphTooltip": 1,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 1,
+          "panels": [],
+          "title": "Cluster Overview",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 3 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+          "id": 2,
+          "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center" },
+          "targets": [
+            { "expr": "count(rabbitmq_identity_info)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Nodes Up",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 100 },
+                  { "color": "red", "value": 500 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center" },
+          "targets": [
+            { "expr": "sum(rabbitmq_connections)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Connections",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1000 },
+                  { "color": "red", "value": 5000 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center" },
+          "targets": [
+            { "expr": "sum(rabbitmq_queue_messages)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Total Messages",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null }
+                ]
+              },
+              "unit": "percentunit"
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+          "id": 5,
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center" },
+          "targets": [
+            { "expr": "avg(rabbitmq_process_resident_memory_bytes / rabbitmq_resident_memory_limit_bytes)", "legendFormat": "", "refId": "A" }
+          ],
+          "title": "Memory Usage",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+          "id": 10,
+          "panels": [],
+          "title": "Queue Metrics",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "id": 11,
+          "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+          "targets": [
+            { "expr": "rabbitmq_queue_messages{queue=~\"instance_provisioning|database_provisioning|notification_bulk\"}", "legendFormat": "{{vhost}}/{{queue}}", "refId": "A" }
+          ],
+          "title": "Celery Queue Depths",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "id": 12,
+          "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+          "targets": [
+            { "expr": "sum(rate(rabbitmq_global_messages_received_total[5m]))", "legendFormat": "Messages Received", "refId": "A" },
+            { "expr": "sum(rate(rabbitmq_global_messages_delivered_consume_auto_ack_total[5m])) + sum(rate(rabbitmq_global_messages_delivered_consume_manual_ack_total[5m]))", "legendFormat": "Messages Delivered", "refId": "B" },
+            { "expr": "sum(rate(rabbitmq_global_messages_acknowledged_total[5m]))", "legendFormat": "Messages Acknowledged", "refId": "C" }
+          ],
+          "title": "Message Rates (Global)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["rabbitmq", "messaging", "infrastructure"],
+      "time": { "from": "now-1h", "to": "now" },
+      "title": "RabbitMQ",
+      "uid": "rabbitmq",
+      "version": 1
+    }

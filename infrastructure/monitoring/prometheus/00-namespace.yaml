@@ -1,0 +1,19 @@
+---
+# Monitoring Namespace
+#
+# Dedicated namespace for all monitoring components:
+# - Prometheus (metrics collection)
+# - Alertmanager (alert routing)
+# - Grafana (visualization)
+# - Node Exporter (node metrics)
+# - kube-state-metrics (Kubernetes object metrics)
+#
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: saasodoo
+    # Enable Prometheus to scrape pods in this namespace
+    prometheus.io/scrape: "true"

@@ -1,0 +1,25 @@
+---
+# Grafana Persistent Volume Claim
+#
+# Stores:
+# - SQLite database (users, dashboards, annotations)
+# - Uploaded images
+# - Plugin data
+# - Alert state
+#
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/component: visualization
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: rook-cephfs
+  resources:
+    requests:
+      storage: 10Gi

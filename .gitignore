@@ -140,4 +140,7 @@ charts/*/requirements.lock
 
 # Generated files
 generated/
-auto-generated/ 
+auto-generated/
+
+# Business Plan & Documentation (sensitive)
+docs/ 

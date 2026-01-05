@@ -1,0 +1,208 @@
+---
+# Alertmanager - Alert Routing and Notification
+#
+# Alertmanager handles alerts sent by Prometheus:
+# - Deduplication: Combines similar alerts
+# - Grouping: Groups related alerts together
+# - Routing: Sends alerts to appropriate receivers
+# - Silencing: Mutes alerts during maintenance
+# - Inhibition: Suppresses alerts when others are firing
+#
+# Access: http://alertmanager.62.171.153.219.nip.io
+# Internal: alertmanager.monitoring.svc.cluster.local:9093
+#
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: alerting
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  # Alertmanager version
+  version: v0.28.0
+
+  # Replicas for HA (3 recommended for production)
+  replicas: 1
+
+  # External URL for links in alerts
+  externalUrl: http://alertmanager.62.171.153.219.nip.io
+
+  # Log level
+  logLevel: info
+
+  # Persistent storage
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: rook-cephfs
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+
+  # Alertmanager configuration selector
+  alertmanagerConfigSelector:
+    matchLabels:
+      alertmanager: saasodoo
+
+  # Watch all namespaces for AlertmanagerConfig resources
+  alertmanagerConfigNamespaceSelector: {}
+---
+# Service for Alertmanager
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: alerting
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      port: 9093
+      targetPort: 9093
+      protocol: TCP
+    - name: reloader
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    alertmanager: alertmanager
+---
+# Alertmanager Configuration Secret
+# Contains routing rules and receiver configurations
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: alerting
+    app.kubernetes.io/part-of: saasodoo
+type: Opaque
+stringData:
+  alertmanager.yaml: |
+    global:
+      # Default SMTP settings (configure for your mail server)
+      # smtp_smarthost: 'smtp.example.com:587'
+      # smtp_from: 'alertmanager@saasodoo.com'
+      # smtp_auth_username: 'alertmanager'
+      # smtp_auth_password: 'password'
+
+      # Resolve timeout (how long to wait before declaring alert resolved)
+      resolve_timeout: 5m
+
+    # Alert routing tree
+    route:
+      # Default receiver
+      receiver: 'default-receiver'
+
+      # Group alerts by these labels
+      group_by: ['alertname', 'severity', 'service']
+
+      # Wait before sending first notification for a new group
+      group_wait: 30s
+
+      # Wait before sending notification about new alerts in existing group
+      group_interval: 5m
+
+      # Wait before resending notification for an alert
+      repeat_interval: 4h
+
+      # Child routes for specific alerts
+      routes:
+        # Critical alerts - immediate notification
+        - match:
+            severity: critical
+          receiver: 'critical-receiver'
+          group_wait: 10s
+          repeat_interval: 1h
+
+        # Warning alerts
+        - match:
+            severity: warning
+          receiver: 'warning-receiver'
+          repeat_interval: 4h
+
+        # Infrastructure alerts
+        - match_re:
+            service: (postgresql|rabbitmq|redis)
+          receiver: 'infrastructure-receiver'
+          group_by: ['alertname', 'service']
+
+        # SaaSOdoo application alerts
+        - match_re:
+            service: (user-service|billing-service|instance-service)
+          receiver: 'application-receiver'
+
+    # Receivers define notification destinations
+    receivers:
+      - name: 'default-receiver'
+        # Webhook to MailHog for development
+        webhook_configs:
+          - url: 'http://mailhog.saasodoo.svc.cluster.local:8025/api/v1/webhook'
+            send_resolved: true
+
+      - name: 'critical-receiver'
+        # TODO: Configure Slack/PagerDuty for critical alerts
+        webhook_configs:
+          - url: 'http://mailhog.saasodoo.svc.cluster.local:8025/api/v1/webhook'
+            send_resolved: true
+        # slack_configs:
+        #   - api_url: 'https://hooks.slack.com/services/xxx'
+        #     channel: '#alerts-critical'
+        #     send_resolved: true
+
+      - name: 'warning-receiver'
+        webhook_configs:
+          - url: 'http://mailhog.saasodoo.svc.cluster.local:8025/api/v1/webhook'
+            send_resolved: true
+
+      - name: 'infrastructure-receiver'
+        webhook_configs:
+          - url: 'http://mailhog.saasodoo.svc.cluster.local:8025/api/v1/webhook'
+            send_resolved: true
+
+      - name: 'application-receiver'
+        webhook_configs:
+          - url: 'http://mailhog.saasodoo.svc.cluster.local:8025/api/v1/webhook'
+            send_resolved: true
+
+    # Inhibition rules - suppress alerts when others are firing
+    inhibit_rules:
+      # If a critical alert is firing, inhibit warning alerts for same service
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'service']
+
+      # If cluster is down, inhibit individual pod alerts
+      - source_match:
+          alertname: 'ClusterDown'
+        target_match_re:
+          alertname: 'Pod.*'
+        equal: ['cluster']

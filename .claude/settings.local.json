@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl get:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "Bash(curl -s http://api.62.171.153.219.nip.io/billing/health)",
+      "Bash(python3:*)",
+      "Bash(pip install:*)",
+      "mcp__plugin_context7_context7__query-docs",
+      "WebSearch"
+    ]
+  },
+  "outputStyle": "Explanatory"
+}

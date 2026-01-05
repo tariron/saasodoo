@@ -1,0 +1,57 @@
+---
+# =============================================================================
+# CURRENT SETUP: nip.io domains (*.62.171.153.219.nip.io)
+# Use self-signed issuer - Let's Encrypt doesn't work well with nip.io
+# =============================================================================
+
+# Self-signed issuer (for nip.io domains / internal services / development)
+# This is what you should use NOW with nip.io
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+
+---
+# =============================================================================
+# FUTURE: When you have real domains (e.g., app.yourdomain.com)
+# Uncomment and configure these issuers
+# =============================================================================
+
+# Let's Encrypt Staging Issuer (for testing - higher rate limits)
+# Use this first to test your setup before switching to production
+#
+# apiVersion: cert-manager.io/v1
+# kind: ClusterIssuer
+# metadata:
+#   name: letsencrypt-staging
+# spec:
+#   acme:
+#     server: https://acme-staging-v02.api.letsencrypt.org/directory
+#     email: admin@yourdomain.com  # TODO: Change to your email
+#     privateKeySecretRef:
+#       name: letsencrypt-staging-account-key
+#     solvers:
+#       - http01:
+#           ingress:
+#             ingressClassName: traefik
+
+---
+# Let's Encrypt Production Issuer (real certificates)
+# Only use after testing with staging works
+#
+# apiVersion: cert-manager.io/v1
+# kind: ClusterIssuer
+# metadata:
+#   name: letsencrypt-prod
+# spec:
+#   acme:
+#     server: https://acme-v02.api.letsencrypt.org/directory
+#     email: admin@yourdomain.com  # TODO: Change to your email
+#     privateKeySecretRef:
+#       name: letsencrypt-prod-account-key
+#     solvers:
+#       - http01:
+#           ingress:
+#             ingressClassName: traefik
