@@ -65,8 +65,8 @@ fi
 echo ""
 
 # Create main secrets file
-echo "Creating infrastructure/secrets/00-secrets.yaml..."
-cat > "$INFRA_ROOT/secrets/00-secrets.yaml" <<EOF
+echo "Creating infrastructure/00-secrets.yaml..."
+cat > "$INFRA_ROOT/00-secrets.yaml" <<EOF
 ---
 apiVersion: v1
 kind: Secret
@@ -120,7 +120,7 @@ stringData:
   SMTP_PASSWORD: "${SMTP_PASSWORD}"
 EOF
 
-echo "✓ Created infrastructure/secrets/00-secrets.yaml"
+echo "✓ Created infrastructure/00-secrets.yaml"
 echo ""
 
 # Create user-service secret
@@ -443,7 +443,7 @@ echo "✅ All secrets generated successfully!"
 echo "========================================="
 echo ""
 echo "Generated files:"
-echo "  • infrastructure/secrets/00-secrets.yaml (main secrets)"
+echo "  • infrastructure/00-secrets.yaml (main secrets)"
 echo "  • services/user-service/00-secret.yaml"
 echo "  • services/billing-service/00-secret.yaml"
 echo "  • services/instance-service/00-secret.yaml"

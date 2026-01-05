@@ -1,0 +1,67 @@
+ # K3s HA Cluster Setup Guide
+
+  Complete guide for setting up a 3-node K3s cluster with embedded etcd, MetalLB, and custom Traefik.
+
+  ## Prerequisites
+
+  - 3+ Ubuntu servers on private network
+  - Root SSH access to all nodes
+  - Passwordless SSH configured between nodes (see SSH-SETUP.md)
+
+  ## Cluster Configuration
+
+  | Variable | Description | Example |
+  |----------|-------------|---------|
+  | `<TOKEN>` | Shared cluster token | `my-secret-token` |
+  | `<NODE1_IP>` | First node private IP | `10.0.0.1` |
+  | `<NODE2_IP>` | Second node private IP | `10.0.0.2` |
+  | `<NODE3_IP>` | Third node private IP | `10.0.0.3` |
+  | `<PUBLIC_IP>` | Public IP (optional TLS SAN) | `62.171.153.219` |
+
+  ---
+
+  ## Step 1: Initialize First Node
+
+  Run on the **first node** (`<NODE1_IP>`):
+
+  ```bash
+  curl -sfL https://get.k3s.io | sh -s - server \
+    --cluster-init \
+    --token <TOKEN> \
+    --node-ip <NODE1_IP> \
+    --flannel-backend=vxlan \
+    --disable traefik \
+    --disable servicelb
+
+  Wait for the node to be ready:
+  # Check service status
+  systemctl status k3s
+
+  # Verify node is ready
+  kubectl get nodes
+
+  Expected output:
+  NAME       STATUS   ROLES                       AGE   VERSION
+  node1      Ready    control-plane,etcd,master   1m    v1.31+k3s1
+
+  ---
+  Step 2: Join Additional Nodes
+
+  Run on each additional node (<NODE2_IP>, <NODE3_IP>, etc.):
+
+  curl -sfL https://get.k3s.io | sh -s - server \
+    --server https://<NODE1_IP>:6443 \
+    --token <TOKEN> \
+    --node-ip <THIS_NODE_IP> \
+    --disable traefik \
+    --disable servicelb
+
+  Wait for each node to join before adding the next:
+  # Run on first node to verify
+  kubectl get nodes
+
+  Expected output (after all nodes join):
+  NAME       STATUS   ROLES                       AGE   VERSION
+  node1      Ready    control-plane,etcd,master   5m    v1.31+k3s1
+  node2      Ready    control-plane,etcd,master   3m    v1.31+k3s1
+  node3      Ready    control-plane,etcd,master   1m    v1.31+k3s1

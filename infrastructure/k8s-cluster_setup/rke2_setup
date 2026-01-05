@@ -1,0 +1,130 @@
+# RKE2 HA Cluster Setup Guide
+
+  Complete guide for setting up a 3-node RKE2 cluster with embedded etcd.
+
+  ## Prerequisites
+
+  - 3+ Ubuntu servers on private network
+  - Root SSH access to all nodes
+  - Passwordless SSH configured between nodes
+  - Minimum: 4 CPU, 8GB RAM, 50GB disk per node
+
+  ## Cluster Configuration
+
+  | Variable | Description | Example |
+  |----------|-------------|---------|
+  | `<TOKEN>` | Shared cluster token | `my-secret-token` |
+  | `<NODE1_IP>` | First node private IP | `10.0.0.1` |
+  | `<NODE2_IP>` | Second node private IP | `10.0.0.2` |
+  | `<NODE3_IP>` | Third node private IP | `10.0.0.3` |
+
+  ---
+
+  ## Step 1: Initialize First Node
+
+  Run on the **first node** (`<NODE1_IP>`):
+
+  ### 1.1 Install RKE2
+  ```bash
+  curl -sfL https://get.rke2.io | sh -
+
+  1.2 Create Configuration
+
+  mkdir -p /etc/rancher/rke2
+
+  cat > /etc/rancher/rke2/config.yaml << EOF
+  token: <TOKEN>
+  node-ip: <NODE1_IP>
+  disable:
+    - rke2-ingress-nginx
+  cni:
+    - canal
+  EOF
+
+  1.3 Enable and Start Service
+
+  systemctl enable rke2-server.service
+  systemctl start rke2-server.service
+
+  1.4 Wait and Verify
+
+  # Watch logs (takes 2-5 minutes)
+  journalctl -u rke2-server -f
+
+  # Once started, verify node is ready
+  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+  export PATH=$PATH:/var/lib/rancher/rke2/bin
+  kubectl get nodes
+
+  Expected output:
+  NAME       STATUS   ROLES                       AGE   VERSION
+  node1      Ready    control-plane,etcd,master   2m    v1.31.x+rke2r1
+
+  1.5 Add kubectl to PATH (permanent)
+
+  echo 'export KUBECONFIG=/etc/rancher/rke2/rke2.yaml' >> ~/.bashrc
+  echo 'export PATH=$PATH:/var/lib/rancher/rke2/bin' >> ~/.bashrc
+  source ~/.bashrc
+
+  ---
+  Step 2: Join Additional Nodes
+
+  Run on each additional node (<NODE2_IP>, <NODE3_IP>):
+
+  2.1 Install RKE2
+
+  curl -sfL https://get.rke2.io | sh -
+
+  2.2 Create Configuration
+
+  mkdir -p /etc/rancher/rke2
+
+  cat > /etc/rancher/rke2/config.yaml << EOF
+  server: https://<NODE1_IP>:9345
+  token: <TOKEN>
+  node-ip: <THIS_NODE_IP>
+  disable:
+    - rke2-ingress-nginx
+  EOF
+
+  2.3 Enable and Start Service
+
+  systemctl enable rke2-server.service
+  systemctl start rke2-server.service
+
+  2.4 Watch Progress
+
+  journalctl -u rke2-server -f
+
+  2.5 Add kubectl to PATH
+
+  echo 'export KUBECONFIG=/etc/rancher/rke2/rke2.yaml' >> ~/.bashrc
+  echo 'export PATH=$PATH:/var/lib/rancher/rke2/bin' >> ~/.bashrc
+  source ~/.bashrc
+
+  Wait for each node to join before adding the next.
+
+  ---
+  Step 3: Verify Cluster
+
+  Run on any node:
+
+  Check Nodes
+
+  kubectl get nodes -o wide
+
+  Expected output:
+  NAME    STATUS   ROLES                       AGE   VERSION          INTERNAL-IP
+  node1   Ready    control-plane,etcd,master   10m   v1.31.x+rke2r1   10.0.0.1
+  node2   Ready    control-plane,etcd,master   5m    v1.31.x+rke2r1   10.0.0.2
+  node3   Ready    control-plane,etcd,master   2m    v1.31.x+rke2r1   10.0.0.3
+
+  Check System Pods
+
+  kubectl get pods -n kube-system
+
+  Check etcd Health
+
+  kubectl get pods -n kube-system -l component=etcd
+
+  ---

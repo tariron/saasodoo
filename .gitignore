@@ -83,6 +83,7 @@ security/certificates/*/
 **/01-secret.yaml
 **/06-tls-secret.yaml
 infrastructure/networking/traefik/06-tls-secret.yaml
+infrastructure/scripts/copy-secrets.sh
 
 # Temporary files
 tmp/
