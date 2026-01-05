@@ -37,25 +37,36 @@ SaaSOdoo is a multi-tenant SaaS platform for provisioning and managing Odoo ERP 
 ### Deploy Platform
 ```bash
 # Deploy all infrastructure and services
-./infrastructure/scripts/deploy.sh
+./deploy/scripts/deploy.sh
 
 # Or deploy components individually
-kubectl apply -f infrastructure/00-namespace.yaml
-kubectl apply -f infrastructure/00-secrets.yaml
-kubectl apply -f infrastructure/00-configmap.yaml
-kubectl apply -f infrastructure/01-rbac.yaml
+# Foundation
+kubectl apply -f deploy/00-namespace.yaml
+kubectl apply -f deploy/00-secrets.yaml
+kubectl apply -f deploy/00-shared-config.yaml
+kubectl apply -f deploy/01-rbac.yaml
+
+# Infrastructure
 kubectl apply -f infrastructure/storage/
 kubectl apply -f infrastructure/networking/
-kubectl apply -f infrastructure/postgres/
-kubectl apply -f infrastructure/redis/
-kubectl apply -f infrastructure/rabbitmq/
-kubectl apply -f infrastructure/killbill/
-kubectl apply -f infrastructure/services/
+kubectl apply -f infrastructure/databases/postgres-cnpg/
+kubectl apply -f infrastructure/databases/redis/
+kubectl apply -f infrastructure/databases/rabbitmq/
+
+# Platform services
+kubectl apply -f deploy/platform/killbill/
+kubectl apply -f deploy/platform/user-service/
+kubectl apply -f deploy/platform/billing-service/
+kubectl apply -f deploy/platform/instance-service/
+kubectl apply -f deploy/platform/instance-worker/
+kubectl apply -f deploy/platform/database-service/
+kubectl apply -f deploy/platform/notification-service/
+kubectl apply -f deploy/platform/frontend-service/
 ```
 
 ### Teardown Platform
 ```bash
-./infrastructure/scripts/teardown.sh
+./deploy/scripts/teardown.sh
 ```
 
 ### View Logs
@@ -324,11 +335,38 @@ Cannot run sudo commands. If sudo is needed, inform the user and suggest the com
 - Be truthful always; admit uncertainties
 - Avoid verbosity during discussions unless implementation is requested
 
+## Project Structure
+
+```
+saasodoo/
+├── infrastructure/           # Cluster & infrastructure components
+│   ├── cluster/             # Cluster configs, hardening, addons
+│   ├── networking/          # MetalLB, Traefik
+│   ├── storage/             # Rook, CephFS
+│   ├── databases/           # PostgreSQL (CNPG), Redis, RabbitMQ
+│   ├── monitoring/          # Prometheus, Grafana
+│   └── tools/               # Dashboard, Rancher
+│
+├── deploy/                   # Application manifests
+│   ├── 00-namespace.yaml    # Namespace definition
+│   ├── 00-secrets.yaml      # Platform secrets
+│   ├── 00-shared-config.yaml # Shared ConfigMap
+│   ├── 01-rbac.yaml         # ServiceAccounts & RBAC
+│   ├── platform/            # Microservice deployments
+│   └── scripts/             # Deploy/teardown scripts
+│
+├── services/                 # Application source code
+├── shared/                   # Shared libraries
+└── docs/                     # Documentation
+```
+
 ## Documentation References
 
 See `docs/` directory for:
 - `SAASODOO_PROJECT_SUMMARY.md` - Complete technical architecture
 - `ISSUES_LOG.md` - Known issues and resolutions
 - `KUBERNETES_MIGRATION_PLAN.md` - Kubernetes deployment guide
+
+See also:
 - `infrastructure/README.md` - Infrastructure organization and commands
-- `infrastructure/KUBERNETES-README.md` - Kubernetes-specific documentation
+- `deploy/README.md` - Application deployment guide

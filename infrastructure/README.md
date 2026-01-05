@@ -1,214 +1,146 @@
 # Infrastructure Directory
 
-Kubernetes-based infrastructure for the SaaSOdoo multi-tenant platform.
+Kubernetes infrastructure components for the SaaSOdoo multi-tenant platform.
 
 ## Structure
 
-### Core Configuration Files
-- **00-namespace.yaml**: Kubernetes namespace definition
-- **00-configmap.yaml**: Platform-wide configuration
-- **00-secrets.yaml**: Sensitive credentials (not in git)
-- **00-secrets.example.yaml**: Template for secrets
-- **01-rbac.yaml**: Role-based access control for service accounts
+```
+infrastructure/
+├── cluster/                    # Cluster configuration & hardening
+│   ├── node-config/           # RKE2/K3s node configuration
+│   ├── helm-configs/          # HelmChartConfig overrides
+│   ├── resource-management/   # LimitRange, ResourceQuota
+│   ├── resilience/            # PodDisruptionBudgets
+│   ├── security/              # Pod Security Standards, Network Policies
+│   ├── addons/                # Control plane add-ons
+│   │   └── cert-manager/      # TLS certificate management
+│   └── scripts/               # Cluster setup scripts
+│
+├── networking/                 # Network infrastructure
+│   ├── metallb/               # Bare-metal load balancer
+│   └── traefik/               # Ingress controller
+│
+├── storage/                    # Storage infrastructure
+│   ├── rook/                  # Rook operator for Ceph
+│   └── ceph/                  # CephFS configuration
+│
+├── databases/                  # Database infrastructure
+│   ├── postgres-cnpg/         # CloudNativePG PostgreSQL cluster
+│   ├── redis/                 # Redis for caching & sessions
+│   └── rabbitmq/              # RabbitMQ message broker
+│
+├── monitoring/                 # Observability stack
+│   ├── prometheus/            # Metrics collection
+│   ├── grafana/               # Dashboards
+│   ├── kube-state-metrics/    # Cluster state metrics
+│   └── metrics-server/        # Resource metrics for HPA
+│
+├── registry/                   # Container registry
+│
+├── tools/                      # Supporting tools
+│   ├── kubernetes-dashboard/  # Cluster web UI
+│   └── rancher/               # Cluster management
+│
+└── images/                     # Custom Docker images
+    └── postgres/              # Custom PostgreSQL image
+```
 
-### images/
-Custom Docker images with embedded configurations.
+## Deployment Order
 
-- **postgres/**: PostgreSQL with initialization scripts
-  - `Dockerfile`: Custom postgres image
-  - `init-scripts/`: Database schemas (auto-run on first start)
+### Phase 1: Cluster Setup
+```bash
+# Apply cluster hardening configs
+kubectl apply -f infrastructure/cluster/resource-management/
+kubectl apply -f infrastructure/cluster/security/
+kubectl apply -f infrastructure/cluster/resilience/
+kubectl apply -f infrastructure/cluster/addons/cert-manager/
+```
 
-- **redis/**: Redis with custom configuration
-  - `Dockerfile`: Custom redis image
-  - `redis.conf`: Redis configuration file
+### Phase 2: Storage & Networking
+```bash
+kubectl apply -f infrastructure/storage/rook/
+kubectl apply -f infrastructure/networking/metallb/
+kubectl apply -f infrastructure/networking/traefik/
+```
 
-### Infrastructure Components
+### Phase 3: Databases
+```bash
+kubectl apply -f infrastructure/databases/postgres-cnpg/
+kubectl apply -f infrastructure/databases/redis/
+kubectl apply -f infrastructure/databases/rabbitmq/
+```
 
-#### postgres/
-Platform PostgreSQL StatefulSet with database schemas and init scripts.
-- Hosts platform databases: auth, billing, instance, communication
-- Maintains db_servers table for pool management
+### Phase 4: Monitoring
+```bash
+kubectl apply -f infrastructure/monitoring/
+```
 
-#### redis/
-Redis StatefulSet for session storage, caching, and Celery result backend.
+### Phase 5: Applications
+See `deploy/` directory for application manifests.
 
-#### rabbitmq/
-RabbitMQ StatefulSet for Celery task queues.
-- Queues: provisioning, operations, maintenance, monitoring
+## Component Details
 
-#### killbill/
-Billing engine infrastructure.
-- **mariadb/**: KillBill database StatefulSet
-- **killbill/**: KillBill server Deployment
-- **kaui/**: KillBill admin UI Deployment
-
-#### kubernetes-dashboard/
-Kubernetes web UI for cluster management.
-
-#### registry/
-Container registry infrastructure.
-- Kubernetes manifests for registry Deployment
-- Local registry docker-compose for development
+### cluster/
+Cluster-level configurations that apply to all nodes:
+- **node-config/**: RKE2/K3s configuration files and setup instructions
+- **helm-configs/**: HelmChartConfig CRDs for RKE2 component customization
+- **resource-management/**: Default resource limits and namespace quotas
+- **resilience/**: PodDisruptionBudgets for HA components
+- **security/**: Pod Security Standards, fail2ban configs
+- **addons/**: Lightweight control plane add-ons (cert-manager, etc.)
 
 ### networking/
-Network infrastructure components.
-
-- **metallb/**: Load balancer for bare-metal Kubernetes
-  - IP address pool configuration
-  - L2 advertisement settings
-
-- **traefik/**: Kubernetes-native Traefik ingress controller
-  - CRDs (Custom Resource Definitions)
-  - RBAC permissions
-  - Deployment and Service manifests
-  - IngressRoute configurations
-
-### services/
-Platform microservices Kubernetes manifests.
-
-- **user-service/**: Authentication and user management
-- **instance-service/**: Odoo instance lifecycle management API
-- **instance-worker/**: Celery workers for instance operations
-- **database-service/**: Database pool management API
-- **database-worker/**: Celery workers for database provisioning
-- **database-beat/**: Celery beat scheduler
-- **billing-service/**: KillBill integration and subscriptions
-- **notification-service/**: Email and notifications
-- **frontend-service/**: React web application
-- **mailhog/**: Email testing (development)
-
-Each service directory contains:
-- `00-rbac.yaml`: Service account and permissions (if needed)
-- `01-deployment.yaml`: Kubernetes Deployment
-- `02-service.yaml`: Kubernetes Service
-- `03-ingressroute.yaml`: Traefik routing (if exposed)
-
-### scripts/
-Deployment and management scripts.
-
-- **deploy.sh**: Deploy all Kubernetes manifests
-- **build-and-push.sh**: Build and push service images
-- **teardown.sh**: Remove all resources
-
-### security/
-Security configurations and hardening rules.
+- **metallb/**: L2 load balancer for bare-metal (IP pool: 62.171.153.219)
+- **traefik/**: Kubernetes-native ingress with IngressRoute CRDs
 
 ### storage/
-Storage infrastructure.
+- **rook/**: Rook-Ceph operator for distributed storage
+- **ceph/**: CephFS filesystem and StorageClass definitions
 
-- **ceph/**: CephFS distributed filesystem configurations
-- **00-storageclass.yaml**: Kubernetes StorageClass definitions
-- **01-persistent-volumes.yaml**: PersistentVolume configurations
+### databases/
+- **postgres-cnpg/**: HA PostgreSQL via CloudNativePG operator (3 replicas)
+- **redis/**: Redis for sessions, caching, Celery backend
+- **rabbitmq/**: RabbitMQ cluster for Celery task queues
+
+### monitoring/
+- **prometheus/**: Metrics scraping and alerting
+- **grafana/**: Visualization dashboards
+- **kube-state-metrics/**: Cluster object metrics
+- **metrics-server/**: Resource metrics for kubectl top and HPA
+
+### tools/
+Optional management tools:
+- **kubernetes-dashboard/**: Web UI for cluster management
+- **rancher/**: Multi-cluster management (optional)
 
 ## Quick Commands
 
-### Deploy Entire Platform
+### Check Infrastructure Status
 ```bash
-cd /root/Projects/saasodoo
+# All infrastructure pods
+kubectl get pods -n saasodoo -l app.kubernetes.io/part-of=infrastructure
 
-# Deploy all manifests
-./infrastructure/scripts/deploy.sh
+# Database status
+kubectl get clusters.postgresql.cnpg.io -n saasodoo
+kubectl get pods -n saasodoo -l app.kubernetes.io/name=redis
+kubectl get pods -n saasodoo -l app.kubernetes.io/name=rabbitmq
 
-# Or manually:
-kubectl apply -f infrastructure/00-namespace.yaml
-kubectl apply -f infrastructure/00-secrets.yaml
-kubectl apply -f infrastructure/00-configmap.yaml
-kubectl apply -f infrastructure/01-rbac.yaml
-kubectl apply -f infrastructure/storage/
-kubectl apply -f infrastructure/networking/
-kubectl apply -f infrastructure/postgres/
-kubectl apply -f infrastructure/redis/
-kubectl apply -f infrastructure/rabbitmq/
-kubectl apply -f infrastructure/killbill/
-kubectl apply -f infrastructure/services/
+# Storage status
+kubectl get cephcluster -n rook-ceph
+kubectl get sc
 ```
 
-### Build and Push Service Images
+### View Logs
 ```bash
-# Build all services
-./infrastructure/scripts/build-and-push.sh
+# PostgreSQL primary
+kubectl logs -n saasodoo -l cnpg.io/cluster=postgres-cluster,role=primary
 
-# Or build specific service:
-docker build -t registry.62.171.153.219.nip.io/instance-service:latest \
-  -f services/instance-service/Dockerfile .
-docker push registry.62.171.153.219.nip.io/instance-service:latest
+# Traefik
+kubectl logs -n saasodoo -l app.kubernetes.io/name=traefik
 ```
 
-### Rebuild Custom Infrastructure Images
-```bash
-# Postgres
-docker build -t registry.62.171.153.219.nip.io/compose-postgres:latest \
-  -f infrastructure/images/postgres/Dockerfile .
-docker push registry.62.171.153.219.nip.io/compose-postgres:latest
+## Related Directories
 
-# Redis
-docker build -t registry.62.171.153.219.nip.io/compose-redis:latest \
-  -f infrastructure/images/redis/Dockerfile .
-docker push registry.62.171.153.219.nip.io/compose-redis:latest
-```
-
-### Check Platform Status
-```bash
-# All pods
-kubectl get pods -n saasodoo
-
-# All services
-kubectl get svc -n saasodoo
-
-# Check specific service
-kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-service --tail=100
-```
-
-### Teardown
-```bash
-./infrastructure/scripts/teardown.sh
-```
-
-## Architecture Benefits
-
-**Kubernetes-Native**:
-- Declarative infrastructure as code
-- Self-healing and auto-restart
-- Resource management and limits
-- Rolling updates with zero downtime
-
-**Separation of Concerns**:
-- Infrastructure components: postgres, redis, rabbitmq, killbill
-- Platform services: user, instance, billing, notification
-- Networking: Traefik ingress with IngressRoutes
-- Storage: CephFS persistent volumes
-- Images: Custom build configurations
-
-**Clear Organization**:
-- All manifests in logical directories
-- Root config files for namespace, secrets, RBAC
-- Service-specific manifests grouped by service
-- Scripts for common operations
-
-## Migration from Docker Swarm
-
-This infrastructure was migrated from Docker Swarm to Kubernetes on 2025-12-26.
-
-**Key Changes**:
-- Removed `infrastructure/orchestration/swarm/` directory
-- Moved from `infrastructure/orchestration/kubernetes/` to `infrastructure/`
-- Replaced Swarm Traefik config with Kubernetes IngressRoutes
-- Updated all deployment scripts and documentation
-
-**Old Structure**:
-```
-infrastructure/orchestration/
-├── kubernetes/  # Nested directory
-└── swarm/       # Docker Swarm configs
-```
-
-**New Structure**:
-```
-infrastructure/  # Kubernetes manifests at root
-├── services/
-├── postgres/
-├── redis/
-└── ...
-```
-
-All build scripts, deployment workflows, and documentation have been updated for Kubernetes-only deployment.
+- **deploy/**: Application manifests (platform services)
+- **services/**: Application source code
+- **shared/**: Shared libraries and schemas
