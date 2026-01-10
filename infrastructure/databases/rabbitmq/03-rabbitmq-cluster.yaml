@@ -32,15 +32,14 @@ spec:
     storageClassName: rook-cephfs
     storage: 10Gi  # Per node (30Gi total)
 
-  # Resource Limits
-  # Actual usage: ~200Mi per pod, ~500Mi total cluster
+  # Resource Limits (tuned to actual usage + buffer)
   resources:
     requests:
-      cpu: "200m"
+      cpu: "100m"
       memory: "256Mi"
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: "300m"
+      memory: "512Mi"
 
   # RabbitMQ Configuration
   rabbitmq:
@@ -56,8 +55,9 @@ spec:
       # Disk free limit (stop accepting messages when disk < 2GB)
       disk_free_limit.absolute = 2GB
 
-      # VM memory high watermark (stop accepting when memory > 80%)
-      vm_memory_high_watermark.relative = 0.8
+      # VM memory high watermark (stop accepting when memory > 60%)
+      # Industry standard: 0.4-0.6 to prevent OOM kills
+      vm_memory_high_watermark.relative = 0.6
 
       # Heartbeat timeout
       heartbeat = 60

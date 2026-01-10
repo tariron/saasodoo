@@ -107,3 +107,9 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 10
           resources:
+            requests:
+              cpu: "100m"
+              memory: "1Gi"
+            limits:
+              cpu: "500m"
+              memory: "1536Mi"

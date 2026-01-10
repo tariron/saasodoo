@@ -83,15 +83,15 @@ spec:
     storageClass: rook-cephfs              # Distributed storage via Rook Ceph
     size: 20Gi                             # Same as current PostgreSQL PVC
 
-  # Resource Allocation (Guaranteed QoS)
-  # Requests = Limits ensures Guaranteed QoS class for predictable scheduling
+  # Resource Allocation (tuned to actual usage + buffer)
+  # Memory must be >= shared_buffers (512MB) + OS overhead
   resources:
     requests:
-      memory: "2Gi"
-      cpu: "1000m"                         # 1 CPU core
+      memory: "768Mi"
+      cpu: "100m"
     limits:
-      memory: "2Gi"
-      cpu: "1000m"
+      memory: "1Gi"
+      cpu: "500m"
 
   # Pod Anti-Affinity (High Availability)
   # Ensures pods are distributed across different nodes for fault tolerance

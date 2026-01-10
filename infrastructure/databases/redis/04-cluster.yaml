@@ -12,6 +12,12 @@ spec:
   sentinel:
     replicas: 3  # 3 Sentinels for quorum-based failover decisions
     resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"
     customConfig:
       - "down-after-milliseconds 5000"  # Declare master down after 5s
       - "failover-timeout 10000"         # Failover timeout 10s
@@ -21,6 +27,12 @@ spec:
   redis:
     replicas: 3  # Total: 1 master + 2 replicas
     resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
 
     # Prometheus metrics exporter (sidecar container)
     # Operator creates headless service with prometheus.io annotations
