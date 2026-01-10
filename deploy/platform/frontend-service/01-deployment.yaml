@@ -23,6 +23,9 @@ spec:
         - name: frontend-service
           image: registry.109.199.108.243.nip.io/frontend-service:latest
           imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: shared-config
           ports:
             - containerPort: 80
               name: http

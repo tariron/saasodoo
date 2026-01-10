@@ -42,9 +42,6 @@ spec:
           env:
             - name: RABBITMQ_VHOST
               value: "saasodoo-database"
-          volumeMounts:
-            - name: docker-socket
-              mountPath: /var/run/docker.sock
           livenessProbe:
             httpGet:
               path: /health
@@ -61,8 +58,3 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 3
-      volumes:
-        - name: docker-socket
-          hostPath:
-            path: /var/run/docker.sock
-            type: Socket
