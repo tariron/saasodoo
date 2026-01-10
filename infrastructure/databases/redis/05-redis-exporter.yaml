@@ -1,0 +1,34 @@
+---
+# Redis ServiceMonitor for Prometheus
+#
+# Scrapes metrics from the redis-exporter sidecar containers
+# managed by the redis-operator (enabled via spec.redis.exporter)
+#
+# The operator creates:
+# - Exporter sidecar in each Redis pod (port 9121)
+# - Headless service rfr-redis-cluster with prometheus.io annotations
+#
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: monitoring
+    prometheus: saasodoo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster
+      app.kubernetes.io/component: redis
+  endpoints:
+    - port: http-metrics
+      interval: 15s
+      relabelings:
+        # Use pod name as instance label instead of IP:port
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: instance
+        # Add redis role label (master/slave)
+        - sourceLabels: [__meta_kubernetes_pod_label_redisfailovers_role]
+          targetLabel: redis_role

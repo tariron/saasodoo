@@ -22,6 +22,12 @@ spec:
     replicas: 3  # Total: 1 master + 2 replicas
     resources:
 
+    # Prometheus metrics exporter (sidecar container)
+    # Operator creates headless service with prometheus.io annotations
+    exporter:
+      enabled: true
+      image: oliver006/redis_exporter:v1.66.0-alpine
+
     # Persistent storage configuration (using emptyDir for simplicity)
     # For production, configure persistent storage via storageClassName
     # storage:

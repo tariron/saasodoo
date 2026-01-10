@@ -74,6 +74,17 @@ spec:
                               type: string
                             memory:
                               type: string
+                    exporter:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        image:
+                          type: string
+                        args:
+                          type: array
+                          items:
+                            type: string
                     customConfig:
                       type: array
                       items:

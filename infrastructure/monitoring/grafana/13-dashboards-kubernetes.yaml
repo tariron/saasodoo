@@ -1,0 +1,46 @@
+# Kubernetes Grafana Dashboards
+#
+# Import via Grafana UI:
+# 1. Go to Grafana -> Dashboards -> Import
+# 2. Enter dashboard ID
+# 3. Click Load, select Prometheus datasource, then Import
+#
+# Recommended Dashboards:
+#
+# Cluster Overview:
+# - ID 15760: Kubernetes / Views / Global (https://grafana.com/grafana/dashboards/15760)
+# - ID 6417:  Kubernetes Cluster (Prometheus) (https://grafana.com/grafana/dashboards/6417)
+#
+# Node Metrics:
+# - ID 15759: Kubernetes / Views / Nodes (https://grafana.com/grafana/dashboards/15759)
+# - ID 1860:  Node Exporter Full (requires node-exporter) (https://grafana.com/grafana/dashboards/1860)
+#
+# Namespace/Workloads:
+# - ID 15758: Kubernetes / Views / Namespaces (https://grafana.com/grafana/dashboards/15758)
+# - ID 15757: Kubernetes / Views / Pods (https://grafana.com/grafana/dashboards/15757)
+#
+# API Server:
+# - ID 15761: Kubernetes / System / API Server (https://grafana.com/grafana/dashboards/15761)
+#
+# CoreDNS:
+# - ID 15762: Kubernetes / System / CoreDNS (https://grafana.com/grafana/dashboards/15762)
+#
+# Prerequisites:
+# - kube-state-metrics deployed (monitoring namespace)
+# - kubelet/cadvisor metrics (via additionalScrapeConfigs)
+# - kubernetes-apiservers scrape config
+#
+# Current metrics sources:
+# - kube-state-metrics: Kubernetes object metrics (pods, deployments, etc.)
+# - kubelet: Node and pod metrics
+# - cadvisor: Container CPU/memory/network metrics
+# - kubernetes-apiservers: API server metrics
+#
+# Node Metrics (node-exporter):
+# - node-exporter: Detailed host metrics (disk I/O, network interfaces)
+#   Deployed as DaemonSet in monitoring namespace
+#
+# Verify metrics:
+#   curl "http://prometheus.<basedomain>/api/v1/query?query=kube_pod_info"
+#   curl "http://prometheus.<basedomain>/api/v1/query?query=container_cpu_usage_seconds_total"
+#   curl "http://prometheus.<basedomain>/api/v1/query?query=node_memory_MemTotal_bytes"

@@ -1,0 +1,18 @@
+# CloudNativePG (PostgreSQL) Grafana Dashboard
+#
+# Import via Grafana UI:
+# 1. Go to Grafana -> Dashboards -> Import
+# 2. Enter dashboard ID: 20417
+# 3. Click Load, select Prometheus datasource, then Import
+#
+# Dashboard: https://grafana.com/grafana/dashboards/20417-cloudnativepg/
+#
+# Or download JSON from:
+# https://raw.githubusercontent.com/cloudnative-pg/grafana-dashboards/main/charts/cluster/grafana-dashboard.json
+#
+# Prerequisites:
+# - PodMonitor already configured in infrastructure/monitoring/prometheus/04-servicemonitors.yaml
+# - Prometheus scraping postgres-cluster pods on port 9187
+#
+# Verify metrics:
+#   curl "http://prometheus.<basedomain>/api/v1/query?query=cnpg_collector_up"

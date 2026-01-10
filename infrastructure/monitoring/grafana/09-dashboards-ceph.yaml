@@ -1,0 +1,24 @@
+# Ceph Grafana Dashboards
+#
+# Import these dashboards manually via Grafana UI:
+# 1. Go to Grafana -> Dashboards -> Import
+# 2. Enter the dashboard ID or paste JSON URL
+#
+# Official Rook Ceph Dashboards (from Grafana Labs):
+# - Ceph Cluster:    ID 2842  (https://grafana.com/grafana/dashboards/2842)
+# - Ceph OSD Single: ID 5336  (https://grafana.com/grafana/dashboards/5336)
+# - Ceph Pools:      ID 5342  (https://grafana.com/grafana/dashboards/5342)
+#
+# Or download JSON from Rook repo:
+# - https://raw.githubusercontent.com/rook/rook/master/deploy/examples/monitoring/grafana/Ceph%20Cluster%20Dashboard.json
+# - https://raw.githubusercontent.com/rook/rook/master/deploy/examples/monitoring/grafana/Ceph%20OSD%20Single%20Dashboard.json
+# - https://raw.githubusercontent.com/rook/rook/master/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
+#
+# When importing, select "Prometheus" as the datasource.
+#
+# Prerequisites:
+# - ServiceMonitors must be applied: kubectl apply -f infrastructure/storage/rook/50-servicemonitor.yaml
+# - Prometheus must be scraping rook-ceph-mgr (port 9283) and rook-ceph-exporter (port 9926)
+#
+# Verify metrics are being scraped:
+#   curl http://prometheus.<basedomain>/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job | contains("ceph"))'

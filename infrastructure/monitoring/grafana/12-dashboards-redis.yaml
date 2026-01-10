@@ -1,0 +1,21 @@
+# Redis Grafana Dashboard
+#
+# Import via Grafana UI:
+# 1. Go to Grafana -> Dashboards -> Import
+# 2. Enter dashboard ID: 763
+# 3. Click Load, select Prometheus datasource, then Import
+#
+# Dashboard: https://grafana.com/grafana/dashboards/763-redis-dashboard-for-prometheus-redis-exporter-1-x/
+#
+# Alternative dashboards:
+# - ID 11835: Redis Dashboard for Prometheus (https://grafana.com/grafana/dashboards/11835)
+# - ID 14091: Redis Exporter Quickstart (https://grafana.com/grafana/dashboards/14091)
+# - ID 17507: Redis Cluster Overview (https://grafana.com/grafana/dashboards/17507)
+#
+# Prerequisites:
+# - Exporter enabled in RedisFailover spec (infrastructure/databases/redis/04-cluster.yaml)
+# - ServiceMonitor configured (infrastructure/databases/redis/05-redis-exporter.yaml)
+# - Prometheus scraping rfr-redis-cluster service on port 9121
+#
+# Verify metrics:
+#   curl "http://prometheus.<basedomain>/api/v1/query?query=redis_up"

@@ -1,0 +1,23 @@
+# RabbitMQ Grafana Dashboard
+#
+# Import via Grafana UI:
+# 1. Go to Grafana -> Dashboards -> Import
+# 2. Enter dashboard ID: 10991
+# 3. Click Load, select Prometheus datasource, then Import
+#
+# Dashboard: https://grafana.com/grafana/dashboards/10991-rabbitmq-overview/
+#
+# Alternative dashboards:
+# - ID 4279:  RabbitMQ Monitoring (https://grafana.com/grafana/dashboards/4279)
+# - ID 10863: RabbitMQ Prometheus Exporter (https://grafana.com/grafana/dashboards/10863)
+# - ID 20291: RabbitMQ Queues Overview (https://grafana.com/grafana/dashboards/20291)
+#
+# Or download JSON from official repo:
+# https://github.com/rabbitmq/rabbitmq-prometheus/blob/master/docker/grafana/dashboards/RabbitMQ-Overview.json
+#
+# Prerequisites:
+# - ServiceMonitor configured in infrastructure/monitoring/prometheus/04-servicemonitors.yaml
+# - Prometheus scraping rabbitmq service on port 15692
+#
+# Verify metrics:
+#   curl "http://prometheus.<basedomain>/api/v1/query?query=rabbitmq_identity_info"
