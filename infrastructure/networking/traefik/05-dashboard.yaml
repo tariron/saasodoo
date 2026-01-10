@@ -12,7 +12,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`traefik.62.171.153.219.nip.io`)
+    - match: Host(`traefik.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - kind: TraefikService

@@ -21,7 +21,7 @@ spec:
       serviceAccountName: saasodoo-service-sa
       containers:
         - name: user-service
-          image: registry.62.171.153.219.nip.io/user-service:latest
+          image: registry.109.199.108.243.nip.io/user-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8001

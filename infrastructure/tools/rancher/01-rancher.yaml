@@ -21,7 +21,7 @@ spec:
   valuesContent: |-
     # Hostname for Rancher UI
     # Change this to your domain (e.g., rancher.yourdomain.com)
-    hostname: rancher.62.171.153.219.nip.io
+    hostname: rancher.109.199.108.243.nip.io
 
     # Number of replicas (1 for dev, 3 for HA production)
     replicas: 1

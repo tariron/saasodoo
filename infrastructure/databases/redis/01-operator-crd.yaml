@@ -33,13 +33,19 @@ spec:
                     resources:
                       type: object
                       properties:
+                        requests:
                           type: object
                           properties:
+                            cpu:
                               type: string
+                            memory:
                               type: string
+                        limits:
                           type: object
                           properties:
+                            cpu:
                               type: string
+                            memory:
                               type: string
                     customConfig:
                       type: array
@@ -54,13 +60,19 @@ spec:
                     resources:
                       type: object
                       properties:
+                        requests:
                           type: object
                           properties:
+                            cpu:
                               type: string
+                            memory:
                               type: string
+                        limits:
                           type: object
                           properties:
+                            cpu:
                               type: string
+                            memory:
                               type: string
                     customConfig:
                       type: array

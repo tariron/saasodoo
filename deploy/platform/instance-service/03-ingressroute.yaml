@@ -1,6 +1,6 @@
 ---
 # Instance Service IngressRoute with Path Prefix Stripping
-# Accessible at: http://api.62.171.153.219.nip.io/instance
+# Accessible at: http://api.109.199.108.243.nip.io/instance
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -13,7 +13,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/instance`)
+    - match: Host(`api.109.199.108.243.nip.io`) && PathPrefix(`/instance`)
       kind: Rule
       services:
         - name: instance-service

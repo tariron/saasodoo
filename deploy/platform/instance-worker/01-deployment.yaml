@@ -23,7 +23,7 @@ spec:
       serviceAccountName: instance-service-sa
       containers:
         - name: instance-worker
-          image: registry.62.171.153.219.nip.io/instance-service:latest
+          image: registry.109.199.108.243.nip.io/instance-service:latest
           imagePullPolicy: Always
           command:
             - celery

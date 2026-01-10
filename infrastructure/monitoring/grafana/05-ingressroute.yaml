@@ -2,7 +2,7 @@
 # Grafana IngressRoute
 #
 # Exposes Grafana via Traefik at:
-# - http://grafana.62.171.153.219.nip.io
+# - http://grafana.109.199.108.243.nip.io
 #
 # Also exposes Prometheus and Alertmanager UIs
 #
@@ -19,7 +19,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`grafana.62.171.153.219.nip.io`)
+    - match: Host(`grafana.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - name: grafana
@@ -39,7 +39,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`prometheus.62.171.153.219.nip.io`)
+    - match: Host(`prometheus.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - name: prometheus
@@ -59,7 +59,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`alertmanager.62.171.153.219.nip.io`)
+    - match: Host(`alertmanager.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - name: alertmanager

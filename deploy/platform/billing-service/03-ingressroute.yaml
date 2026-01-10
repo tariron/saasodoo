@@ -1,6 +1,6 @@
 ---
 # Billing Service IngressRoute with Path Prefix Stripping
-# Accessible at: http://api.62.171.153.219.nip.io/billing
+# Accessible at: http://api.109.199.108.243.nip.io/billing
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -14,7 +14,7 @@ spec:
     - web
   routes:
     # Webhook endpoints - permissive rate limiting for KillBill
-    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/billing/api/billing/webhooks`)
+    - match: Host(`api.109.199.108.243.nip.io`) && PathPrefix(`/billing/api/billing/webhooks`)
       kind: Rule
       services:
         - name: billing-service
@@ -23,7 +23,7 @@ spec:
         - name: webhook-ratelimit
         - name: billing-stripprefix
     # General billing endpoints
-    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/billing`)
+    - match: Host(`api.109.199.108.243.nip.io`) && PathPrefix(`/billing`)
       kind: Rule
       services:
         - name: billing-service

@@ -34,29 +34,35 @@ spec:
         - name: PGPORT
           value: "5432"
 
-        # Service user passwords (from basic-auth secrets)
+        # Service user passwords (from basic-auth secrets created by copy-secrets.sh)
         - name: AUTH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: auth-service-secret
+              name: cnpg-auth-service
               key: password
 
         - name: BILLING_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: billing-service-secret
+              name: cnpg-billing-service
               key: password
 
         - name: INSTANCE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: instance-service-secret
+              name: cnpg-instance-service
               key: password
 
         - name: DATABASE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: database-service-secret
+              name: cnpg-database-service
+              key: password
+
+        - name: NOTIFICATION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cnpg-notification-service
               key: password
 
         - name: READONLY_PASSWORD
@@ -110,7 +116,7 @@ spec:
           PGPASSWORD=$INSTANCE_PASSWORD psql -h $PGHOST -U instance_service -d instance -v ON_ERROR_STOP=1 -f /init-scripts/04-instance-schema.sql
 
           echo "  → Communication database schema..."
-          PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d communication -v ON_ERROR_STOP=1 -f /init-scripts/04-communication-schema.sql
+          PGPASSWORD=$NOTIFICATION_PASSWORD psql -h $PGHOST -U notification_service -d communication -v ON_ERROR_STOP=1 -f /init-scripts/04-communication-schema.sql
 
           echo "  → Analytics database schema..."
           PGPASSWORD=$READONLY_PASSWORD psql -h $PGHOST -U readonly_user -d analytics -v ON_ERROR_STOP=1 -f /init-scripts/04-analytics-schema.sql
@@ -181,7 +187,7 @@ spec:
             "GRANT USAGE ON SCHEMA public TO readonly_user;" \
             "GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_user;" \
             "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO readonly_user;" \
-            | PGPASSWORD=$AUTH_PASSWORD psql -h $PGHOST -U auth_service -d communication -v ON_ERROR_STOP=1
+            | PGPASSWORD=$NOTIFICATION_PASSWORD psql -h $PGHOST -U notification_service -d communication -v ON_ERROR_STOP=1
 
           echo "  → analytics"
           printf "%s\n" \

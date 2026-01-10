@@ -1,10 +1,24 @@
 # Rook CRDs Installation Reference
+# Version: v1.18.8 (latest stable)
 #
-# Apply Rook CRDs from official repository:
-# Version: v1.18.8 (latest stable, compatible with Ceph Squid 19.2.x)
+# DEPLOYMENT ORDER:
+# 1. CRDs:          kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/crds.yaml
+# 2. CSI Operator:  kubectl apply -f 01-csi-operator.yaml (or from URL below)
+# 3. Common:        kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/common.yaml
+# 4. Operator:      kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/operator.yaml
+# 5. Cluster:       kubectl apply -f 10-cluster-managed.yaml
+# 6. CephFS:        kubectl apply -f 20-cephfs.yaml
+# 7. StorageClass:  kubectl apply -f 30-storageclass-cephfs.yaml
 #
-# Installation command:
+# OR use the quick install commands:
+#
 # kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/crds.yaml
+# kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/csi-operator.yaml
+# kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/common.yaml
+# kubectl apply -f https://raw.githubusercontent.com/rook/rook/v1.18.8/deploy/examples/operator.yaml
+#
+# IMPORTANT: The CSI Operator (01-csi-operator.yaml) is REQUIRED for Rook v1.18+
+# It provides the CephConnection CRD and CSI drivers for RBD/CephFS/NFS
 #
 # This installs the following CRDs:
 # - cephblockpools.ceph.rook.io
@@ -24,7 +38,12 @@
 # - cephrbdmirrors.ceph.rook.io
 # - cephblockpoolradosnamespaces.ceph.rook.io
 #
-# Note: CRDs are cluster-scoped and only need to be installed once per cluster
+# CSI Operator adds:
+# - cephconnections.csi.ceph.io
+# - clientprofilemappings.csi.ceph.io
+# - clientprofiles.csi.ceph.io
+# - drivers.csi.ceph.io
+# - operatorconfigs.csi.ceph.io
 #
 # Verify installation:
-# kubectl get crds | grep ceph.rook.io
+# kubectl get crds | grep -E "ceph.rook.io|csi.ceph.io"

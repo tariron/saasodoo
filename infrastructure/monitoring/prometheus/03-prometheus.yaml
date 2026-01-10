@@ -7,7 +7,7 @@
 # - Uses CephFS for persistent storage
 # - Connects to Alertmanager for alerting
 #
-# Access: http://prometheus.62.171.153.219.nip.io
+# Access: http://prometheus.109.199.108.243.nip.io
 # Internal: prometheus.monitoring.svc.cluster.local:9090
 #
 apiVersion: monitoring.coreos.com/v1

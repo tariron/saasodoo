@@ -1,0 +1,26 @@
+---
+# RabbitMQ Management UI IngressRoute
+#
+# Exposes RabbitMQ Management UI via Traefik at:
+# - http://rabbitmq.109.199.108.243.nip.io
+#
+# Default credentials are in the rabbitmq-admin secret
+#
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: rabbitmq-management
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: management
+    app.kubernetes.io/part-of: saasodoo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`rabbitmq.109.199.108.243.nip.io`)
+      kind: Rule
+      services:
+        - name: rabbitmq
+          port: 15672

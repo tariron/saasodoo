@@ -6,7 +6,7 @@
 # - Includes custom dashboards for SaaSOdoo services
 # - Persistent storage for dashboard changes
 #
-# Access: http://grafana.62.171.153.219.nip.io
+# Access: http://grafana.109.199.108.243.nip.io
 # Default login: admin / SaasOdoo2024! (change in production!)
 #
 apiVersion: apps/v1

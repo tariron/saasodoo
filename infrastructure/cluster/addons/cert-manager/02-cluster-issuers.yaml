@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# CURRENT SETUP: nip.io domains (*.62.171.153.219.nip.io)
+# CURRENT SETUP: nip.io domains (*.109.199.108.243.nip.io)
 # Use self-signed issuer - Let's Encrypt doesn't work well with nip.io
 # =============================================================================
 

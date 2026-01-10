@@ -1,8 +1,8 @@
 ---
 # Frontend Service IngressRoute
 # Accessible at:
-#   - http://app.62.171.153.219.nip.io (Application - Dashboard)
-#   - http://www.62.171.153.219.nip.io (Marketing - Landing Page)
+#   - http://app.109.199.108.243.nip.io (Application - Dashboard)
+#   - http://www.109.199.108.243.nip.io (Marketing - Landing Page)
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -16,13 +16,13 @@ spec:
     - web
   routes:
     # App subdomain - Dashboard and authenticated routes
-    - match: Host(`app.62.171.153.219.nip.io`)
+    - match: Host(`app.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - name: frontend-service
           port: 80
     # WWW subdomain - Marketing site (landing page, pricing)
-    - match: Host(`www.62.171.153.219.nip.io`)
+    - match: Host(`www.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - name: frontend-service

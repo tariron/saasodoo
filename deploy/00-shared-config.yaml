@@ -11,11 +11,11 @@ metadata:
     app.kubernetes.io/managed-by: platform-team
 data:
   # Platform Domain
-  BASE_DOMAIN: "62.171.153.219.nip.io"
-  FRONTEND_URL: "http://app.62.171.153.219.nip.io"
+  BASE_DOMAIN: "109.199.108.243.nip.io"
+  FRONTEND_URL: "http://app.109.199.108.243.nip.io"
 
   # CORS Configuration (app.* for dashboard, www.* for marketing site)
-  CORS_ALLOWED_ORIGINS: "http://app.62.171.153.219.nip.io,https://app.62.171.153.219.nip.io,http://www.62.171.153.219.nip.io,https://www.62.171.153.219.nip.io"
+  CORS_ALLOWED_ORIGINS: "http://app.109.199.108.243.nip.io,https://app.109.199.108.243.nip.io,http://www.109.199.108.243.nip.io,https://www.109.199.108.243.nip.io"
   CORS_ALLOW_CREDENTIALS: "true"
   CORS_ALLOWED_METHODS: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
   CORS_ALLOWED_HEADERS: "Authorization,Content-Type,X-Requested-With,Accept,Origin"

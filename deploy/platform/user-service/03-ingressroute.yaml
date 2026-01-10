@@ -1,6 +1,6 @@
 ---
 # User Service IngressRoute with Path Prefix Stripping
-# Accessible at: http://api.62.171.153.219.nip.io/user
+# Accessible at: http://api.109.199.108.243.nip.io/user
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -14,7 +14,7 @@ spec:
     - web
   routes:
     # Auth endpoints - stricter rate limiting
-    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/user/auth`)
+    - match: Host(`api.109.199.108.243.nip.io`) && PathPrefix(`/user/auth`)
       kind: Rule
       services:
         - name: user-service
@@ -23,7 +23,7 @@ spec:
         - name: auth-ratelimit
         - name: user-stripprefix
     # General user endpoints
-    - match: Host(`api.62.171.153.219.nip.io`) && PathPrefix(`/user`)
+    - match: Host(`api.109.199.108.243.nip.io`) && PathPrefix(`/user`)
       kind: Rule
       services:
         - name: user-service

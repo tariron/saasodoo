@@ -21,7 +21,7 @@ spec:
       serviceAccountName: saasodoo-service-sa
       containers:
         - name: database-beat
-          image: registry.62.171.153.219.nip.io/database-service:latest
+          image: registry.109.199.108.243.nip.io/database-service:latest
           imagePullPolicy: Always
           command:
             - celery

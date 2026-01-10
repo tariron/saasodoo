@@ -22,7 +22,7 @@ data:
 
   # PayNow Payment Gateway Configuration
   PAYNOW_BASE_URL: "https://www.paynow.co.zw"
-  PAYNOW_RESULT_URL: "http://api.62.171.153.219.nip.io/billing/webhooks/paynow/result"
+  PAYNOW_RESULT_URL: "http://api.109.199.108.243.nip.io/billing/webhooks/paynow/result"
   PAYNOW_MERCHANT_EMAIL: "tariron@gmail.com"
 
   # Logging

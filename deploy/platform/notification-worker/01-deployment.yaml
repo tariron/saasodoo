@@ -23,7 +23,7 @@ spec:
       serviceAccountName: saasodoo-service-sa
       containers:
         - name: notification-worker
-          image: registry.62.171.153.219.nip.io/notification-service:latest
+          image: registry.109.199.108.243.nip.io/notification-service:latest
           imagePullPolicy: Always
           command:
             - celery

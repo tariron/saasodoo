@@ -1,0 +1,28 @@
+---
+# Ceph Dashboard IngressRoute
+#
+# Exposes Ceph Dashboard via Traefik at:
+# - http://ceph.109.199.108.243.nip.io
+#
+# Get credentials:
+#   kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" | base64 -d
+#   Username: admin
+#
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ceph-dashboard
+  namespace: rook-ceph
+  labels:
+    app.kubernetes.io/name: ceph-dashboard
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: rook-ceph
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`ceph.109.199.108.243.nip.io`)
+      kind: Rule
+      services:
+        - name: rook-ceph-mgr-dashboard
+          port: 7000

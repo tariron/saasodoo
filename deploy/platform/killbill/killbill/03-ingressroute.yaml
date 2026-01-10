@@ -8,7 +8,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`billing.62.171.153.219.nip.io`)
+    - match: Host(`billing.109.199.108.243.nip.io`)
       kind: Rule
       services:
         - name: killbill

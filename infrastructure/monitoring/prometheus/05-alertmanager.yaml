@@ -8,7 +8,7 @@
 # - Silencing: Mutes alerts during maintenance
 # - Inhibition: Suppresses alerts when others are firing
 #
-# Access: http://alertmanager.62.171.153.219.nip.io
+# Access: http://alertmanager.109.199.108.243.nip.io
 # Internal: alertmanager.monitoring.svc.cluster.local:9093
 #
 apiVersion: monitoring.coreos.com/v1
@@ -28,7 +28,7 @@ spec:
   replicas: 1
 
   # External URL for links in alerts
-  externalUrl: http://alertmanager.62.171.153.219.nip.io
+  externalUrl: http://alertmanager.109.199.108.243.nip.io
 
   # Log level
   logLevel: info

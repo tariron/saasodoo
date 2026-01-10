@@ -20,7 +20,7 @@ data:
   # Main Grafana configuration
   grafana.ini: |
     [server]
-    root_url = http://grafana.62.171.153.219.nip.io
+    root_url = http://grafana.109.199.108.243.nip.io
     serve_from_sub_path = false
 
     [security]
