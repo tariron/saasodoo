@@ -253,3 +253,28 @@ spec:
       path: /metrics
       interval: 30s
       scrapeTimeout: 10s
+
+---
+# Kill Bill JMX ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: killbill
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill
+    app.kubernetes.io/component: billing-engine
+    app.kubernetes.io/part-of: killbill
+    prometheus: saasodoo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: killbill
+  namespaceSelector:
+    matchNames:
+      - saasodoo
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

@@ -20,6 +20,20 @@ spec:
         app.kubernetes.io/component: billing-engine
         app.kubernetes.io/part-of: killbill
     spec:
+      # Init container to download JMX exporter JAR from Maven
+      initContainers:
+        - name: jmx-exporter-init
+          image: alpine:3.19
+          command:
+            - sh
+            - -c
+            - |
+              wget -O /jmx-exporter/jmx_prometheus_javaagent.jar \
+                https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar
+          volumeMounts:
+            - name: jmx-exporter-jar
+              mountPath: /jmx-exporter
+
       containers:
         - name: killbill
           image: killbill/killbill:0.24.15
@@ -27,7 +41,14 @@ spec:
             - containerPort: 8080
               name: http
               protocol: TCP
+            - containerPort: 9404
+              name: metrics
+              protocol: TCP
           env:
+            # JMX Exporter via JAVA_TOOL_OPTIONS
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/jmx-config/config.yaml"
+
             # Database Configuration
             - name: KILLBILL_DAO_URL
               value: "jdbc:mysql://killbill-db.saasodoo.svc.cluster.local:3306/killbill"
@@ -90,6 +111,13 @@ spec:
             # Test Mode (for development/staging)
             - name: KILLBILL_SERVER_TEST_MODE
               value: "true"
+
+          volumeMounts:
+            - name: jmx-exporter-jar
+              mountPath: /jmx-exporter
+            - name: jmx-config
+              mountPath: /jmx-config
+
           livenessProbe:
             httpGet:
               path: /1.0/healthcheck
@@ -113,3 +141,10 @@ spec:
             limits:
               cpu: "500m"
               memory: "1536Mi"
+
+      volumes:
+        - name: jmx-exporter-jar
+          emptyDir: {}
+        - name: jmx-config
+          configMap:
+            name: killbill-jmx-config

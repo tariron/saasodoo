@@ -125,6 +125,10 @@ spec:
             - name: grafana-dashboards-infrastructure
               mountPath: /var/lib/grafana/dashboards/infrastructure
               readOnly: true
+            # Kill Bill dashboards
+            - name: grafana-dashboards-killbill
+              mountPath: /var/lib/grafana/dashboards/killbill
+              readOnly: true
             # Persistent data
             - name: grafana-data
               mountPath: /var/lib/grafana
@@ -184,6 +188,9 @@ spec:
         - name: grafana-dashboards-infrastructure
           configMap:
             name: grafana-dashboards-infrastructure
+        - name: grafana-dashboards-killbill
+          configMap:
+            name: grafana-dashboards-killbill
         # Persistent storage
         - name: grafana-data
           persistentVolumeClaim:

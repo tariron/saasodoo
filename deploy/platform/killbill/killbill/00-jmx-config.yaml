@@ -1,0 +1,39 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: killbill-jmx-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill
+    app.kubernetes.io/component: billing-engine
+    app.kubernetes.io/part-of: killbill
+data:
+  config.yaml: |
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    rules:
+      # JVM Memory
+      - pattern: 'java.lang<type=Memory><>(\w+)'
+        name: jvm_memory_$1
+      - pattern: 'java.lang<type=MemoryPool,name=(.*)><>(\w+)'
+        name: jvm_memory_pool_$2
+        labels:
+          pool: $1
+      # GC
+      - pattern: 'java.lang<type=GarbageCollector,name=(.*)><>CollectionCount'
+        name: jvm_gc_collection_count
+        labels:
+          gc: $1
+      - pattern: 'java.lang<type=GarbageCollector,name=(.*)><>CollectionTime'
+        name: jvm_gc_collection_time_ms
+        labels:
+          gc: $1
+      # Threading
+      - pattern: 'java.lang<type=Threading><>(\w+)'
+        name: jvm_threading_$1
+      # Class loading
+      - pattern: 'java.lang<type=ClassLoading><>(\w+)'
+        name: jvm_classloading_$1
+      # Catch-all for other MBeans
+      - pattern: ".*"

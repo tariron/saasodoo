@@ -15,5 +15,9 @@ spec:
       targetPort: 8080
       protocol: TCP
       name: http
+    - port: 9404
+      targetPort: 9404
+      protocol: TCP
+      name: metrics
   selector:
     app.kubernetes.io/name: killbill
