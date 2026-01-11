@@ -1,0 +1,56 @@
+---
+# MariaDB Exporter Configuration
+#
+# This ConfigMap contains:
+# 1. Wrapper script that creates the exporter user and starts mysqld_exporter
+# 2. Works for both new and existing deployments (idempotent)
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-exporter-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill-db
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: killbill
+data:
+  # Wrapper script that ensures exporter user exists before starting exporter
+  start-exporter.sh: |
+    #!/bin/sh
+    set -e
+
+    echo "Waiting for MariaDB to be ready..."
+    until mysqladmin ping -h localhost -u root -p"${MYSQL_ROOT_PASSWORD}" --silent; do
+      echo "MariaDB is not ready yet, waiting..."
+      sleep 2
+    done
+    echo "MariaDB is ready!"
+
+    echo "Ensuring exporter user exists..."
+    mysql -h localhost -u root -p"${MYSQL_ROOT_PASSWORD}" <<EOF
+    CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED BY '${EXPORTER_PASSWORD}' WITH MAX_USER_CONNECTIONS 3;
+    CREATE USER IF NOT EXISTS 'exporter'@'127.0.0.1' IDENTIFIED BY '${EXPORTER_PASSWORD}' WITH MAX_USER_CONNECTIONS 3;
+    GRANT PROCESS, REPLICATION CLIENT, SLAVE MONITOR, SELECT ON *.* TO 'exporter'@'localhost';
+    GRANT PROCESS, REPLICATION CLIENT, SLAVE MONITOR, SELECT ON *.* TO 'exporter'@'127.0.0.1';
+    FLUSH PRIVILEGES;
+    EOF
+    echo "Exporter user configured successfully!"
+
+    echo "Starting mysqld_exporter..."
+    exec /bin/mysqld_exporter \
+      --mysqld.address="127.0.0.1:3306" \
+      --mysqld.username="exporter" \
+      --web.listen-address=":9104"
+
+  # SQL script for fresh deployments (runs during MariaDB init)
+  099_exporter_user.sql: |
+    -- Create exporter user for Prometheus mysqld_exporter
+    -- This script runs during MariaDB initialization (fresh deployments only)
+    -- The sidecar wrapper handles existing deployments
+
+    CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED BY 'EXPORTER_PASSWORD_PLACEHOLDER' WITH MAX_USER_CONNECTIONS 3;
+    CREATE USER IF NOT EXISTS 'exporter'@'127.0.0.1' IDENTIFIED BY 'EXPORTER_PASSWORD_PLACEHOLDER' WITH MAX_USER_CONNECTIONS 3;
+    GRANT PROCESS, REPLICATION CLIENT, SLAVE MONITOR, SELECT ON *.* TO 'exporter'@'localhost';
+    GRANT PROCESS, REPLICATION CLIENT, SLAVE MONITOR, SELECT ON *.* TO 'exporter'@'127.0.0.1';
+    FLUSH PRIVILEGES;

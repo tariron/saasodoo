@@ -15,5 +15,9 @@ spec:
       targetPort: 3306
       protocol: TCP
       name: mysql
+    - port: 9104
+      targetPort: 9104
+      protocol: TCP
+      name: metrics
   selector:
     app.kubernetes.io/name: killbill-db

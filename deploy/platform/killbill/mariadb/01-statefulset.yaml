@@ -21,6 +21,8 @@ spec:
         app.kubernetes.io/component: database
         app.kubernetes.io/part-of: killbill
     spec:
+      # Init container to create exporter user (runs after MariaDB starts via postStart won't work)
+      # We use a sidecar instead that waits and creates the user
       containers:
         - name: mariadb
           image: killbill/mariadb:0.24
@@ -44,6 +46,78 @@ spec:
             limits:
               cpu: "200m"
               memory: "256Mi"
+
+        # Sidecar to create exporter user and then run mysqld_exporter
+        # Uses mariadb image which has mysql client built-in
+        - name: exporter
+          image: mariadb:10.11
+          ports:
+            - containerPort: 9104
+              name: metrics
+              protocol: TCP
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: KILLBILL_MYSQL_ROOT_PASSWORD
+            - name: EXPORTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: saasodoo-secrets
+                  key: KILLBILL_MYSQL_EXPORTER_PASSWORD
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+
+              echo "Downloading mysqld_exporter..."
+              apt-get update && apt-get install -y wget
+              wget -q https://github.com/prometheus/mysqld_exporter/releases/download/v0.15.1/mysqld_exporter-0.15.1.linux-amd64.tar.gz
+              tar xzf mysqld_exporter-0.15.1.linux-amd64.tar.gz
+              mv mysqld_exporter-0.15.1.linux-amd64/mysqld_exporter /usr/local/bin/
+              rm -rf mysqld_exporter-*
+
+              echo "Waiting for MariaDB to be ready..."
+              until mariadb -h 127.0.0.1 -u root -p"${MYSQL_ROOT_PASSWORD}" -e "SELECT 1" &>/dev/null; do
+                echo "MariaDB is not ready yet, waiting..."
+                sleep 2
+              done
+              echo "MariaDB is ready!"
+
+              echo "Ensuring exporter user exists..."
+              mariadb -h 127.0.0.1 -u root -p"${MYSQL_ROOT_PASSWORD}" <<EOF
+              CREATE USER IF NOT EXISTS 'exporter'@'127.0.0.1' IDENTIFIED BY '${EXPORTER_PASSWORD}' WITH MAX_USER_CONNECTIONS 3;
+              GRANT PROCESS, REPLICATION CLIENT, SLAVE MONITOR, SELECT ON *.* TO 'exporter'@'127.0.0.1';
+              FLUSH PRIVILEGES;
+              EOF
+              echo "Exporter user configured!"
+
+              echo "Starting mysqld_exporter..."
+              export MYSQLD_EXPORTER_PASSWORD="${EXPORTER_PASSWORD}"
+              exec /usr/local/bin/mysqld_exporter \
+                --mysqld.address="127.0.0.1:3306" \
+                --mysqld.username="exporter"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9104
+            initialDelaySeconds: 120
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9104
+            initialDelaySeconds: 60
+            periodSeconds: 10
+
       volumes:
         - name: killbill-db-data
           persistentVolumeClaim:

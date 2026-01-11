@@ -278,3 +278,28 @@ spec:
       path: /metrics
       interval: 30s
       scrapeTimeout: 10s
+
+---
+# Kill Bill MariaDB ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: killbill-db
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: killbill-db
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: killbill
+    prometheus: saasodoo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: killbill-db
+  namespaceSelector:
+    matchNames:
+      - saasodoo
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
