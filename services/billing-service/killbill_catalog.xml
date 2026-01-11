@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <catalog>
-    <effectiveDate>2026-01-02T00:00:00Z</effectiveDate>
+    <effectiveDate>2026-01-11T00:00:00Z</effectiveDate>
     <catalogName>SaasOdoo</catalogName>
 
     <currencies>
@@ -54,7 +54,7 @@
 
     <plans>
         <!-- ============================================================ -->
-        <!-- BASIC PLANS - $9/month base (ONLY PLAN WITH TRIAL)           -->
+        <!-- BASIC PLANS - $9/month base (ALL WITH 14-DAY TRIAL)          -->
         <!-- ============================================================ -->
 
         <!-- Basic Monthly - WITH 14-day trial -->
@@ -93,10 +93,26 @@
             </finalPhase>
         </plan>
 
-        <!-- Basic Quarterly - $25/quarter ($8.33/mo, ~7% savings) - NO trial -->
+        <!-- Basic Quarterly - $25/quarter ($8.33/mo, ~7% savings) - WITH 14-day trial -->
         <plan name="basic-quarterly">
             <product>Basic</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0.00</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
             <finalPhase type="EVERGREEN">
                 <duration>
                     <unit>UNLIMITED</unit>
@@ -113,10 +129,26 @@
             </finalPhase>
         </plan>
 
-        <!-- Basic Biannual - $49/6mo ($8.17/mo, ~9% savings) - NO trial -->
+        <!-- Basic Biannual - $49/6mo ($8.17/mo, ~9% savings) - WITH 14-day trial -->
         <plan name="basic-biannual">
             <product>Basic</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0.00</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
             <finalPhase type="EVERGREEN">
                 <duration>
                     <unit>UNLIMITED</unit>
@@ -133,10 +165,26 @@
             </finalPhase>
         </plan>
 
-        <!-- Basic Annual - $89/year ($7.42/mo, ~18% savings) - NO trial -->
+        <!-- Basic Annual - $89/year ($7.42/mo, ~18% savings) - WITH 14-day trial -->
         <plan name="basic-annual">
             <product>Basic</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
+            <initialPhases>
+                <phase type="TRIAL">
+                    <duration>
+                        <unit>DAYS</unit>
+                        <number>14</number>
+                    </duration>
+                    <fixed>
+                        <fixedPrice>
+                            <price>
+                                <currency>USD</currency>
+                                <value>0.00</value>
+                            </price>
+                        </fixedPrice>
+                    </fixed>
+                </phase>
+            </initialPhases>
             <finalPhase type="EVERGREEN">
                 <duration>
                     <unit>UNLIMITED</unit>
@@ -157,26 +205,10 @@
         <!-- STANDARD PLANS - $19/month base (NO TRIAL)                   -->
         <!-- ============================================================ -->
 
-        <!-- Standard Monthly - 0-day trial (maintains phase structure for KillBill compatibility) -->
+        <!-- Standard Monthly - No trial -->
         <plan name="standard-monthly">
             <product>Standard</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
-            <initialPhases>
-                <phase type="TRIAL">
-                    <duration>
-                        <unit>DAYS</unit>
-                        <number>0</number>
-                    </duration>
-                    <fixed>
-                        <fixedPrice>
-                            <price>
-                                <currency>USD</currency>
-                                <value>0.00</value>
-                            </price>
-                        </fixedPrice>
-                    </fixed>
-                </phase>
-            </initialPhases>
             <finalPhase type="EVERGREEN">
                 <duration>
                     <unit>UNLIMITED</unit>
@@ -257,26 +289,10 @@
         <!-- PREMIUM PLANS - $39/month base (NO TRIAL)                    -->
         <!-- ============================================================ -->
 
-        <!-- Premium Monthly - 0-day trial (maintains phase structure for KillBill compatibility) -->
+        <!-- Premium Monthly - No trial -->
         <plan name="premium-monthly">
             <product>Premium</product>
             <recurringBillingMode>IN_ADVANCE</recurringBillingMode>
-            <initialPhases>
-                <phase type="TRIAL">
-                    <duration>
-                        <unit>DAYS</unit>
-                        <number>0</number>
-                    </duration>
-                    <fixed>
-                        <fixedPrice>
-                            <price>
-                                <currency>USD</currency>
-                                <value>0.00</value>
-                            </price>
-                        </fixedPrice>
-                    </fixed>
-                </phase>
-            </initialPhases>
             <finalPhase type="EVERGREEN">
                 <duration>
                     <unit>UNLIMITED</unit>

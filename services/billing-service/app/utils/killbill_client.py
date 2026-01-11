@@ -396,7 +396,8 @@ class KillBillClient:
                 "X-Killbill-CreatedBy": "billing-service"
             }
 
-            url = f"{self.base_url}/1.0/kb/tenants"
+            # useGlobalDefault=false prevents KillBill from loading the default SpyCarAdvanced catalog
+            url = f"{self.base_url}/1.0/kb/tenants?useGlobalDefault=false"
             client = self._get_client()
             response = await client.post(
                 url=url,
@@ -711,17 +712,13 @@ class KillBillClient:
             entitlements: Dict mapping plan_name to entitlement data (cpu_limit, memory_limit, storage_limit)
         """
         try:
-            # Use requestedDate parameter to get only the currently active catalog
-            # Without this, KillBill returns ALL catalog versions (oldest to newest)
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            endpoint = f"/1.0/kb/catalog?requestedDate={now}"
+            endpoint = "/1.0/kb/catalog"
             response = await self._make_request("GET", endpoint)
 
             plans = []
             if isinstance(response, list) and len(response) > 0:
-                # With requestedDate, KillBill returns only the active catalog(s)
-                catalog = response[0]
+                # KillBill catalog response is an array of catalog versions
+                catalog = response[0]  # Use the first (latest) catalog
                 logger.info(f"Using catalog version: {catalog.get('effectiveDate', 'unknown')}")
                 products = catalog.get("products", [])
                 
