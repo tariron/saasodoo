@@ -84,40 +84,42 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to register webhook during startup: {e}")
         logger.info("Webhook registration can be done manually if needed")
 
-    # Always upload overdue configuration on startup to ensure it's up to date
+    # Upload overdue configuration if not already configured
     try:
-        logger.info("Uploading overdue configuration...")
-
-        # Read overdue.xml file
-        overdue_xml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "overdue.xml")
-        if os.path.exists(overdue_xml_path):
-            with open(overdue_xml_path, 'r') as f:
-                overdue_xml = f.read()
-
-            await app.state.killbill.upload_overdue_config(overdue_xml)
-            logger.info("Successfully uploaded overdue configuration")
+        existing_overdue = await app.state.killbill.get_overdue_config()
+        if existing_overdue:
+            logger.info("Overdue configuration already exists, skipping upload")
         else:
-            logger.warning(f"Overdue.xml not found at {overdue_xml_path}")
+            logger.info("Uploading overdue configuration...")
+            overdue_xml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "overdue.xml")
+            if os.path.exists(overdue_xml_path):
+                with open(overdue_xml_path, 'r') as f:
+                    overdue_xml = f.read()
+                await app.state.killbill.upload_overdue_config(overdue_xml)
+                logger.info("Successfully uploaded overdue configuration")
+            else:
+                logger.warning(f"Overdue.xml not found at {overdue_xml_path}")
     except Exception as e:
-        logger.warning(f"Failed to upload overdue configuration: {e}")
+        logger.warning(f"Failed to check/upload overdue configuration: {e}")
         logger.info("Overdue configuration can be uploaded manually if needed")
 
-    # Always upload catalog configuration on startup to ensure it's up to date
+    # Upload catalog configuration if not already configured
     try:
-        logger.info("Uploading catalog configuration...")
-
-        # Read killbill_catalog.xml file
-        catalog_xml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "killbill_catalog.xml")
-        if os.path.exists(catalog_xml_path):
-            with open(catalog_xml_path, 'r') as f:
-                catalog_xml = f.read()
-
-            await app.state.killbill.upload_catalog_config(catalog_xml)
-            logger.info("Successfully uploaded catalog configuration")
+        existing_plans = await app.state.killbill.get_catalog_plans()
+        if existing_plans:
+            logger.info(f"Catalog already exists with {len(existing_plans)} plans, skipping upload")
         else:
-            logger.warning(f"killbill_catalog.xml not found at {catalog_xml_path}")
+            logger.info("Uploading catalog configuration...")
+            catalog_xml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "killbill_catalog.xml")
+            if os.path.exists(catalog_xml_path):
+                with open(catalog_xml_path, 'r') as f:
+                    catalog_xml = f.read()
+                await app.state.killbill.upload_catalog_config(catalog_xml)
+                logger.info("Successfully uploaded catalog configuration")
+            else:
+                logger.warning(f"killbill_catalog.xml not found at {catalog_xml_path}")
     except Exception as e:
-        logger.warning(f"Failed to upload catalog configuration: {e}")
+        logger.warning(f"Failed to check/upload catalog configuration: {e}")
         logger.info("Catalog configuration can be uploaded manually if needed")
 
     logger.info("Billing Service started successfully")
