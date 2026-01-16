@@ -10,6 +10,8 @@ from typing import Optional, Dict, Any, List
 import asyncpg
 import structlog
 
+from app.utils.k8s_client import PostgreSQLKubernetesClient
+
 logger = structlog.get_logger(__name__)
 
 
@@ -174,7 +176,7 @@ class DatabaseAllocationService:
         """
         try:
             query = """
-                SELECT id, name, host, port, admin_user, admin_password,
+                SELECT id, name, host, port, admin_user,
                        server_type, status, health_status, current_instances,
                        max_instances, priority, allocation_strategy
                 FROM db_servers
@@ -220,7 +222,7 @@ class DatabaseAllocationService:
         """
         try:
             query = """
-                SELECT id, name, host, port, admin_user, admin_password,
+                SELECT id, name, host, port, admin_user,
                        server_type, status, health_status, current_instances,
                        max_instances, dedicated_to_customer_id, dedicated_to_instance_id
                 FROM db_servers
@@ -310,6 +312,39 @@ class DatabaseAllocationService:
                         error=str(e))
             raise
 
+    async def _get_admin_password(self, db_server: dict) -> str:
+        """
+        Get admin password for a CNPG-managed database server.
+
+        Reads password from K8s Secret: {server_name}-superuser
+
+        Args:
+            db_server: Database server record
+
+        Returns:
+            Admin password string
+
+        Raises:
+            Exception: If password cannot be retrieved
+        """
+        server_name = db_server['name']
+        secret_name = f"{server_name}-superuser"
+
+        logger.info("Reading admin password from K8s Secret",
+                   secret_name=secret_name,
+                   db_server=server_name)
+        try:
+            k8s_client = PostgreSQLKubernetesClient()
+            password = k8s_client.get_secret_value(secret_name, "password")
+            if not password:
+                raise Exception(f"Password not found in secret {secret_name}")
+            return password
+        except Exception as e:
+            logger.error("Failed to read password from K8s Secret",
+                       secret_name=secret_name,
+                       error=str(e))
+            raise
+
     async def _create_database_on_server(self, db_server: dict, db_name: str) -> str:
         """
         Create a PostgreSQL database and dedicated user on the specified server
@@ -328,16 +363,23 @@ class DatabaseAllocationService:
                    db_server=db_server['name'],
                    db_name=db_name)
 
-        # Generate secure random password
+        # Generate secure random password for the new database user
         password = self._generate_password()
         db_user = f"{db_name}_user"
 
+        # Get admin password from K8s Secret
+        admin_password = await self._get_admin_password(db_server)
+
+        # Use direct host for admin operations (CREATE DATABASE doesn't work via PgBouncer)
+        # CNPG creates service: {cluster}-rw for direct connection
+        direct_host = f"{db_server['name']}-rw"
+
         # Create database asynchronously
         await self._async_create_database(
-            host=db_server['host'],
+            host=direct_host,
             port=db_server['port'],
             admin_user=db_server['admin_user'],
-            admin_password=db_server['admin_password'],
+            admin_password=admin_password,
             db_name=db_name,
             db_user=db_user,
             db_password=password

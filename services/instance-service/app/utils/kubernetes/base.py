@@ -4,7 +4,9 @@ Base Kubernetes client with connection management
 
 import os
 import time
+import base64
 from kubernetes import client, config
+from kubernetes.client.rest import ApiException
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -71,3 +73,38 @@ class KubernetesClientBase:
                         logger.warning("Kubernetes connection failed, retrying",
                                      error=str(e), attempt=attempt + 1)
                         time.sleep(self.retry_delay * (2 ** attempt))
+
+    def get_secret_value(self, secret_name: str, key: str) -> str:
+        """
+        Read a value from a Kubernetes Secret.
+
+        Args:
+            secret_name: Name of the secret
+            key: Key within the secret data
+
+        Returns:
+            Decoded secret value string
+
+        Raises:
+            Exception: If secret or key not found
+        """
+        self._ensure_connection()
+
+        try:
+            secret = self.core_v1.read_namespaced_secret(
+                name=secret_name,
+                namespace=self.namespace
+            )
+
+            if key not in secret.data:
+                raise Exception(f"Key '{key}' not found in secret {secret_name}")
+
+            decoded = base64.b64decode(secret.data[key]).decode('utf-8')
+            logger.debug("Read secret value", secret_name=secret_name, key=key)
+            return decoded
+
+        except ApiException as e:
+            if e.status == 404:
+                logger.warning("Secret not found", secret_name=secret_name)
+                raise Exception(f"Secret {secret_name} not found")
+            raise

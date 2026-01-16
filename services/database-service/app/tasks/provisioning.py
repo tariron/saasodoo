@@ -64,14 +64,14 @@ def provision_database_pool(self, max_instances: int = 50):
 
 async def _provision_database_pool_workflow(self, max_instances: int = 50):
     """
-    Provision a new shared PostgreSQL pool
+    Provision a new shared PostgreSQL pool using CNPG
 
     This task:
-    1. Creates CephFS directory structure
-    2. Generates admin credentials
-    3. Creates database record
-    4. Creates Docker Swarm service
-    5. Waits for service health
+    1. Creates CNPG Cluster (handles PVC automatically)
+    2. Creates CNPG Pooler (PgBouncer)
+    3. Waits for cluster health
+    4. Reads admin password from K8s Secret
+    5. Creates database record
     6. Activates pool for allocation
 
     Args:
@@ -89,7 +89,7 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
     db_server_id = None
 
     try:
-        logger.info("Starting database pool provisioning", max_instances=max_instances)
+        logger.info("Starting CNPG database pool provisioning", max_instances=max_instances)
 
         # Create new database connection for this task
         conn = await asyncpg.connect(
@@ -110,22 +110,19 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
             result = await conn.fetchrow(count_query)
             pool_number = result['count'] + 1
             pool_name = f"postgres-pool-{pool_number}"
-            pvc_name = f"postgres-pool-{pool_number}"
 
             logger.info("Determined pool name", pool_name=pool_name, pool_number=pool_number)
 
             # Step 2: Check if db_servers record already exists (idempotent retry handling)
             existing_query = """
-                SELECT id, admin_password, status
+                SELECT id, status
                 FROM db_servers
                 WHERE name = $1
             """
             existing_row = await conn.fetchrow(existing_query, pool_name)
 
             if existing_row:
-                # Record exists - this is a retry, reuse existing password
                 db_server_id = str(existing_row['id'])
-                admin_password = existing_row['admin_password']
                 logger.info("Found existing db_server record (retry scenario)",
                            db_server_id=db_server_id,
                            pool_name=pool_name,
@@ -138,147 +135,136 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
                         db_server_id
                     )
             else:
-                # Step 3: Generate new credentials (only for first run)
-                admin_password = secrets.token_urlsafe(32)
-
-                # Step 4: Create database record
+                # Step 3: Create database record
+                # Host points to pooler service: {pool_name}-pooler-rw
+                # Password stored in K8s Secret: {pool_name}-superuser
                 insert_query = """
                     INSERT INTO db_servers (
                         name, host, port, server_type, max_instances, current_instances,
                         status, health_status, storage_path, postgres_version, postgres_image,
                         cpu_limit, memory_limit, allocation_strategy, priority,
-                        provisioned_by, provisioned_at, admin_user, admin_password
+                        provisioned_by, provisioned_at, admin_user
                     )
                     VALUES (
                         $1, $2, 5432, 'shared', $3, 0,
-                        'provisioning', 'unknown', $4, '16', 'postgres:16-alpine',
+                        'provisioning', 'unknown', $4, '16', 'cnpg',
                         '2', '4G', 'auto', 10,
-                        'provisioning_task', NOW(), 'postgres', $5
+                        'provisioning_task', NOW(), 'postgres'
                     )
                     RETURNING id
                 """
+                # Host is the pooler service name for PgBouncer connection
+                # CNPG Pooler creates service: {cluster}-pooler
+                pooler_host = f"{pool_name}-pooler"
                 row = await conn.fetchrow(
                     insert_query,
                     pool_name,  # name
-                    pool_name,  # host (K8s service DNS)
+                    pooler_host,  # host (pooler service)
                     max_instances,  # max_instances
-                    pvc_name,  # storage_path (now stores PVC name)
-                    admin_password  # admin_password
+                    pool_name,  # storage_path (CNPG manages PVC)
                 )
                 db_server_id = str(row['id'])
                 logger.info("Created new db_server record", db_server_id=db_server_id, pool_name=pool_name)
 
-            # Step 5: Create PVC (idempotent - checks if exists)
-            storage_size = "50Gi"  # Default pool storage size
+            # Step 4: Create CNPG Cluster (idempotent - handles PVC automatically)
+            storage_size = "50Gi"
 
             try:
-                logger.info("Ensuring PVC for PostgreSQL pool", pvc_name=pvc_name, size=storage_size)
-                self.k8s_client.create_postgres_pvc(pvc_name, storage_size)
-                logger.info("PVC ready", pvc_name=pvc_name)
-
-            except Exception as e:
-                logger.error("PVC creation failed", pvc_name=pvc_name, error=str(e))
-                raise Reject(f"Failed to create PVC: {e}", requeue=False)
-
-            # Step 6: Create Kubernetes StatefulSet (idempotent)
-            try:
-                service_info = self.k8s_client.create_postgres_pool_service(
-                    pool_name=pool_name,
-                    postgres_password=admin_password,
-                    pvc_name=pvc_name,
+                logger.info("Creating CNPG Cluster", pool_name=pool_name, size=storage_size)
+                cluster_info = self.k8s_client.create_cnpg_cluster(
+                    cluster_name=pool_name,
+                    storage_size=storage_size,
                     cpu_limit="2",
                     memory_limit="4G",
-                    max_instances=max_instances
+                    max_instances=max_instances,
+                    instances=1
                 )
+                logger.info("CNPG Cluster creation initiated", cluster_info=cluster_info)
 
-                service_id = service_info['service_id']
-                service_name = service_info['service_name']
-
-                logger.info(
-                    "Docker service created",
-                    service_id=service_id,
-                    service_name=service_name
+                # Update status to initializing
+                await conn.execute(
+                    "UPDATE db_servers SET status = 'initializing', swarm_service_id = $1, swarm_service_name = $2 WHERE id = $3",
+                    pool_name, pool_name, db_server_id
                 )
-
-                # Update database record with service details
-                update_query = """
-                    UPDATE db_servers
-                    SET swarm_service_id = $1,
-                        swarm_service_name = $2,
-                        status = 'initializing'
-                    WHERE id = $3
-                """
-                await conn.execute(update_query, service_id, service_name, db_server_id)
 
             except Exception as e:
-                logger.error(
-                    "Docker service creation failed",
-                    pool_name=pool_name,
-                    error=str(e),
-                    exc_info=True
+                logger.error("CNPG Cluster creation failed", pool_name=pool_name, error=str(e), exc_info=True)
+                await conn.execute(
+                    "UPDATE db_servers SET status = 'error', health_status = 'unhealthy' WHERE id = $1",
+                    db_server_id
                 )
+                raise
 
-                # Update status to error
-                error_update = """
-                    UPDATE db_servers
-                    SET status = 'error', health_status = 'unhealthy'
-                    WHERE id = $1
-                """
-                await conn.execute(error_update, db_server_id)
-
-                raise  # Will retry
-
-            # Step 6: Wait for service health
+            # Step 5: Wait for CNPG Cluster to be ready
             try:
-                healthy = self.k8s_client.wait_for_service_ready(
-                    service_id=service_id,
-                    timeout=180,  # 3 minutes
+                healthy = self.k8s_client.wait_for_cnpg_cluster_ready(
+                    cluster_name=pool_name,
+                    timeout=300,  # 5 minutes for CNPG
                     check_interval=10
                 )
 
-                if healthy:
-                    # Mark as active
-                    activate_query = """
-                        UPDATE db_servers
-                        SET status = 'active', health_status = 'healthy',
-                            last_health_check = NOW()
-                        WHERE id = $1
-                    """
-                    await conn.execute(activate_query, db_server_id)
-
-                    logger.info(
-                        "Pool provisioned successfully",
-                        pool_name=pool_name,
-                        db_server_id=db_server_id
+                if not healthy:
+                    logger.error("CNPG Cluster health check failed", pool_name=pool_name)
+                    await conn.execute(
+                        "UPDATE db_servers SET status = 'error', health_status = 'unhealthy' WHERE id = $1",
+                        db_server_id
                     )
+                    raise Exception(f"CNPG Cluster {pool_name} failed health check after provisioning")
 
-                    return db_server_id
-
-                else:
-                    # Health check failed
-                    logger.error(
-                        "Pool health check failed",
-                        pool_name=pool_name,
-                        service_id=service_id
-                    )
-
-                    # Update status
-                    error_update = """
-                        UPDATE db_servers
-                        SET status = 'error', health_status = 'unhealthy'
-                        WHERE id = $1
-                    """
-                    await conn.execute(error_update, db_server_id)
-
-                    raise Exception(f"Pool {pool_name} failed health check after provisioning")
+                logger.info("CNPG Cluster is healthy", pool_name=pool_name)
 
             except Exception as e:
-                logger.error(
-                    "Health check wait failed",
-                    pool_name=pool_name,
-                    error=str(e)
+                logger.error("CNPG Cluster health check wait failed", pool_name=pool_name, error=str(e))
+                raise
+
+            # Step 6: Create CNPG Pooler (PgBouncer)
+            try:
+                logger.info("Creating CNPG Pooler", pool_name=pool_name)
+                pooler_info = self.k8s_client.create_cnpg_pooler(
+                    cluster_name=pool_name,
+                    pooler_instances=2,
+                    pool_mode="transaction",
+                    max_client_conn=1000,
+                    default_pool_size=20
                 )
-                raise  # Will retry
+                logger.info("CNPG Pooler created", pooler_info=pooler_info)
+
+            except Exception as e:
+                logger.error("CNPG Pooler creation failed", pool_name=pool_name, error=str(e))
+                # Continue anyway - direct connection still works
+                logger.warning("Continuing without pooler - direct connection available")
+
+            # Step 7: Verify admin password exists in K8s Secret
+            secret_name = f"{pool_name}-superuser"
+            admin_password = self.k8s_client.get_secret_value(secret_name, "password")
+
+            if not admin_password:
+                logger.error("Failed to read admin password from secret", secret_name=secret_name)
+                await conn.execute(
+                    "UPDATE db_servers SET status = 'error' WHERE id = $1",
+                    db_server_id
+                )
+                raise Exception(f"Failed to read admin password from secret {secret_name}")
+
+            logger.info("Verified admin password exists in K8s Secret", secret_name=secret_name)
+
+            # Step 8: Mark pool as active (password read from K8s Secret at runtime)
+            activate_query = """
+                UPDATE db_servers
+                SET status = 'active',
+                    health_status = 'healthy',
+                    last_health_check = NOW()
+                WHERE id = $1
+            """
+            await conn.execute(activate_query, db_server_id)
+
+            logger.info(
+                "CNPG Pool provisioned successfully",
+                pool_name=pool_name,
+                db_server_id=db_server_id
+            )
+
+            return db_server_id
 
         finally:
             await conn.close()
@@ -288,7 +274,7 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
 
     except Exception as e:
         logger.error(
-            "Pool provisioning failed",
+            "CNPG Pool provisioning failed",
             pool_name=pool_name,
             db_server_id=db_server_id,
             error=str(e),
@@ -296,7 +282,6 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
             retry_count=self.request.retries
         )
 
-        # Check if we should retry
         if self.request.retries >= self.max_retries:
             logger.error(
                 "Pool provisioning exhausted retries",
@@ -343,14 +328,14 @@ async def _provision_dedicated_server_workflow(
     plan_tier: str
 ):
     """
-    Provision a dedicated PostgreSQL server for premium customer
+    Provision a dedicated PostgreSQL server for premium customer using CNPG
 
     This task:
-    1. Creates dedicated CephFS directory
-    2. Generates admin credentials
-    3. Creates database record (max_instances=1, dedicated flags)
-    4. Creates Docker Swarm service with higher resources
-    5. Waits for service health
+    1. Creates CNPG Cluster with 1 instance (handles PVC automatically)
+    2. Optionally creates CNPG Pooler (PgBouncer)
+    3. Waits for cluster health
+    4. Reads admin password from K8s Secret
+    5. Creates database record
     6. Returns server details
 
     Args:
@@ -368,7 +353,7 @@ async def _provision_dedicated_server_workflow(
 
     try:
         logger.info(
-            "Starting dedicated server provisioning",
+            "Starting CNPG dedicated server provisioning",
             instance_id=instance_id,
             customer_id=customer_id,
             plan_tier=plan_tier
@@ -384,25 +369,22 @@ async def _provision_dedicated_server_workflow(
         )
 
         try:
-            # Step 1: Generate server name (use instance_id for uniqueness, not customer_id)
+            # Step 1: Generate server name (use instance_id for uniqueness)
             instance_short = instance_id[:8]
             server_name = f"postgres-dedicated-{instance_short}"
-            pvc_name = f"postgres-dedicated-{instance_short}"
 
             logger.info("Determined server name", server_name=server_name, instance_id=instance_id)
 
             # Step 2: Check if db_servers record already exists (idempotent retry handling)
             existing_query = """
-                SELECT id, admin_password, status
+                SELECT id, status
                 FROM db_servers
                 WHERE name = $1
             """
             existing_row = await conn.fetchrow(existing_query, server_name)
 
             if existing_row:
-                # Record exists - this is a retry, reuse existing password
                 db_server_id = str(existing_row['id'])
-                admin_password = existing_row['admin_password']
                 logger.info("Found existing db_server record (retry scenario)",
                            db_server_id=db_server_id,
                            server_name=server_name,
@@ -415,126 +397,129 @@ async def _provision_dedicated_server_workflow(
                         db_server_id
                     )
             else:
-                # Step 3: Generate new credentials (only for first run)
-                admin_password = secrets.token_urlsafe(32)
-
-                # Step 4: Create database record
+                # Step 3: Create database record
+                # For dedicated, use direct connection (no pooler by default)
+                # Password stored in K8s Secret: {server_name}-superuser
+                direct_host = f"{server_name}-rw"
                 insert_query = """
                     INSERT INTO db_servers (
                         name, host, port, server_type, max_instances, current_instances,
                         status, health_status, storage_path, postgres_version, postgres_image,
                         cpu_limit, memory_limit, allocation_strategy,
                         dedicated_to_customer_id, dedicated_to_instance_id,
-                        provisioned_by, provisioned_at, admin_user, admin_password
+                        provisioned_by, provisioned_at, admin_user
                     )
                     VALUES (
                         $1, $2, 5432, 'dedicated', 1, 0,
-                        'provisioning', 'unknown', $3, '16', 'postgres:16-alpine',
+                        'provisioning', 'unknown', $3, '16', 'cnpg',
                         '2', '4G', 'manual',
                         $4, $5,
-                        'provisioning_task', NOW(), 'postgres', $6
+                        'provisioning_task', NOW(), 'postgres'
                     )
                     RETURNING id
                 """
                 row = await conn.fetchrow(
                     insert_query,
-                    server_name, server_name, pvc_name,  # storage_path now stores PVC name
-                    customer_id, instance_id, admin_password
+                    server_name,
+                    direct_host,  # Direct connection for dedicated
+                    server_name,  # CNPG manages PVC
+                    customer_id,
+                    instance_id
                 )
                 db_server_id = str(row['id'])
                 logger.info("Created new db_server record", db_server_id=db_server_id)
 
-            # Step 5: Create PVC (idempotent - checks if exists)
-            storage_size = "100Gi"  # Dedicated server storage size
+            # Step 4: Create CNPG Cluster (idempotent - handles PVC automatically)
+            storage_size = "100Gi"  # Larger storage for dedicated
 
             try:
-                logger.info("Ensuring PVC for dedicated PostgreSQL server", pvc_name=pvc_name, size=storage_size)
-                self.k8s_client.create_postgres_pvc(pvc_name, storage_size)
-                logger.info("PVC ready", pvc_name=pvc_name)
+                logger.info("Creating CNPG Cluster for dedicated server", server_name=server_name, size=storage_size)
+                cluster_info = self.k8s_client.create_cnpg_cluster(
+                    cluster_name=server_name,
+                    storage_size=storage_size,
+                    cpu_limit="2",
+                    memory_limit="4G",
+                    max_instances=1,  # Dedicated = 1 database
+                    instances=1
+                )
+                logger.info("CNPG Cluster creation initiated", cluster_info=cluster_info)
 
-            except Exception as e:
-                logger.error("PVC creation failed", pvc_name=pvc_name, error=str(e))
-                raise Reject(f"Failed to create PVC: {e}", requeue=False)
-
-            # Step 6: Create Kubernetes StatefulSet for dedicated server (idempotent)
-            try:
-                service_info = self.k8s_client.create_postgres_pool_service(
-                    pool_name=server_name,
-                    postgres_password=admin_password,
-                    pvc_name=pvc_name,
-                    cpu_limit="2",  # Same as shared pools
-                    memory_limit="4G",  # Same as shared pools
-                    max_instances=1  # Only one database
+                # Update status to initializing
+                await conn.execute(
+                    "UPDATE db_servers SET status = 'initializing', swarm_service_id = $1, swarm_service_name = $2 WHERE id = $3",
+                    server_name, server_name, db_server_id
                 )
 
-                service_id = service_info['service_id']
-
-                # Update record
-                update_query = """
-                    UPDATE db_servers
-                    SET swarm_service_id = $1,
-                        swarm_service_name = $2,
-                        status = 'initializing'
-                    WHERE id = $3
-                """
-                await conn.execute(update_query, service_id, server_name, db_server_id)
-
-                logger.info("Dedicated service created", service_id=service_id)
-
             except Exception as e:
-                logger.error("Service creation failed", error=str(e), exc_info=True)
-
-                # Mark as error
+                logger.error("CNPG Cluster creation failed", server_name=server_name, error=str(e), exc_info=True)
                 await conn.execute(
-                    "UPDATE db_servers SET status = 'error' WHERE id = $1",
+                    "UPDATE db_servers SET status = 'error', health_status = 'unhealthy' WHERE id = $1",
                     db_server_id
                 )
-
                 raise
 
-            # Step 6: Wait for health
-            healthy = self.k8s_client.wait_for_service_ready(
-                service_id=service_id,
-                timeout=180
+            # Step 5: Wait for CNPG Cluster to be ready
+            healthy = self.k8s_client.wait_for_cnpg_cluster_ready(
+                cluster_name=server_name,
+                timeout=300,
+                check_interval=10
             )
 
-            if healthy:
-                activate_query = """
-                    UPDATE db_servers
-                    SET status = 'active', health_status = 'healthy',
-                        last_health_check = NOW()
-                    WHERE id = $1
-                    RETURNING *
-                """
-                server = await conn.fetchrow(activate_query, db_server_id)
-
-                logger.info(
-                    "Dedicated server provisioned",
-                    server_name=server_name,
-                    instance_id=instance_id
+            if not healthy:
+                logger.error("CNPG Cluster health check failed", server_name=server_name)
+                await conn.execute(
+                    "UPDATE db_servers SET status = 'error', health_status = 'unhealthy' WHERE id = $1",
+                    db_server_id
                 )
+                raise Exception(f"CNPG Cluster {server_name} failed health check")
 
-                return {
-                    'id': str(server['id']),
-                    'name': server['name'],
-                    'host': server['host'],
-                    'port': server['port'],
-                    'status': server['status']
-                }
+            logger.info("CNPG Cluster is healthy", server_name=server_name)
 
-            else:
+            # Step 6: Verify admin password exists in K8s Secret
+            secret_name = f"{server_name}-superuser"
+            admin_password = self.k8s_client.get_secret_value(secret_name, "password")
+
+            if not admin_password:
+                logger.error("Failed to read admin password from secret", secret_name=secret_name)
                 await conn.execute(
                     "UPDATE db_servers SET status = 'error' WHERE id = $1",
                     db_server_id
                 )
-                raise Exception(f"Dedicated server {server_name} failed health check")
+                raise Exception(f"Failed to read admin password from secret {secret_name}")
+
+            logger.info("Verified admin password exists in K8s Secret", secret_name=secret_name)
+
+            # Step 7: Mark server as active (password read from K8s Secret at runtime)
+            activate_query = """
+                UPDATE db_servers
+                SET status = 'active',
+                    health_status = 'healthy',
+                    last_health_check = NOW()
+                WHERE id = $1
+                RETURNING *
+            """
+            server = await conn.fetchrow(activate_query, db_server_id)
+
+            logger.info(
+                "CNPG Dedicated server provisioned",
+                server_name=server_name,
+                instance_id=instance_id
+            )
+
+            return {
+                'id': str(server['id']),
+                'name': server['name'],
+                'host': server['host'],
+                'port': server['port'],
+                'status': server['status']
+            }
 
         finally:
             await conn.close()
 
     except Exception as e:
         logger.error(
-            "Dedicated provisioning failed",
+            "CNPG Dedicated provisioning failed",
             server_name=server_name,
             error=str(e),
             exc_info=True

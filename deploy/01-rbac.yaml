@@ -27,7 +27,7 @@ rules:
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: ["apps"]
-    resources: ["deployments"]
+    resources: ["deployments", "deployments/scale"]
     verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
@@ -55,6 +55,39 @@ kind: ServiceAccount
 metadata:
   name: database-service-sa
   namespace: saasodoo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: database-service-role
+  namespace: saasodoo
+rules:
+  # Pods for connectivity check
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # Read secrets for CNPG-managed PostgreSQL passwords
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  # Manage CNPG Cluster and Pooler CRDs
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "poolers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: database-service-rolebinding
+  namespace: saasodoo
+subjects:
+  - kind: ServiceAccount
+    name: database-service-sa
+    namespace: saasodoo
+roleRef:
+  kind: Role
+  name: database-service-role
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
 kind: ServiceAccount

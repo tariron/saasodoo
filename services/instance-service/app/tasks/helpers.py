@@ -238,12 +238,11 @@ async def get_user_info(customer_id: str) -> Optional[Dict[str, Any]]:
 
 async def get_db_server_for_instance(instance: Dict[str, Any]) -> Dict[str, str]:
     """
-    Get database server connection info for an instance.
+    Get database server connection info for an instance (CNPG).
 
-    Tries to find the database server by:
-    1. db_server_id (preferred)
-    2. db_host (fallback for older instances)
-    3. Environment variables (last resort)
+    For CNPG-managed clusters:
+    - Password is read from K8s Secret: {server_name}-superuser
+    - Returns direct host {server_name}-rw for backup/restore operations
 
     Args:
         instance: Instance data dict
@@ -251,64 +250,53 @@ async def get_db_server_for_instance(instance: Dict[str, Any]) -> Dict[str, str]
     Returns:
         Dict with host, port, admin_user, admin_password keys
     """
+    from app.utils.kubernetes import KubernetesClient
+
     params = get_db_connection_params()
     conn = await asyncpg.connect(**params)
 
     try:
-        # Prefer db_server_id if available
+        row = None
+
+        # Get server info by db_server_id
         if instance.get('db_server_id'):
             row = await conn.fetchrow("""
-                SELECT host, port, admin_user, admin_password
+                SELECT name, port, admin_user
                 FROM db_servers
                 WHERE id = $1
             """, instance['db_server_id'])
 
-            if row:
-                logger.info("Retrieved database server info by db_server_id",
-                           instance_id=str(instance['id']),
-                           db_server=row['host'])
-
-                return {
-                    'host': row['host'],
-                    'port': str(row['port']),
-                    'admin_user': row['admin_user'],
-                    'admin_password': row['admin_password']
-                }
-
-        # Fallback: Query by db_host (for old instances without db_server_id)
-        if instance.get('db_host'):
-            logger.info("Querying database server by db_host (fallback for old instance)",
-                       instance_id=str(instance['id']),
-                       db_host=instance['db_host'])
-
+        # Fallback: Query by db_host
+        if not row and instance.get('db_host'):
             row = await conn.fetchrow("""
-                SELECT host, port, admin_user, admin_password
+                SELECT name, port, admin_user
                 FROM db_servers
                 WHERE host = $1
             """, instance['db_host'])
 
-            if row:
-                logger.info("Retrieved database server info by db_host",
-                           instance_id=str(instance['id']),
-                           db_server=row['host'])
+        if not row:
+            raise Exception(f"Database server not found for instance {instance['id']}")
 
-                return {
-                    'host': row['host'],
-                    'port': str(row['port']),
-                    'admin_user': row['admin_user'],
-                    'admin_password': row['admin_password']
-                }
+        server_name = row['name']
+        secret_name = f"{server_name}-superuser"
 
-        # Last resort: Use environment variables (legacy fallback)
-        logger.warning("Using legacy environment variables for database connection",
-                      instance_id=str(instance['id']),
-                      reason="No db_server_id or db_host found in db_servers")
+        # Read password from K8s Secret
+        k8s_client = KubernetesClient()
+        admin_password = k8s_client.get_secret_value(secret_name, "password")
+
+        # Use direct host for backup/restore (not pooler)
+        direct_host = f"{server_name}-rw"
+
+        logger.info("Retrieved CNPG database server info",
+                   instance_id=str(instance['id']),
+                   server_name=server_name,
+                   direct_host=direct_host)
 
         return {
-            'host': os.getenv('ODOO_POSTGRES_HOST', 'postgres'),
-            'port': os.getenv('ODOO_POSTGRES_PORT', '5432'),
-            'admin_user': os.getenv('ODOO_POSTGRES_ADMIN_USER', 'odoo_admin'),
-            'admin_password': os.getenv('ODOO_POSTGRES_ADMIN_PASSWORD', 'changeme')
+            'host': direct_host,
+            'port': str(row['port']),
+            'admin_user': row['admin_user'],
+            'admin_password': admin_password
         }
 
     finally:

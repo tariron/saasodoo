@@ -1,10 +1,11 @@
 """
 Kubernetes client wrapper for PostgreSQL pool management
-Handles creation and management of PostgreSQL StatefulSets in Kubernetes
+Handles creation and management of PostgreSQL via CNPG (CloudNativePG) operator
 """
 
 import os
 import time
+import base64
 import structlog
 from typing import Dict, Any, Optional
 from kubernetes import client, config
@@ -12,9 +13,15 @@ from kubernetes.client.rest import ApiException
 
 logger = structlog.get_logger(__name__)
 
+# CNPG CRD configuration
+CNPG_API_GROUP = "postgresql.cnpg.io"
+CNPG_API_VERSION = "v1"
+CNPG_CLUSTER_PLURAL = "clusters"
+CNPG_POOLER_PLURAL = "poolers"
+
 
 class PostgreSQLKubernetesClient:
-    """Kubernetes client for managing PostgreSQL database pool StatefulSets"""
+    """Kubernetes client for managing PostgreSQL database pools via CNPG"""
 
     def __init__(self, max_retries: int = 3, retry_delay: float = 1.0):
         """
@@ -26,6 +33,7 @@ class PostgreSQLKubernetesClient:
         """
         self.core_v1 = None
         self.apps_v1 = None
+        self.custom_api = None  # For CNPG CRDs
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self._last_connection_check = 0
@@ -53,6 +61,7 @@ class PostgreSQLKubernetesClient:
 
                     self.core_v1 = client.CoreV1Api()
                     self.apps_v1 = client.AppsV1Api()
+                    self.custom_api = client.CustomObjectsApi()
 
                     # Test connection (list pods in our namespace)
                     self.core_v1.list_namespaced_pod(namespace=self.namespace, limit=1)
@@ -651,3 +660,440 @@ class PostgreSQLKubernetesClient:
         except Exception as e:
             logger.error("Failed to delete PVC", pvc_name=pvc_name, error=str(e))
             return False
+
+    # ==================== CNPG Methods ====================
+
+    def create_cnpg_cluster(
+        self,
+        cluster_name: str,
+        storage_size: str = "50Gi",
+        cpu_limit: str = "2",
+        memory_limit: str = "4G",
+        max_instances: int = 50,
+        instances: int = 1,
+        storage_class: str = "rook-cephfs"
+    ) -> Dict[str, str]:
+        """
+        Create a CNPG PostgreSQL Cluster (idempotent)
+
+        CNPG automatically:
+        - Creates PVC for storage
+        - Generates admin password in Secret: {cluster_name}-superuser
+        - Creates Services: {cluster_name}-rw, {cluster_name}-r, {cluster_name}-ro
+
+        Args:
+            cluster_name: Name of the cluster (e.g., 'postgres-pool-1')
+            storage_size: Storage size (e.g., '50Gi')
+            cpu_limit: CPU limit (e.g., '2')
+            memory_limit: Memory limit (e.g., '4G')
+            max_instances: Max databases for connection tuning
+            instances: Number of PostgreSQL replicas (1 for shared, 1+ for HA)
+            storage_class: Kubernetes StorageClass to use
+
+        Returns:
+            Dictionary with cluster_name and status
+        """
+        try:
+            self._ensure_connection()
+
+            # Check if cluster already exists
+            try:
+                existing = self.custom_api.get_namespaced_custom_object(
+                    group=CNPG_API_GROUP,
+                    version=CNPG_API_VERSION,
+                    namespace=self.namespace,
+                    plural=CNPG_CLUSTER_PLURAL,
+                    name=cluster_name
+                )
+                logger.info("CNPG Cluster already exists",
+                           cluster_name=cluster_name,
+                           status=existing.get('status', {}).get('phase', 'unknown'))
+                return {
+                    "cluster_name": cluster_name,
+                    "status": "exists"
+                }
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                # Cluster doesn't exist, create it
+
+            # Parse memory for PostgreSQL tuning
+            memory_bytes = self._parse_memory(memory_limit)
+            max_connections = self._calculate_max_connections(max_instances)
+            shared_buffers_mb = int(memory_bytes * 0.25 / (1024 ** 2))
+            effective_cache_mb = int(memory_bytes * 0.75 / (1024 ** 2))
+
+            # Convert limits to K8s format
+            memory_limit_mi = f"{int(memory_bytes / (1024 ** 2))}Mi"
+            memory_request_mi = f"{int(memory_bytes * 0.5 / (1024 ** 2))}Mi"
+            cpu_limit_m = f"{int(float(cpu_limit) * 1000)}m"
+            cpu_request_m = f"{int(float(cpu_limit) * 500)}m"
+
+            logger.info("Creating CNPG Cluster",
+                       cluster_name=cluster_name,
+                       storage_size=storage_size,
+                       instances=instances,
+                       max_connections=max_connections)
+
+            # CNPG Cluster manifest
+            cluster_manifest = {
+                "apiVersion": f"{CNPG_API_GROUP}/{CNPG_API_VERSION}",
+                "kind": "Cluster",
+                "metadata": {
+                    "name": cluster_name,
+                    "namespace": self.namespace,
+                    "labels": {
+                        "saasodoo.service.type": "database-pool",
+                        "saasodoo.pool.name": cluster_name,
+                        "saasodoo.pool.max_instances": str(max_instances)
+                    }
+                },
+                "spec": {
+                    "instances": instances,
+                    # Enable superuser access - creates {cluster}-superuser secret
+                    "enableSuperuserAccess": True,
+                    "postgresql": {
+                        "parameters": {
+                            "max_connections": str(max_connections),
+                            "shared_buffers": f"{shared_buffers_mb}MB",
+                            "effective_cache_size": f"{effective_cache_mb}MB",
+                            "work_mem": "16MB",
+                            "maintenance_work_mem": "256MB",
+                            "wal_buffers": "16MB",
+                            "checkpoint_completion_target": "0.9",
+                            "random_page_cost": "1.1"
+                        }
+                    },
+                    "storage": {
+                        "size": storage_size,
+                        "storageClass": storage_class
+                    },
+                    "resources": {
+                        "requests": {
+                            "memory": memory_request_mi,
+                            "cpu": cpu_request_m
+                        },
+                        "limits": {
+                            "memory": memory_limit_mi,
+                            "cpu": cpu_limit_m
+                        }
+                    }
+                }
+            }
+
+            # Create the cluster
+            self.custom_api.create_namespaced_custom_object(
+                group=CNPG_API_GROUP,
+                version=CNPG_API_VERSION,
+                namespace=self.namespace,
+                plural=CNPG_CLUSTER_PLURAL,
+                body=cluster_manifest
+            )
+
+            logger.info("CNPG Cluster created", cluster_name=cluster_name)
+            return {
+                "cluster_name": cluster_name,
+                "status": "created"
+            }
+
+        except Exception as e:
+            logger.error("Failed to create CNPG Cluster",
+                        cluster_name=cluster_name, error=str(e))
+            raise
+
+    def create_cnpg_pooler(
+        self,
+        cluster_name: str,
+        pooler_instances: int = 2,
+        pool_mode: str = "transaction",
+        max_client_conn: int = 1000,
+        default_pool_size: int = 20
+    ) -> Dict[str, str]:
+        """
+        Create a CNPG Pooler (PgBouncer) for a cluster (idempotent)
+
+        Args:
+            cluster_name: Name of the CNPG cluster to attach to
+            pooler_instances: Number of PgBouncer replicas
+            pool_mode: PgBouncer pool mode (transaction recommended for Odoo)
+            max_client_conn: Maximum client connections
+            default_pool_size: Default pool size per database
+
+        Returns:
+            Dictionary with pooler_name and status
+        """
+        try:
+            self._ensure_connection()
+
+            pooler_name = f"{cluster_name}-pooler"
+
+            # Check if pooler already exists
+            try:
+                existing = self.custom_api.get_namespaced_custom_object(
+                    group=CNPG_API_GROUP,
+                    version=CNPG_API_VERSION,
+                    namespace=self.namespace,
+                    plural=CNPG_POOLER_PLURAL,
+                    name=pooler_name
+                )
+                logger.info("CNPG Pooler already exists", pooler_name=pooler_name)
+                return {
+                    "pooler_name": pooler_name,
+                    "status": "exists"
+                }
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                # Pooler doesn't exist, create it
+
+            logger.info("Creating CNPG Pooler",
+                       pooler_name=pooler_name,
+                       cluster_name=cluster_name,
+                       instances=pooler_instances)
+
+            # CNPG Pooler manifest
+            pooler_manifest = {
+                "apiVersion": f"{CNPG_API_GROUP}/{CNPG_API_VERSION}",
+                "kind": "Pooler",
+                "metadata": {
+                    "name": pooler_name,
+                    "namespace": self.namespace
+                },
+                "spec": {
+                    "cluster": {
+                        "name": cluster_name
+                    },
+                    "instances": pooler_instances,
+                    "type": "rw",
+                    "pgbouncer": {
+                        "poolMode": pool_mode,
+                        "parameters": {
+                            "max_client_conn": str(max_client_conn),
+                            "default_pool_size": str(default_pool_size)
+                        }
+                    }
+                }
+            }
+
+            # Create the pooler
+            self.custom_api.create_namespaced_custom_object(
+                group=CNPG_API_GROUP,
+                version=CNPG_API_VERSION,
+                namespace=self.namespace,
+                plural=CNPG_POOLER_PLURAL,
+                body=pooler_manifest
+            )
+
+            logger.info("CNPG Pooler created", pooler_name=pooler_name)
+            return {
+                "pooler_name": pooler_name,
+                "status": "created"
+            }
+
+        except Exception as e:
+            logger.error("Failed to create CNPG Pooler",
+                        cluster_name=cluster_name, error=str(e))
+            raise
+
+    def wait_for_cnpg_cluster_ready(
+        self,
+        cluster_name: str,
+        timeout: int = 300,
+        check_interval: int = 10
+    ) -> bool:
+        """
+        Wait for CNPG Cluster to be ready
+
+        Args:
+            cluster_name: Name of the cluster
+            timeout: Maximum wait time in seconds
+            check_interval: Time between checks in seconds
+
+        Returns:
+            True if cluster is ready, False if timeout
+        """
+        try:
+            self._ensure_connection()
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                try:
+                    cluster = self.custom_api.get_namespaced_custom_object(
+                        group=CNPG_API_GROUP,
+                        version=CNPG_API_VERSION,
+                        namespace=self.namespace,
+                        plural=CNPG_CLUSTER_PLURAL,
+                        name=cluster_name
+                    )
+
+                    status = cluster.get('status', {})
+                    phase = status.get('phase', 'unknown')
+                    ready_instances = status.get('readyInstances', 0)
+                    desired_instances = cluster.get('spec', {}).get('instances', 1)
+
+                    logger.debug("Waiting for CNPG Cluster",
+                               cluster_name=cluster_name,
+                               phase=phase,
+                               ready=ready_instances,
+                               desired=desired_instances)
+
+                    # Check if cluster is ready
+                    if phase == "Cluster in healthy state" and ready_instances >= desired_instances:
+                        logger.info("CNPG Cluster is ready",
+                                   cluster_name=cluster_name,
+                                   phase=phase)
+                        return True
+
+                except ApiException as e:
+                    if e.status == 404:
+                        logger.warning("CNPG Cluster not found", cluster_name=cluster_name)
+                    else:
+                        logger.warning("Error checking cluster status",
+                                     cluster_name=cluster_name, error=str(e))
+
+                time.sleep(check_interval)
+
+            logger.warning("CNPG Cluster did not become ready within timeout",
+                         cluster_name=cluster_name, timeout=timeout)
+            return False
+
+        except Exception as e:
+            logger.error("Error waiting for CNPG Cluster",
+                       cluster_name=cluster_name, error=str(e))
+            return False
+
+    def get_secret_value(self, secret_name: str, key: str) -> Optional[str]:
+        """
+        Read a value from a Kubernetes Secret
+
+        Args:
+            secret_name: Name of the secret (e.g., 'postgres-pool-1-superuser')
+            key: Key within the secret (e.g., 'password', 'username')
+
+        Returns:
+            Decoded secret value, or None if not found
+        """
+        try:
+            self._ensure_connection()
+
+            secret = self.core_v1.read_namespaced_secret(
+                name=secret_name,
+                namespace=self.namespace
+            )
+
+            if secret.data and key in secret.data:
+                # Secret values are base64 encoded
+                encoded_value = secret.data[key]
+                decoded_value = base64.b64decode(encoded_value).decode('utf-8')
+                logger.debug("Read secret value", secret_name=secret_name, key=key)
+                return decoded_value
+            else:
+                logger.warning("Key not found in secret",
+                             secret_name=secret_name, key=key)
+                return None
+
+        except ApiException as e:
+            if e.status == 404:
+                logger.warning("Secret not found", secret_name=secret_name)
+                return None
+            logger.error("Failed to read secret",
+                       secret_name=secret_name, error=str(e))
+            return None
+
+        except Exception as e:
+            logger.error("Error reading secret",
+                       secret_name=secret_name, error=str(e))
+            return None
+
+    def delete_cnpg_cluster(self, cluster_name: str) -> bool:
+        """
+        Delete a CNPG Cluster and its associated Pooler
+
+        Args:
+            cluster_name: Name of the cluster to delete
+
+        Returns:
+            True if successful
+        """
+        try:
+            self._ensure_connection()
+
+            # Delete pooler first (if exists)
+            pooler_name = f"{cluster_name}-pooler"
+            try:
+                self.custom_api.delete_namespaced_custom_object(
+                    group=CNPG_API_GROUP,
+                    version=CNPG_API_VERSION,
+                    namespace=self.namespace,
+                    plural=CNPG_POOLER_PLURAL,
+                    name=pooler_name
+                )
+                logger.info("Deleted CNPG Pooler", pooler_name=pooler_name)
+            except ApiException as e:
+                if e.status != 404:
+                    logger.warning("Failed to delete pooler",
+                                 pooler_name=pooler_name, error=str(e))
+
+            # Delete cluster
+            self.custom_api.delete_namespaced_custom_object(
+                group=CNPG_API_GROUP,
+                version=CNPG_API_VERSION,
+                namespace=self.namespace,
+                plural=CNPG_CLUSTER_PLURAL,
+                name=cluster_name
+            )
+
+            logger.info("Deleted CNPG Cluster", cluster_name=cluster_name)
+            return True
+
+        except ApiException as e:
+            if e.status == 404:
+                logger.warning("CNPG Cluster not found (already deleted)",
+                             cluster_name=cluster_name)
+                return True
+            logger.error("Failed to delete CNPG Cluster",
+                       cluster_name=cluster_name, error=str(e))
+            return False
+
+        except Exception as e:
+            logger.error("Error deleting CNPG Cluster",
+                       cluster_name=cluster_name, error=str(e))
+            return False
+
+    def get_cnpg_cluster_status(self, cluster_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get status of a CNPG Cluster
+
+        Args:
+            cluster_name: Name of the cluster
+
+        Returns:
+            Status dict or None if not found
+        """
+        try:
+            self._ensure_connection()
+
+            cluster = self.custom_api.get_namespaced_custom_object(
+                group=CNPG_API_GROUP,
+                version=CNPG_API_VERSION,
+                namespace=self.namespace,
+                plural=CNPG_CLUSTER_PLURAL,
+                name=cluster_name
+            )
+
+            status = cluster.get('status', {})
+            return {
+                "cluster_name": cluster_name,
+                "phase": status.get('phase', 'unknown'),
+                "ready_instances": status.get('readyInstances', 0),
+                "instances": cluster.get('spec', {}).get('instances', 1),
+                "current_primary": status.get('currentPrimary', ''),
+                "conditions": status.get('conditions', [])
+            }
+
+        except ApiException as e:
+            if e.status == 404:
+                return None
+            logger.error("Failed to get cluster status",
+                       cluster_name=cluster_name, error=str(e))
+            return None
