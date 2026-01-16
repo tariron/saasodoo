@@ -871,6 +871,23 @@ class PostgreSQLKubernetesClient:
                             "max_client_conn": str(max_client_conn),
                             "default_pool_size": str(default_pool_size)
                         }
+                    },
+                    "template": {
+                        "spec": {
+                            "containers": [{
+                                "name": "pgbouncer",
+                                "resources": {
+                                    "requests": {
+                                        "cpu": "25m",
+                                        "memory": "48Mi"
+                                    },
+                                    "limits": {
+                                        "cpu": "100m",
+                                        "memory": "96Mi"
+                                    }
+                                }
+                            }]
+                        }
                     }
                 }
             }

@@ -59,6 +59,13 @@ spec:
                 secretKeyRef:
                   name: saasodoo-secrets
                   key: KILLBILL_MYSQL_ROOT_PASSWORD
+            # Connection Pool Settings (HikariCP)
+            - name: KILLBILL_DAO_MAX_ACTIVE
+              value: "100"
+            - name: KILLBILL_DAO_MIN_IDLE
+              value: "20"
+            - name: KILLBILL_DAO_CONNECTION_TIMEOUT
+              value: "30s"
 
             # Server Configuration
             - name: KILLBILL_SERVER_MULTITENANT
@@ -90,9 +97,9 @@ spec:
 
             # JVM Memory Settings
             - name: KILLBILL_JVM_PERM_SIZE
-              value: "512m"
-            - name: KILLBILL_JVM_MAX_PERM_SIZE
               value: "1G"
+            - name: KILLBILL_JVM_MAX_PERM_SIZE
+              value: "2G"
 
             # Webhook Configuration
             - name: KILLBILL_NOTIFICATION_URL
@@ -111,6 +118,14 @@ spec:
             # Test Mode (for development/staging)
             - name: KILLBILL_SERVER_TEST_MODE
               value: "true"
+
+            # Kubernetes-specific: Use pod name as queue creator name
+            # This prevents NoSuchElementException when pod restarts under load
+            # See: https://github.com/killbill/killbill/issues/2061
+            - name: KILLBILL_QUEUE_CREATOR_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
 
           volumeMounts:
             - name: jmx-exporter-jar
@@ -136,11 +151,11 @@ spec:
             failureThreshold: 10
           resources:
             requests:
-              cpu: "100m"
-              memory: "1Gi"
+              cpu: "1000m"
+              memory: "2560Mi"
             limits:
-              cpu: "500m"
-              memory: "1536Mi"
+              cpu: "4000m"
+              memory: "4Gi"
 
       volumes:
         - name: jmx-exporter-jar

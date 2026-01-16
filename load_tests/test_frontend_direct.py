@@ -204,7 +204,7 @@ def print_comparison(results: List[dict]):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Frontend service capacity test")
-    parser.add_argument("--host", default="http://app.62.171.153.219.nip.io")
+    parser.add_argument("--host", default="http://app.109.199.108.243.nip.io")
     parser.add_argument("--count", type=int, default=100, help="Number of requests")
     parser.add_argument("--concurrent", type=int, default=10, help="Concurrent connections")
     parser.add_argument("--path", default="/", help="Path to test (default: /)")

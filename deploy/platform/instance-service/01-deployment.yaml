@@ -64,10 +64,10 @@ spec:
           resources:
             requests:
               cpu: "100m"
-              memory: "512Mi"
+              memory: "832Mi"
             limits:
               cpu: "400m"
-              memory: "768Mi"
+              memory: "1Gi"
       volumes:
         - name: odoo-backups
           persistentVolumeClaim:

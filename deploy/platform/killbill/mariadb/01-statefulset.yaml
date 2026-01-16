@@ -41,11 +41,11 @@ spec:
               mountPath: /var/lib/mysql
           resources:
             requests:
-              cpu: "50m"
-              memory: "128Mi"
+              cpu: "500m"
+              memory: "640Mi"
             limits:
-              cpu: "200m"
-              memory: "256Mi"
+              cpu: "2000m"
+              memory: "1Gi"
 
         # Sidecar to create exporter user and then run mysqld_exporter
         # Uses mariadb image which has mysql client built-in

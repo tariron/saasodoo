@@ -168,7 +168,7 @@ def print_results(m: dict, title: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="KillBill direct capacity test")
-    parser.add_argument("--host", default="http://killbill.62.171.153.219.nip.io")
+    parser.add_argument("--host", default="http://killbill.109.199.108.243.nip.io")
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--concurrent", type=int, default=50)
     parser.add_argument("-y", action="store_true", help="Skip confirmation")

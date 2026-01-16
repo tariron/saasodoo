@@ -8,14 +8,14 @@ Real end-to-end load testing including:
 
 Usage:
     # Web UI mode
-    locust -f locustfile.py --host=http://api.62.171.153.219.nip.io
+    locust -f locustfile.py --host=http://api.109.199.108.243.nip.io
 
     # Headless mode (100 users, 10 users/sec spawn rate, 5 min run)
-    locust -f locustfile.py --host=http://api.62.171.153.219.nip.io \
+    locust -f locustfile.py --host=http://api.109.199.108.243.nip.io \
         --headless -u 100 -r 10 -t 5m
 
     # User registration only
-    locust -f locustfile.py --host=http://api.62.171.153.219.nip.io \
+    locust -f locustfile.py --host=http://api.109.199.108.243.nip.io \
         --headless -u 50 -r 5 -t 2m --tags registration
 """
 
