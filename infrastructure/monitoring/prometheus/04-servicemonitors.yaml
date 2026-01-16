@@ -231,10 +231,11 @@ spec:
 ---
 # CloudNativePG PostgreSQL PodMonitor
 # CNPG exports metrics per-pod on port 9187, so we use PodMonitor
+# Uses matchExpressions to automatically monitor all CNPG clusters (current and future)
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: postgresql-cnpg
+  name: cnpg-clusters
   namespace: saasodoo
   labels:
     app.kubernetes.io/name: postgresql
@@ -243,8 +244,9 @@ metadata:
     prometheus: saasodoo
 spec:
   selector:
-    matchLabels:
-      cnpg.io/cluster: postgres-cluster
+    matchExpressions:
+    - key: cnpg.io/cluster
+      operator: Exists
   namespaceSelector:
     matchNames:
       - saasodoo

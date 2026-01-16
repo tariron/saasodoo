@@ -177,7 +177,7 @@ async def _provision_database_pool_workflow(self, max_instances: int = 50):
                     cpu_limit="2",
                     memory_limit="4G",
                     max_instances=max_instances,
-                    instances=1
+                    instances=3  # 1 primary + 2 replicas for HA
                 )
                 logger.info("CNPG Cluster creation initiated", cluster_info=cluster_info)
 
