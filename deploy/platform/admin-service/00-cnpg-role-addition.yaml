@@ -1,0 +1,18 @@
+---
+# CNPG Cluster Role Addition for admin_service
+#
+# ⚠️ DO NOT APPLY THIS FILE DIRECTLY ⚠️
+#
+# This is a reference showing what needs to be added to:
+# infrastructure/databases/postgres-cnpg/04-cluster.yaml
+#
+# Add this entry to the spec.managed.roles section:
+#
+#   - name: admin_service
+#     ensure: present
+#     login: true
+#     passwordSecret:
+#       name: cnpg-admin-service
+#
+# Then apply the updated cluster manifest:
+#   kubectl apply -f infrastructure/databases/postgres-cnpg/04-cluster.yaml

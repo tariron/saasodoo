@@ -81,6 +81,14 @@ kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-worker --tail=100 -f
 
 # Pod logs
 kubectl logs -n saasodoo <pod-name> --tail=100 -f
+
+# Check instance-worker logs for specific instance (by name or ID)
+kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-worker --tail=500 | grep -i "testing12"
+kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-worker --tail=1000 | grep "454549c1"
+
+# Get pod events (useful for troubleshooting failures)
+kubectl get events -n saasodoo --sort-by='.lastTimestamp' | grep "testing11"
+kubectl describe pod <pod-name> -n saasodoo | grep -E "State:|Last State:|Exit Code:|Events:"
 ```
 
 ### Rebuild and Redeploy Service
@@ -135,9 +143,18 @@ This is enforced by `shared/utils/database.py:DatabaseManager._build_database_ur
 
 ### Database Query Commands
 ```bash
+# Get database password
+DB_PASSWORD=$(kubectl get secret instance-service-secret -n saasodoo -o jsonpath='{.data.DB_SERVICE_PASSWORD}' | base64 -d)
+
 # Check instance record
-kubectl exec -n saasodoo postgres-0 -- psql -U instance_service -d instance -c \
-  "SELECT id, name, status, subscription_id, billing_status FROM instances WHERE id = 'INSTANCE_ID';"
+kubectl exec -n saasodoo postgres-cluster-pooler-rw-5dc7696bf5-blprc -- bash -c \
+  "PGPASSWORD='$DB_PASSWORD' psql -h postgres-cluster-rw -U instance_service -d instance -c \
+  \"SELECT id, name, status, error_message, cpu_limit, memory_limit, storage_limit, created_at FROM instances WHERE name ILIKE '%testing%' ORDER BY created_at DESC LIMIT 5;\""
+
+# Check all instances
+kubectl exec -n saasodoo postgres-cluster-pooler-rw-5dc7696bf5-blprc -- bash -c \
+  "PGPASSWORD='$DB_PASSWORD' psql -h postgres-cluster-rw -U instance_service -d instance -c \
+  \"SELECT name, status, billing_status FROM instances ORDER BY created_at DESC;\""
 
 # Check user sessions
 kubectl exec -n saasodoo postgres-0 -- psql -U auth_service -d auth -c \
@@ -190,6 +207,55 @@ kubectl exec -n saasodoo <killbill-pod-name> -- curl -s -u admin:password \
 3. Billing-service calls instance-service API to update instance status
 4. Instance-service queues Celery task for provisioning/termination
 
+## Odoo Instance Resources
+
+### Default Resource Configuration
+Each Odoo instance is configured with:
+- **CPU Limit**: 2 cores (2000m)
+- **CPU Request**: 1 core (1000m) - 50% of limit
+- **Memory Limit**: 4Gi
+- **Memory Request**: 4Gi (same as limit, no overcommitment)
+- **Storage**: 20Gi PVC (CephFS)
+
+**Formula** (from `services/instance-service/app/utils/kubernetes/deployments.py`):
+```python
+limits:
+  cpu: cpu_limit × 1000m
+  memory: memory_limit
+requests:
+  cpu: cpu_limit × 500m  # 50% of limit
+  memory: memory_limit    # Same as limit
+```
+
+### Odoo Docker Image
+**Current**: `bitnamilegacy/odoo:17` (Bitnami legacy image)
+**Default Odoo Version**: 17
+
+**Image Configuration** (from `services/instance-service/app/tasks/provisioning.py`):
+- Base path: `/bitnami/odoo`
+- Environment variables: `ODOO_*` prefix (Bitnami-specific)
+- User: `odoo` (UID 1001)
+
+**Note**: For future migrations to official `odoo:17` image, environment variable mapping and volume paths will need updating.
+
+### Odoo Instance Commands
+```bash
+# List all Odoo instances
+kubectl get pods -n saasodoo | grep "odoo-"
+
+# Check specific instance pod
+kubectl get pod <odoo-pod-name> -n saasodoo
+
+# View Odoo instance logs
+kubectl logs <odoo-pod-name> -n saasodoo --tail=100 -f
+
+# Check Odoo process inside container
+kubectl exec -n saasodoo <odoo-pod-name> -- ps aux | grep odoo
+
+# Check ingress for instance
+kubectl get ingress -n saasodoo | grep "testing"
+```
+
 ## Instance Service & Celery Workers
 
 ### Celery Task Queues
@@ -240,6 +306,35 @@ services/{service-name}/
 
 ### Quota Management
 Quotas set via `setfattr -n ceph.quota.max_bytes` for per-instance limits
+
+## TLS Certificates & cert-manager
+
+### Current Setup
+- **cert-manager**: Installed in cluster
+- **Current Issuer**: `selfsigned` (for nip.io domains)
+- **Let's Encrypt**: Ready but commented out (see `infrastructure/cluster/addons/cert-manager/02-cluster-issuers.yaml`)
+
+### Certificate Commands
+```bash
+# List certificates
+kubectl get certificates -n saasodoo
+
+# Check certificate status
+kubectl describe certificate <cert-name> -n saasodoo
+
+# List cluster issuers
+kubectl get clusterissuers
+
+# Check cert-manager logs
+kubectl logs -n cert-manager -l app=cert-manager --tail=100 -f
+```
+
+### Future: Let's Encrypt Setup
+To enable Let's Encrypt for real domains:
+1. Uncomment issuers in `infrastructure/cluster/addons/cert-manager/02-cluster-issuers.yaml`
+2. Update email address
+3. For wildcard certificates (*.yourdomain.com): Configure DNS-01 challenge with DNS provider API
+4. For individual domains: Use HTTP-01 challenge (simpler, no DNS API needed)
 
 ## Service URLs (Development)
 
@@ -360,11 +455,66 @@ saasodoo/
 └── docs/                     # Documentation
 ```
 
+## Quick Troubleshooting Reference
+
+### Check Instance Status
+```bash
+# In database
+DB_PASSWORD=$(kubectl get secret instance-service-secret -n saasodoo -o jsonpath='{.data.DB_SERVICE_PASSWORD}' | base64 -d)
+kubectl exec -n saasodoo postgres-cluster-pooler-rw-5dc7696bf5-blprc -- bash -c \
+  "PGPASSWORD='$DB_PASSWORD' psql -h postgres-cluster-rw -U instance_service -d instance -c \
+  \"SELECT name, status, error_message FROM instances WHERE name = 'YourInstance';\""
+
+# In Kubernetes
+kubectl get pods -n saasodoo | grep "odoo-yourinstance"
+kubectl describe pod <pod-name> -n saasodoo
+```
+
+### Check Why Instance Failed
+```bash
+# 1. Check instance-worker logs for provisioning
+kubectl logs -n saasodoo -l app.kubernetes.io/name=instance-worker --tail=500 | grep -i "yourinstance"
+
+# 2. Check pod events
+kubectl get events -n saasodoo --sort-by='.lastTimestamp' | grep "yourinstance"
+
+# 3. Check pod status and restarts
+kubectl get pod <odoo-pod-name> -n saasodoo
+kubectl describe pod <odoo-pod-name> -n saasodoo | grep -A 10 "Events:"
+
+# 4. Check previous pod logs (if restarted)
+kubectl logs <odoo-pod-name> -n saasodoo --previous
+```
+
+### Scale Deployment
+```bash
+# Stop instance (scale to 0)
+kubectl scale deployment <deployment-name> -n saasodoo --replicas=0
+
+# Start instance (scale to 1)
+kubectl scale deployment <deployment-name> -n saasodoo --replicas=1
+```
+
+### Remove Failed Instance Resources
+```bash
+# Delete deployment
+kubectl delete deployment <deployment-name> -n saasodoo
+
+# Delete service
+kubectl delete service <service-name> -n saasodoo
+
+# Delete ingress
+kubectl delete ingress <ingress-name> -n saasodoo
+
+# Delete PVC (WARNING: Deletes data!)
+kubectl delete pvc <pvc-name> -n saasodoo
+```
+
 ## Documentation References
 
 See `docs/` directory for:
 - `SAASODOO_PROJECT_SUMMARY.md` - Complete technical architecture
-- `ISSUES_LOG.md` - Known issues and resolutions
+- `issues/` - Known issues and detailed investigations
 - `KUBERNETES_MIGRATION_PLAN.md` - Kubernetes deployment guide
 
 See also:

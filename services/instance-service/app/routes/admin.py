@@ -117,11 +117,11 @@ async def get_instance_stats(
         error_instances = await db.get_instances_by_status(InstanceStatus.ERROR)
         terminated_instances = await db.get_instances_by_status(InstanceStatus.TERMINATED)
         container_missing_instances = await db.get_instances_by_status(InstanceStatus.CONTAINER_MISSING)
-        
+
         return {
             "status_counts": {
                 "creating": len(creating_instances),
-                "starting": len(starting_instances), 
+                "starting": len(starting_instances),
                 "running": len(running_instances),
                 "stopped": len(stopped_instances),
                 "error": len(error_instances),
@@ -129,15 +129,57 @@ async def get_instance_stats(
                 "container_missing": len(container_missing_instances)
             },
             "total_instances": (
-                len(creating_instances) + len(starting_instances) + 
-                len(running_instances) + len(stopped_instances) + 
-                len(error_instances) + len(terminated_instances) + 
+                len(creating_instances) + len(starting_instances) +
+                len(running_instances) + len(stopped_instances) +
+                len(error_instances) + len(terminated_instances) +
                 len(container_missing_instances)
             ),
             "healthy_instances": len(running_instances),
             "failed_instances": len(error_instances)
         }
-        
+
     except Exception as e:
         logger.error("Failed to get instance stats", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/all-instances")
+async def get_all_instances(
+    db: InstanceDatabase = Depends(get_database)
+):
+    """Get all instances across all customers (admin only)"""
+    try:
+        async with db.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT
+                    id, customer_id, name, subdomain, status,
+                    subscription_id, billing_status, odoo_version,
+                    created_at, updated_at
+                FROM instances
+                WHERE status != $1
+                ORDER BY created_at DESC
+            """, InstanceStatus.TERMINATED.value)
+
+            instances = []
+            for row in rows:
+                instances.append({
+                    "id": str(row['id']),
+                    "customer_id": str(row['customer_id']),
+                    "name": row['name'],
+                    "subdomain": row['subdomain'],
+                    "status": row['status'],
+                    "subscription_id": row['subscription_id'],
+                    "billing_status": row['billing_status'],
+                    "odoo_version": row['odoo_version'],
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                    "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None
+                })
+
+            return {
+                "instances": instances,
+                "total": len(instances)
+            }
+
+    except Exception as e:
+        logger.error("Failed to get all instances", error=str(e))
         raise HTTPException(status_code=500, detail="Internal server error")

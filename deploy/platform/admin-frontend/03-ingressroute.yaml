@@ -1,0 +1,17 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: admin-frontend
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: admin-frontend
+    app.kubernetes.io/component: frontend
+spec:
+  entryPoints:
+    - web
+  routes:
+  - match: Host(`admin.109.199.108.243.nip.io`)
+    kind: Rule
+    services:
+    - name: admin-frontend
+      port: 80

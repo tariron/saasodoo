@@ -1,0 +1,31 @@
+---
+# Admin Service IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: admin-service
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: admin-service
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`admin.109.199.108.243.nip.io`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: admin-service
+          port: 8010
+      middlewares:
+        - name: admin-api-stripprefix
+---
+# Middleware to strip /api prefix
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: admin-api-stripprefix
+  namespace: saasodoo
+spec:
+  stripPrefix:
+    prefixes:
+      - /api

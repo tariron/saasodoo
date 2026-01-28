@@ -1,0 +1,37 @@
+---
+# Admin Service Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-service-config
+  namespace: saasodoo
+  labels:
+    app.kubernetes.io/name: admin-service
+    app.kubernetes.io/component: backend
+data:
+  # Database Configuration
+  DB_SERVICE_USER: "admin_service"
+  DB_NAME: "admin"
+  DB_POOL_MIN_SIZE: "5"
+  DB_POOL_MAX_SIZE: "20"
+
+  # Redis Configuration (for sessions - use DB 2)
+  REDIS_DB: "2"
+
+  # JWT Configuration
+  ADMIN_JWT_ALGORITHM: "HS256"
+  ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+  ADMIN_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+
+  # Inter-service URLs (Kubernetes DNS)
+  USER_SERVICE_URL: "http://user-service.saasodoo.svc.cluster.local:8001"
+  INSTANCE_SERVICE_URL: "http://instance-service.saasodoo.svc.cluster.local:8003"
+  BILLING_SERVICE_URL: "http://billing-service.saasodoo.svc.cluster.local:8004"
+  DATABASE_SERVICE_URL: "http://database-service.saasodoo.svc.cluster.local:8005"
+
+  # CORS Origins (JSON array)
+  CORS_ORIGINS: '["http://admin.109.199.108.243.nip.io","https://admin.109.199.108.243.nip.io"]'
+
+  # Application Settings
+  LOG_LEVEL: "INFO"
+  DEBUG: "false"

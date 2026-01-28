@@ -1,0 +1,66 @@
+---
+# CNPG Cluster Patch to Add admin_service Role
+#
+# This patch adds the admin_service managed role to the postgres-cluster.
+# Apply this before deploying admin-service.
+#
+# Usage:
+#   kubectl patch cluster postgres-cluster -n saasodoo --type=merge --patch-file=00-cnpg-cluster-patch.yaml
+#
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cluster
+  namespace: saasodoo
+spec:
+  managed:
+    roles:
+      - name: auth_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-auth-service
+
+      - name: billing_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-billing-service
+
+      - name: instance_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-instance-service
+
+      - name: database_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-database-service
+
+      - name: notification_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-notification-service
+
+      - name: readonly_user
+        ensure: present
+        login: true
+        passwordSecret:
+          name: readonly-user-secret
+
+      - name: backup_user
+        ensure: present
+        login: true
+        replication: true
+        passwordSecret:
+          name: backup-user-secret
+
+      # NEW: admin_service role for admin dashboard
+      - name: admin_service
+        ensure: present
+        login: true
+        passwordSecret:
+          name: cnpg-admin-service

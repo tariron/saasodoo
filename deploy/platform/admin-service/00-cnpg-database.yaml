@@ -1,0 +1,20 @@
+---
+# Admin Database CRD
+# NOTE: This should be added to infrastructure/databases/postgres-cnpg/07-databases.yaml
+# and the admin_service role should be added to 04-cluster.yaml managed.roles
+# Placed here for reference and initial deployment
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: admin
+  namespace: saasodoo
+spec:
+  cluster:
+    name: postgres-cluster
+  name: admin
+  owner: admin_service
+  ensure: present
+  extensions:
+    - name: uuid-ossp
+    - name: pgcrypto
+    - name: pg_trgm

@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 14%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 14%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 189 100% 50%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 19% 27%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 19% 22%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 189 100% 50%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 19% 22%;
+    --input: 217 19% 22%;
+    --ring: 189 100% 50%;
+    --radius: 0.5rem;
+
+    --electric: 189 100% 50%;
+    --amber: 45 93% 58%;
+    --success: 142 76% 36%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "cv11", "ss01";
+    font-variation-settings: "opsz" auto;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-electric/30 text-foreground;
+  }
+
+  /* Terminal-style blink animation */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .cursor-blink::after {
+    content: '▊';
+    animation: blink 1s infinite;
+    @apply text-electric;
+  }
+}
+
+@layer components {
+  /* Glow effects */
+  .glow-border {
+    position: relative;
+    @apply rounded-lg;
+  }
+
+  .glow-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    @apply rounded-lg bg-gradient-to-r from-electric/50 via-electric/20 to-electric/50 opacity-0 transition-opacity;
+  }
+
+  .glow-border:hover::before {
+    opacity: 1;
+  }
+
+  /* Status badges with glow */
+  .status-badge {
+    @apply inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium font-mono;
+  }
+
+  .status-running {
+    @apply bg-success/20 text-success border border-success/50;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+  }
+
+  .status-stopped {
+    @apply bg-muted text-muted-foreground border border-border;
+  }
+
+  .status-error {
+    @apply bg-destructive/20 text-destructive border border-destructive/50;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+  }
+
+  /* Card with subtle scan line effect */
+  .data-card {
+    @apply bg-card border border-border rounded-lg p-6 relative overflow-hidden;
+  }
+
+  .data-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(0, 217, 255, 0.03) 50%,
+      transparent 100%
+    );
+    animation: scan 8s linear infinite;
+    pointer-events: none;
+  }
+
+  /* Metric display */
+  .metric {
+    @apply flex flex-col gap-1;
+  }
+
+  .metric-value {
+    @apply text-3xl font-bold font-mono text-electric;
+  }
+
+  .metric-label {
+    @apply text-sm text-muted-foreground uppercase tracking-wide;
+  }
+
+  /* Terminal-style input */
+  .terminal-input {
+    @apply bg-background/50 border-border/50 font-mono text-sm;
+  }
+
+  .terminal-input:focus {
+    @apply ring-2 ring-electric border-electric/50;
+  }
+}
