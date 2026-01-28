@@ -739,7 +739,9 @@ async def _perform_odoo_health_check_and_update(
     async with httpx.AsyncClient() as client:
         while (datetime.utcnow() - start_time).seconds < timeout:
             try:
-                response = await client.get(internal_url, timeout=10, follow_redirects=False)
+                # Use /web/health endpoint for consistency with Kubernetes probes
+                health_url = f"{internal_url}/web/health"
+                response = await client.get(health_url, timeout=10, follow_redirects=False)
                 if response.status_code in [200, 302, 303]:
                     health_check_passed = True
                     elapsed = (datetime.utcnow() - start_time).seconds

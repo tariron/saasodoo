@@ -132,7 +132,9 @@ async def wait_for_odoo_startup(container_info: Dict[str, Any], timeout: int = 3
     async with httpx.AsyncClient() as client:
         while (datetime.utcnow() - start_time).seconds < timeout:
             try:
-                response = await client.get(url, timeout=10)
+                # Use /web/health endpoint for consistency with Kubernetes probes
+                health_url = f"{url}/web/health"
+                response = await client.get(health_url, timeout=10)
                 if response.status_code in [200, 303, 302]:  # Odoo redirects are normal
                     logger.info("Odoo is accessible")
                     return True

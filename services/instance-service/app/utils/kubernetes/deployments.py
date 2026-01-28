@@ -100,19 +100,27 @@ class DeploymentOperationsMixin:
                 resources=resources,
                 volume_mounts=volume_mounts,
                 ports=[client.V1ContainerPort(container_port=8069, name="http")],
+                startup_probe=client.V1Probe(
+                    http_get=client.V1HTTPGetAction(path="/web/health", port=8069),
+                    initial_delay_seconds=60,
+                    period_seconds=10,
+                    timeout_seconds=10,
+                    failure_threshold=30,  # 60s + (30 × 10s) = 360s = 6 minutes
+                    success_threshold=1
+                ),
                 readiness_probe=client.V1Probe(
-                    http_get=client.V1HTTPGetAction(path="/", port=8069),
+                    http_get=client.V1HTTPGetAction(path="/web/health", port=8069),
                     initial_delay_seconds=30,
                     period_seconds=10,
                     timeout_seconds=5,
-                    failure_threshold=3
+                    failure_threshold=12  # Bitnami standard - 4x more lenient
                 ),
                 liveness_probe=client.V1Probe(
-                    http_get=client.V1HTTPGetAction(path="/", port=8069),
-                    initial_delay_seconds=60,
-                    period_seconds=30,
-                    timeout_seconds=10,
-                    failure_threshold=5
+                    http_get=client.V1HTTPGetAction(path="/web/health", port=8069),
+                    initial_delay_seconds=600,  # 10 minutes (Bitnami standard)
+                    period_seconds=60,          # Check every minute
+                    timeout_seconds=30,         # Allow slow responses
+                    failure_threshold=10        # Tolerate 10 minutes of issues
                 )
             )
 

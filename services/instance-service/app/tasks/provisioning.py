@@ -295,7 +295,7 @@ async def _deploy_odoo_container(instance: Dict[str, Any], db_info: Dict[str, st
         logger.info("Waiting for deployment to be ready", deployment=service_name)
         deployment_ready = client.wait_for_deployment_ready(
             deployment_name=service_name,
-            timeout=180  # 3 minutes for image pull + pod startup
+            timeout=300  # 5 minutes for image pull + pod startup
         )
 
         if not deployment_ready:
